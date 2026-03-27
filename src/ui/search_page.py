@@ -527,6 +527,17 @@ class SearchPage(QWidget):
             self._chk_headless.setChecked(settings.default_headless)
 
     def _launch(self) -> None:
+        # Check for License Activation (Trial logic)
+        from ..core.security import LicenseManager
+        from .activation_dialog import ActivationDialog
+        
+        if not LicenseManager.is_active():
+            status = LicenseManager.get_trial_status()
+            if status["remaining"] <= 0:
+                activation = ActivationDialog(self.window())
+                if not activation.exec():
+                    return  # User closed the dialog without activating
+        
         job_title = self._job_title.text().strip()
         if not job_title:
             self._title_error.setVisible(True)

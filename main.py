@@ -194,13 +194,8 @@ def main():
     from src.core.security import LicenseManager
     from src.ui.activation_dialog import ActivationDialog
 
-    # 1. Check for License Activation (Trial support)
-    if not LicenseManager.is_active():
-        status = LicenseManager.get_trial_status()
-        if status["remaining"] <= 0:
-            activation = ActivationDialog()
-            if not activation.exec():
-                sys.exit(0)
+    # 1. License Check (Smooth Onboarding)
+    # The app opens freely so users can see their data. Activation is checked at search time.
 
     # 2. Check for Security PIN-lock (Local Access Pack)
     s = config_manager.settings
