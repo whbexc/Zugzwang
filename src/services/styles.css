@@ -1,0 +1,384 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600&display=swap');
+
+:root {
+    --bg-color: #0c0e14;
+    --card-bg: #161a23;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --text-main: #f8fafc;
+    --text-dim: #94a3b8;
+    --success: #10b981;
+    --error: #ef4444;
+    --warning: #f59e0b;
+    --border: #2d333f;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 350px;
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    overflow-x: hidden;
+}
+
+.container {
+    padding: 24px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 24px;
+    position: relative;
+}
+
+.lang-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    gap: 8px;
+}
+
+[dir="rtl"] .lang-toggle {
+    right: auto;
+    left: 0;
+}
+
+.lang-icon {
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: all 0.2s;
+}
+
+.lang-icon.active {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.lang-icon:hover {
+    opacity: 0.8;
+}
+
+.logo {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
+}
+
+h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    letter-spacing: -0.5px;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+}
+
+.status-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-info h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+}
+
+#status-text {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.status-idle {
+    color: var(--text-dim);
+}
+
+.status-running {
+    color: var(--accent);
+}
+
+.status-finished {
+    color: var(--success);
+}
+
+.status-paused {
+    color: var(--warning);
+}
+
+.counter {
+    text-align: right;
+}
+
+#scraped-count,
+#total-found {
+    font-family: 'Outfit', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.count-sep {
+    color: var(--border);
+    margin: 0 4px;
+}
+
+#total-found {
+    color: var(--text-dim);
+}
+
+/* RTL Layout Fixes */
+[dir="rtl"] .counter {
+    text-align: left;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.input-group {
+    margin-bottom: 8px;
+}
+
+.input-group label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+
+input[type="number"] {
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: white;
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.btn-row {
+    display: flex;
+    gap: 8px;
+}
+
+button {
+    flex: 1;
+    border: none;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+#start-btn,
+#resume-btn {
+    background: var(--accent);
+    color: white;
+}
+
+#start-btn:hover,
+#resume-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+#stop-btn,
+#pause-btn {
+    background: var(--card-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border);
+}
+
+#stop-btn:hover,
+#pause-btn:hover {
+    background: var(--border);
+}
+
+#count-btn,
+.secondary-btn {
+    background: var(--card-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border);
+}
+
+#count-btn:hover,
+.secondary-btn:hover {
+    background: var(--border);
+}
+
+.settings-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.settings-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+}
+
+.setting-item {
+    margin-bottom: 10px;
+}
+
+.setting-item label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.setting-item input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+}
+
+.instructions {
+    margin: 16px 0;
+    padding: 12px;
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    border-left: 3px solid var(--accent);
+}
+
+[dir="rtl"] .instructions {
+    border-left: none;
+    border-right: 3px solid var(--accent);
+}
+
+.instructions strong {
+    color: var(--accent);
+}
+
+#download-btn {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    margin-top: 8px;
+}
+
+#download-btn:hover:not(:disabled) {
+    background: var(--success);
+    color: white;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.error-text {
+    color: var(--error);
+    font-size: 12px;
+    margin-top: 8px;
+    text-align: center;
+}
+
+.text-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-decoration: underline;
+    margin-top: 16px;
+    padding: 0;
+    cursor: pointer;
+    width: 100%;
+}
+
+.text-btn:hover {
+    color: var(--text-main);
+}
+
+.hidden {
+    display: none !important;
+}
+
+#license-key {
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    color: white;
+    font-family: inherit;
+    font-size: 14px;
+    text-align: center;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+}
+
+#license-key:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+#activate-btn {
+    width: 100%;
+}
+
+.view {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

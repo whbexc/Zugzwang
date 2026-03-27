@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.spec
+
+# PyInstaller
+*.exe
+*.pkg
+*.app
+
+# Unit test / coverage reports
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Local databases (App Memory)
+*.db
+*.sqlite
+
+# Exports
+export/
+*.xlsx
+*.docx
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env/
+node_modules/
+
+# Temp files
+.tmp_*/
+tmp_*/
+
+# Local Settings & Sensitive Data
+settings.json
+logs/
+screenshots/
+.env

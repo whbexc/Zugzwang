@@ -1,0 +1,22 @@
+# ZUGZWANG - Python Dependencies
+# Install with: pip install -r requirements.txt
+# Then: playwright install chromium
+
+# UI Framework
+PySide6>=6.6.0
+PyQt-Fluent-Widgets[pyside6]>=1.6.3
+
+# Browser Automation
+playwright>=1.40.0
+
+# Excel Export
+openpyxl>=3.1.2
+
+# HTTP (optional, for lightweight requests without full browser)
+httpx>=0.26.0
+
+# Data utilities
+python-dateutil>=2.8.2
+
+# Packaging (dev/build only)
+pyinstaller>=6.3.0

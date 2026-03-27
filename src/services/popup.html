@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Job Scraper Pro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="lang-toggle">
+                <img src="icons/united-states.png" alt="EN" id="lang-en" class="lang-icon active">
+                <img src="icons/morocco.png" alt="AR" id="lang-ar" class="lang-icon">
+            </div>
+            <img src="icons/icon128.png" alt="Logo" class="logo">
+            <h1 data-i18n="titleText">Scrabb</h1>
+            <p class="subtitle" data-i18n="subtitleText">Premium Extraction Tool</p>
+        </header>
+
+        <!-- Login / Activation View -->
+        <div id="login-view" class="view">
+            <div class="input-group">
+                <label for="license-key" data-i18n="activationLabel">Enter Activation Code</label>
+                <input type="text" id="license-key" placeholder="XXXX-XXXX-XXXX-XXXX">
+            </div>
+            <button id="activate-btn" data-i18n="activateBtn">Activate License</button>
+            <p id="login-error" class="error-text hidden"></p>
+            <div style="margin-top: 20px; text-align: center; font-size: 14px; color: var(--text-color);">
+                <p data-i18n="noCodeText" style="margin-bottom: 5px;">Don't have a code?</p>
+                <a href="https://wa.me/+212690830311" target="_blank"
+                    style="color: var(--primary-color); text-decoration: none; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WhatsApp"
+                        style="width: 20px; height: 20px;">
+                    Contact me on WhatsApp
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Scraper View -->
+        <div id="main-view" class="view hidden">
+            <div class="status-card">
+                <div class="status-info">
+                    <h2 data-i18n="statusTitle">Current Status</h2>
+                    <div id="status-text" class="status-idle" data-i18n="statusIdle">Idle</div>
+                </div>
+                <div class="counter">
+                    <span id="scraped-count">0</span>
+                    <span class="count-sep">/</span>
+                    <span id="total-found">?</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="input-group">
+                    <label for="fetch-limit" data-i18n="targetLabel">Target Number of Offers</label>
+                    <input type="number" id="fetch-limit" value="50" min="1">
+                </div>
+
+                <div class="btn-row" id="initial-btns">
+                    <button id="count-btn" data-i18n="countBtn">Count Available</button>
+                    <button id="start-btn" data-i18n="startBtn">Start Scraping</button>
+                    <button id="reset-btn" class="secondary-btn" data-i18n="resetBtn">Reset</button>
+                </div>
+
+                <div class="btn-row" id="navigation-btns"
+                    style="margin-top: 10px; display: flex; flex-direction: column; gap: 5px;">
+                    <button id="arbeitsagentur-btn" class="secondary-btn" data-i18n="arbBtn">Take me to
+                        Arbeitsagentur</button>
+                    <button id="ausbildung-btn" class="secondary-btn" data-i18n="ausBtn">Go to Ausbildung.de</button>
+                    <button id="aubiplus-btn" class="secondary-btn" data-i18n="aubiBtn">Go to Aubi-Plus.de</button>
+                </div>
+
+                <div class="btn-row hidden" id="ongoing-btns">
+                    <button id="pause-btn" data-i18n="pauseBtn">Pause</button>
+                    <button id="resume-btn" class="hidden" data-i18n="resumeBtn">Resume</button>
+                    <button id="stop-btn" data-i18n="stopBtn">Stop</button>
+                </div>
+
+                <div class="settings-section">
+                    <h3 data-i18n="settingsTitle">Settings</h3>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="notify-captcha" checked>
+                            <span data-i18n="captchaLabel">Captcha Sound</span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="notify-finish" checked>
+                            <span data-i18n="finishLabel">Finish Sound</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="instructions">
+                    <p><strong data-i18n="noteTitle">Note:</strong> <span data-i18n="noteDesc">Solve captchas manually
+                            if they appear to keep the scraper running.</span></p>
+                </div>
+
+                <button id="download-btn" disabled data-i18n="downloadBtn">Download CSV Results</button>
+                <button id="logout-btn" class="text-btn" data-i18n="logoutBtn">Deactivate License</button>
+            </div>
+        </div>
+    </div>
+    <script src="auth.js"></script>
+    <script src="popup.js"></script>
+</body>
+
+</html>

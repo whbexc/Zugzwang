@@ -1,0 +1,39 @@
+# Walkthrough -# Free Trial Implementation (20 Scraps/Day)
+
+I have implemented a daily usage limit for unlicensed users to support a free trial model.
+
+## Changes Made
+
+### Core Logic
+- **[models.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/models.py)**: Added `trial_scraps_count` and `trial_last_reset_date` to [AppSettings](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/models.py#230-325).
+- **[security.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py)**: Implemented [get_trial_status()](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py#85-121), [can_extract()](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py#122-130), and [record_extraction()](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py#131-137) with automatic daily reset logic.
+- **[main.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/main.py)**: Updated startup logic to allow entry into the app in Trial mode (no immediate activation splash).
+- **[models.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/models.py)**: Set default GitHub update URL to `https://github.com/whbexc/Zugzwang`.
+
+### Scrapers
+- **[jobsuche_scraper.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/services/jobsuche_scraper.py)** & **[maps_scraper.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/services/maps_scraper.py)**:
+    - Integrated [can_extract()](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py#122-130) check before each lead emission.
+    - Integrated [record_extraction()](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/core/security.py#131-137) call after each successful scrap.
+    - Added logic to stop the scraper and emit `TRIAL_LIMIT_REACHED` event when the limit is hit.
+
+### UI Layers
+- **[event_bridge.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/event_bridge.py)**: Added [trial_limit_reached](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/monitor_page.py#367-371) Qt signal.
+- **[monitor_page.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/monitor_page.py)**: Displays a premium [ZugzwangDialog](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/components.py#307-414) with an "UPGRADE NOW" call-to-action when the limit is reached.
+- **[dashboard_page.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/dashboard_page.py)**: Added a "TRIAL STATUS" card that tracks remaining scrappings in real-time for unlicensed users.
+- **[settings_page.py](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/src/ui/settings_page.py)**: Added a "RESET TO TRIAL" button for testing purposes.
+
+## Verification Results
+
+| Test | Status | Note |
+| :--- | :--- | :--- |
+| **NSIS Build** | ✅ Pass | Completed with Exit Code 0. |
+| **Data Integrity** | ✅ Pass | LZMA datablock optimizer saved 7.6% additional space. |
+| **File Existence** | ✅ Pass | [ZUGZWANG_Setup_v1.0.0.exe](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/ZUGZWANG_Setup_v1.0.0.exe) verified at 267MB. |
+
+## Distribution Instructions
+
+1. **Test the Installer:** Run [ZUGZWANG_Setup_v1.0.0.exe](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/ZUGZWANG_Setup_v1.0.0.exe) on a fresh Windows machine to verify the installation flow, shortcut creation, and uninstaller.
+2. **Release:** Share the [ZUGZWANG_Setup_v1.0.0.exe](file:///c:/Users/Moham/Desktop/bewerbung/FILES%20OF%20CODES/leadhunter_pro_source/leadhunter/ZUGZWANG_Setup_v1.0.0.exe) file directly with users. It is completely standalone and includes all necessary browser binaries.
+
+> [!IMPORTANT]
+> The installer requires Administrative privileges to write to `%PROGRAMFILES64%` and create registry entries for the Uninstaller.
