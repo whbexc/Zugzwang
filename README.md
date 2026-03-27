@@ -1,3 +1,5 @@
+![ZUGZWANG Banner](src/ui/assets/logo-mark.png)
+
 # ZUGZWANG 
 
 **The surgical, professional-grade lead generation engine for modern recruitment and market research.**
