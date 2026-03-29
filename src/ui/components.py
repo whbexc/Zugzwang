@@ -504,6 +504,21 @@ class FeedbackDialog(QDialog):
         cl.addLayout(crow)
         layout.addWidget(contact_box)
 
+        # 4. Support with Money Section
+        donation_box = QWidget()
+        dl = QVBoxLayout(donation_box); dl.setContentsMargins(0,5,0,5); dl.setSpacing(10)
+        self.donate_btn = self._create_btn("SUPPORT WITH MONEY 💸", "#30D158", "#34C759")
+        self.donate_btn.setFixedHeight(50)
+        self.donate_btn.setStyleSheet(self.donate_btn.styleSheet() + """
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #30D158, stop:1 #24B04B);
+                font-size: 14px; font-weight: 800; border-radius: 12px;
+            }
+        """)
+        self.donate_btn.clicked.connect(self._on_donate)
+        dl.addWidget(self.donate_btn)
+        layout.addWidget(donation_box)
+
         layout.addStretch()
 
         # 4. Close (Bottom)
@@ -544,6 +559,13 @@ class FeedbackDialog(QDialog):
     def _on_whatsapp(self):
         import webbrowser
         webbrowser.open("https://wa.me/212663007212")
+
+    def _on_donate(self):
+        import webbrowser
+        from urllib.parse import quote
+        msg = "slm khoya khdmt b app dylk w bghit n supportik,"
+        url = f"https://wa.me/212663007212?text={quote(msg)}"
+        webbrowser.open(url)
 
     def _on_share(self, platform: str):
         import webbrowser
