@@ -720,6 +720,27 @@ class EmailSenderPage(QWidget):
         msg["To"] = recipient
         msg["Subject"] = self._subject.text()
         msg.attach(MIMEText(self._body_text.toPlainText(), "html" if self._type_toggle.isChecked() else "plain"))
+
+        # Attach files
+        for file_path in self._attachments:
+            if not os.path.exists(file_path):
+                continue
+            
+            try:
+                part = MIMEBase("application", "octet-stream")
+                with open(file_path, "rb") as f:
+                    part.set_payload(f.read())
+                
+                encoders.encode_base64(part)
+                filename = os.path.basename(file_path)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename=\"{filename}\""
+                )
+                msg.attach(part)
+            except Exception as e:
+                self._log(f"Failed to attach {file_path}: {e}", "ERROR")
+
         return msg
 
     def _create_smtp_connection(self):

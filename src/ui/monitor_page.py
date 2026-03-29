@@ -534,7 +534,10 @@ class MonitorPage(QWidget):
         # Re-set OK button text to "UPGRADE" and Cancel to "CLOSE" for better conversion
         dialog.ok_btn.setText("UPGRADE NOW")
         dialog.cancel_btn.setText("CLOSE")
-        dialog.exec()
+        if dialog.exec():
+            from .activation_dialog import ActivationDialog
+            activation = ActivationDialog(self.window())
+            activation.exec()
 
     def _ui_log(self, level: str, message: str):
         color_map = {

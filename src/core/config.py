@@ -126,7 +126,18 @@ class ConfigManager:
         self.save()
 
     def reset(self) -> None:
+        """Resets configurations to factory defaults, preserving trial usage tracking."""
+        # Backup trial data
+        scraps = self._settings.trial_scraps_count
+        last_date = self._settings.trial_last_reset_date
+        
+        # Reset to new AppSettings instance
         self._settings = AppSettings()
+        
+        # Restore trial data
+        self._settings.trial_scraps_count = scraps
+        self._settings.trial_last_reset_date = last_date
+        
         self.save()
 
 

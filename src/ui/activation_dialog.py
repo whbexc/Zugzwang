@@ -110,6 +110,33 @@ class ActivationDialog(QDialog):
         
         layout.addLayout(mid_layout)
         
+        # Contact Support Section
+        contact_layout = QHBoxLayout()
+        contact_layout.setSpacing(12)
+        contact_layout.setAlignment(Qt.AlignCenter)
+        
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        def open_url(url):
+            QDesktopServices.openUrl(QUrl(url))
+
+        tg_btn = TransparentPushButton("Contact via Telegram")
+        tg_btn.setIcon(FluentIcon.SEND)
+        tg_btn.clicked.connect(lambda: open_url("https://t.me/+OsHHWTSv_bVkZTM0"))
+        tg_btn.setStyleSheet("color: #0A84FF; font-size: 11px;")
+        
+        wa_btn = TransparentPushButton("Contact via WhatsApp")
+        wa_btn.setIcon(FluentIcon.CHAT)
+        wa_btn.clicked.connect(lambda: open_url("https://wa.me/212663007212"))
+        wa_btn.setStyleSheet("color: #30D158; font-size: 11px;")
+
+        contact_layout.addWidget(tg_btn)
+        contact_layout.addWidget(wa_btn)
+        layout.addLayout(contact_layout)
+        
+        layout.addSpacing(10)
+
         # License Key Field
         key_layout = QVBoxLayout()
         key_layout.setSpacing(8)
@@ -118,7 +145,7 @@ class ActivationDialog(QDialog):
         key_layout.addWidget(key_lbl)
         
         self.key_input = LineEdit()
-        self.key_input.setPlaceholderText("SQ-XXXX-XXXX-XXXX")
+        self.key_input.setPlaceholderText("ZUG-XXXX-XXXX-XXXX")
         self.key_input.setFixedHeight(44)
         self.key_input.setStyleSheet("""
             LineEdit {
