@@ -56,3 +56,5 @@ screenshots/
 .env
 generate_key.py
 KEYS.txt
+customer_support_guide.md
+debug_license.py
