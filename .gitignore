@@ -55,3 +55,4 @@ logs/
 screenshots/
 .env
 generate_key.py
+KEYS.txt
