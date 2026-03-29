@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 from urllib.parse import urljoin
 
 from .browser import BrowserSession, BrowserError
+from ..core.security import LicenseManager
 from ..core.events import event_bus
 from ..core.logger import get_logger
 from ..core.models import LeadRecord, SearchConfig, SourceType
@@ -91,7 +92,25 @@ class AubiPlusScraper:
                         
                     record = await self._extract_job_detail(href)
                     if record and (record.company_name or record.email or record.address or record.phone):
+                        if not LicenseManager.can_extract():
+                            logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                            event_bus.emit(
+                                event_bus.JOB_LOG,
+                                job_id=self.job_id,
+                                message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                                level="WARNING",
+                            )
+                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                            return
+
                         yielded_count += 1
+                        event_bus.emit(
+                            event_bus.JOB_RESULT,
+                            job_id=self.job_id,
+                            record=record,
+                            count=yielded_count,
+                        )
+                        LicenseManager.record_extraction()
                         yield record
                 
                 if self._cancelled or yielded_count >= self.config.max_results:

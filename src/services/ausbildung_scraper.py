@@ -7,6 +7,7 @@ import asyncio
 from typing import AsyncGenerator
 
 from .browser import BrowserSession, BrowserError
+from ..core.security import LicenseManager
 from ..core.events import event_bus
 from ..core.logger import get_logger
 from ..core.models import LeadRecord, SearchConfig, SourceType
@@ -96,7 +97,25 @@ class AusbildungScraper:
                     record = await self._extract_job_detail(full_url)
                     
                     if record and (record.company_name or record.email or record.address):
+                        if not LicenseManager.can_extract():
+                            logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                            event_bus.emit(
+                                event_bus.JOB_LOG,
+                                job_id=self.job_id,
+                                message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                                level="WARNING",
+                            )
+                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                            return
+
                         yielded_count += 1
+                        event_bus.emit(
+                            event_bus.JOB_RESULT,
+                            job_id=self.job_id,
+                            record=record,
+                            count=yielded_count,
+                        )
+                        LicenseManager.record_extraction()
                         yield record
                     
             logger.info(f"[{self.job_id}] Scrape finished. Yielded {yielded_count} records.")
