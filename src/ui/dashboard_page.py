@@ -91,7 +91,7 @@ class DashboardMetricCard(QFrame):
         self.main_layout.addStretch(1)
 
         self.valueLabel = QLabel(value)
-        self.valueLabel.setStyleSheet(f"color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 40px; font-weight: 700; background: transparent; border: none;")
+        self.valueLabel.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 40px; font-weight: 700; background: transparent; border: none;")
         self.main_layout.addWidget(self.valueLabel)
 
         self.titleLabel = QLabel(title.upper())
@@ -249,11 +249,11 @@ class DashboardPage(QWidget):
         title_wrap.setSpacing(4)
         
         self.heroTitle = QLabel("Dashboard")
-        self.heroTitle.setStyleSheet(f"color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
+        self.heroTitle.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
         title_wrap.addWidget(self.heroTitle)
 
         self.heroSubtitle = QLabel("Ready for your next lead generation session.")
-        self.heroSubtitle.setStyleSheet(f"color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 13px; background: transparent; border: none;")
+        self.heroSubtitle.setStyleSheet(f"color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 13px; background: transparent; border: none;")
         title_wrap.addWidget(self.heroSubtitle)
         
         header.addLayout(title_wrap)
@@ -261,15 +261,45 @@ class DashboardPage(QWidget):
 
         from PySide6.QtWidgets import QPushButton as _QPB
         self.exportBtn = _QPB("EXPORT REPORT")
-        self.exportBtn.setFixedHeight(36)
+        self.exportBtn.setFixedSize(160, 36)
         self.exportBtn.setCursor(Qt.PointingHandCursor)
-        self.exportBtn.setStyleSheet(Theme.zugzwang_button())
+        self.exportBtn.setStyleSheet("""
+            QPushButton {
+                background-color: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                color: white;
+                height: 36px;
+                padding: 0 18px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 1.6px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: #3A3A3C; }
+        """)
         header.addWidget(self.exportBtn, 0, Qt.AlignVCenter)
 
         self.newSearchBtn = _QPB("NEW SCRAPER")
-        self.newSearchBtn.setFixedHeight(36)
+        self.newSearchBtn.setFixedSize(160, 36)
         self.newSearchBtn.setCursor(Qt.PointingHandCursor)
-        self.newSearchBtn.setStyleSheet(Theme.zugzwang_button())
+        self.newSearchBtn.setStyleSheet("""
+            QPushButton {
+                background-color: #0A84FF;
+                border: none;
+                border-radius: 10px;
+                color: white;
+                height: 36px;
+                padding: 0 18px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 1.6px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: #409CFF; }
+        """)
         header.addWidget(self.newSearchBtn, 0, Qt.AlignVCenter)
 
         body.addLayout(header)
@@ -498,7 +528,7 @@ class DashboardPage(QWidget):
             empty_layout.addWidget(icon, 0, Qt.AlignHCenter)
 
             title = QLabel("NO RECENT JOBS")
-            title.setStyleSheet(f"color: #636366; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 12px; font-weight: 600; border: none;")
+            title.setStyleSheet(f"color: #636366; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; border: none;")
             empty_layout.addWidget(title, 0, Qt.AlignHCenter)
 
             self.jobsFrame.addWidget(empty)

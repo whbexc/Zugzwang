@@ -82,7 +82,7 @@ class LogViewerPage(QWidget):
         title = QLabel("Activity Logs")
         title.setStyleSheet(
             "color: white;"
-            "font-family: 'SF Pro Display', '-apple-system', sans-serif;"
+            "font-family: 'PT Root UI', sans-serif;"
             "font-size: 28px; font-weight: 600; background: transparent;"
         )
         tl.addWidget(title)
@@ -102,7 +102,7 @@ class LogViewerPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 8px;
                 color: white;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-size: 13px;
                 padding: 0 10px;
             }
@@ -121,7 +121,7 @@ class LogViewerPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 8px;
                 color: white;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-size: 13px;
                 padding: 0 10px;
             }
@@ -140,7 +140,7 @@ class LogViewerPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 8px;
                 color: white;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-size: 13px;
                 padding: 0 10px;
             }
@@ -162,7 +162,7 @@ class LogViewerPage(QWidget):
                     QPushButton {
                         background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 8px;
                         color: #D1D1D6;
-                        font-family: '-apple-system', 'SF Pro Text', sans-serif;
+                        font-family: 'PT Root UI', sans-serif;
                         font-weight: 600; font-size: 13px;
                         letter-spacing: 1.2px; text-transform: uppercase;
                         padding: 0 16px;
@@ -200,7 +200,7 @@ class LogViewerPage(QWidget):
             color: #1C1C1E;
             background: white;
             border-radius: 6px;
-            font-family: 'SF Pro Text', '-apple-system', sans-serif;
+            font-family: 'PT Root UI', sans-serif;
             font-weight: 600; font-size: 12px;
             padding: 3px 10px;
         """)
@@ -231,7 +231,7 @@ class LogViewerPage(QWidget):
         live_label = QLabel("LIVE")
         live_label.setStyleSheet(
             "color: #30D158; font-size: 10px; font-weight: 600;"
-            "font-family: 'SF Mono', monospace; background: transparent;"
+            "font-family: 'PT Root UI', monospace; background: transparent;"
         )
         tab_row.addWidget(live_label)
         panel_vl.addLayout(tab_row)
@@ -377,10 +377,10 @@ class LogViewerPage(QWidget):
                     justify-content:center; height:200px; text-align:center;
                     padding-top: 60px;">
             <div style="font-size:32px; color:#3A3A3C; margin-bottom:10px;">⌘</div>
-            <div style="color:#48484A; font-family:'SF Pro Text',sans-serif; font-size:13px;">
+            <div style="color:#48484A; font-family:'PT Root UI',sans-serif; font-size:13px;">
                 No log entries
             </div>
-            <div style="color:#3A3A3C; font-family:'SF Pro Text',sans-serif; font-size:11px;
+            <div style="color:#3A3A3C; font-family:'PT Root UI',sans-serif; font-size:11px;
                         margin-top:4px;">
                 Logs will appear here during runtime
             </div>

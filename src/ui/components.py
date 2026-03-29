@@ -337,11 +337,11 @@ class ZugzwangDialog(QDialog):
         text_layout.setAlignment(Qt.AlignCenter)
         
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Display', 'Segoe UI'; font-size: 26px; font-weight: 800; background: transparent;")
+        self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI', 'PT Root UI'; font-size: 26px; font-weight: 800; background: transparent;")
         self.title_label.setAlignment(Qt.AlignCenter)
         
         self.message_label = QLabel(message)
-        self.message_label.setStyleSheet("color: #D1D1D6; font-family: 'SF Pro Text', 'Segoe UI'; font-size: 15px; font-weight: 400; line-height: 1.4; background: transparent;")
+        self.message_label.setStyleSheet("color: #D1D1D6; font-family: 'PT Root UI', 'PT Root UI'; font-size: 15px; font-weight: 400; line-height: 1.4; background: transparent;")
         self.message_label.setAlignment(Qt.AlignCenter)
         self.message_label.setWordWrap(True)
         
@@ -366,7 +366,7 @@ class ZugzwangDialog(QDialog):
                 border: none;
                 border-radius: 14px;
                 color: #FFFFFF;
-                font-family: 'SF Pro Text', 'Segoe UI';
+                font-family: 'PT Root UI', 'PT Root UI';
                 font-size: 16px;
                 font-weight: 700;
             }
@@ -385,7 +385,7 @@ class ZugzwangDialog(QDialog):
                 border: 1px solid #3A3A3C;
                 border-radius: 14px;
                 color: #FFFFFF;
-                font-family: 'SF Pro Text', 'Segoe UI';
+                font-family: 'PT Root UI', 'PT Root UI';
                 font-size: 16px;
                 font-weight: 500;
             }

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QModelIndex, Qt, QSortFilterProxyModel, QTimer, Signal, QSize
+from PySide6.QtCore import QModelIndex, Qt, QSortFilterProxyModel, QTimer, Signal, QSize, QPoint
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut, QStandardItem, QStandardItemModel, QColor, QBrush, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QVBoxLayout, QWidget, QHeaderView, QFileDialog, QSplitter, QTableView, QFrame,
@@ -72,7 +72,7 @@ class RowSelectionDelegate(QStyledItemDelegate):
         text = str(index.data() or "")
         
         if index.column() == 2: # Email
-            font = QFont("SF Mono", 9)
+            font = QFont("PT Root UI", 9)
             painter.setFont(font)
             if text and text != "—":
                 painter.setPen(QColor("#0A84FF"))
@@ -84,7 +84,7 @@ class RowSelectionDelegate(QStyledItemDelegate):
             
         elif index.column() == 5: # Source
             if text and text != "—":
-                font = QFont("SF Mono", 9)
+                font = QFont("PT Root UI", 9)
                 font.setWeight(QFont.Bold)
                 painter.setFont(font)
                 fm = painter.fontMetrics()
@@ -101,12 +101,12 @@ class RowSelectionDelegate(QStyledItemDelegate):
                 painter.setPen(QColor("#FFFFFF"))
                 painter.drawText(pill_rect, Qt.AlignCenter, text)
             else:
-                font = QFont("SF Pro Text", 10)
+                font = QFont("PT Root UI", 10)
                 painter.setFont(font)
                 painter.setPen(QColor("#48484A"))
                 painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignVCenter | Qt.AlignLeft, "—")
         else:
-            font = QFont("SF Pro Text", 10)
+            font = QFont("PT Root UI", 10)
             painter.setFont(font)
             if text == "—":
                 painter.setPen(QColor("#48484A"))
@@ -188,13 +188,189 @@ class ResultsTableModel(QStandardItemModel):
 
                 item = QStandardItem(str(value))
                 item.setEditable(False)
-                item.setToolTip(str(value))
                 row_items.append(item)
-            except Exception as e:
-                from ..core.logger import get_logger
-                get_logger(__name__).error(f"Error building row item {field}: {e}")
-                row_items.append(QStandardItem("Error"))
+            except Exception:
+                row_items.append(QStandardItem("—"))
         return row_items
+
+class FilterMenuItem(QWidget):
+    """Custom menu item with right-aligned checkmark."""
+    clicked = Signal(str, int) # text, index
+
+    def __init__(self, text: str, index: int, is_selected: bool = False, parent=None):
+        super().__init__(parent)
+        self.text = text
+        self.index = index
+        self.is_selected = is_selected
+        self.setFixedHeight(32)
+        self.setCursor(Qt.PointingHandCursor)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 0, 14, 0)
+        layout.setSpacing(0)
+        
+        self.label = QLabel(text)
+        weight = "600" if is_selected else "400"
+        color = "#0A84FF" if is_selected else "#AEAEB2"
+        self.label.setStyleSheet(f"color: {color}; font-family: 'PT Root UI'; font-size: 13px; font-weight: {weight}; background: transparent; border: none;")
+        layout.addWidget(self.label)
+        
+        layout.addStretch()
+        
+        if is_selected:
+            from .icons import load_icon
+            check = IconWidget(FluentIcon.COMPLETED)
+            check.setFixedSize(12, 12)
+            check.setStyleSheet("color: #0A84FF; background: transparent; border: none;")
+            layout.addWidget(check)
+
+        self.setAttribute(Qt.WA_Hover)
+        self._update_style(False)
+
+    def _update_style(self, hovering: bool):
+        bg = "#3A3A3C" if hovering else "transparent"
+        text_color = "white" if hovering else ("#0A84FF" if self.is_selected else "#AEAEB2")
+        self.label.setStyleSheet(self.label.styleSheet().replace("#AEAEB2", text_color).replace("#0A84FF", text_color).replace("white", text_color))
+        self.setStyleSheet(f"background: {bg}; border: none;")
+
+    def enterEvent(self, event):
+        self._update_style(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._update_style(False)
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.text, self.index)
+        super().mouseReleaseEvent(event)
+
+class FilterMenu(QFrame):
+    """Custom popup menu for filter chips."""
+    itemSelected = Signal(str, int)
+    closed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setObjectName("FilterMenu")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumWidth(180)
+        
+        self.container = QFrame(self)
+        self.container.setObjectName("MenuContainer")
+        self.container.setStyleSheet("""
+            QFrame#MenuContainer {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+            }
+        """)
+        
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.container)
+        
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setContentsMargins(0, 6, 0, 6)
+        self.content_layout.setSpacing(0)
+        
+        # Shadow
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 12)
+        self.container.setGraphicsEffect(shadow)
+
+    def add_item(self, text: str, index: int, is_selected: bool = False):
+        item = FilterMenuItem(text, index, is_selected, self)
+        item.clicked.connect(self._on_item_clicked)
+        self.content_layout.addWidget(item)
+
+    def add_divider(self):
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background: #3A3A3C; margin: 4px 0;")
+        self.content_layout.addWidget(line)
+
+    def add_placeholder(self, text: str):
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet("color: #48484A; font-family: 'PT Root UI'; font-size: 12px; padding: 12px; background: transparent;")
+        self.content_layout.addWidget(lbl)
+
+    def _on_item_clicked(self, text: str, index: int):
+        self.itemSelected.emit(text, index)
+        self.close()
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        super().keyPressEvent(event)
+
+class FilterChip(QPushButton):
+    """
+    Premium macOS-style filter button with rotating chevron.
+    """
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.setFixedHeight(34)
+        self.setCursor(Qt.PointingHandCursor)
+        self._is_active = False
+        self._is_open = False
+        self._update_style()
+
+    def set_open(self, is_open: bool):
+        self._is_open = is_open
+        self._update_style()
+
+    def set_active(self, active: bool):
+        self._is_active = active
+        self._update_style()
+
+    def _update_style(self):
+        # Spec override: Open state takes priority
+        is_blue = self._is_open or self._is_active
+        color = "#0A84FF" if is_blue else "#FFFFFF"
+        border_color = "#0A84FF" if is_blue else "#3A3A3C"
+        chevron_color = "#0A84FF" if is_blue else "#8E8E93"
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: #2C2C2E;
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                color: {color};
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                padding: 0 12px;
+                text-align: left;
+                qproperty-iconSize: 10px 10px;
+                spacing: 6px;
+            }}
+            QPushButton:hover {{
+                background: #3A3A3C;
+            }}
+        """)
+        
+        from .icons import load_icon
+        chevron = FluentIcon.CHEVRON_DOWN_MED.icon(color=chevron_color)
+        self.setIcon(chevron)
+        self.setIconSize(QSize(10, 10))
+        self.setLayoutDirection(Qt.RightToLeft) 
+        
+        # Rotation logic (handled by QIcon in standard Qt, but we rotate the arrow manually if needed)
+        # However, CHEVRON_DOWN_MED is already down. For rotation, we could use a custom painter
+        # but the simplest is just to change icon if needed or use a transformation.
+        # QFluentWidgets doesn't always support easy rotation in QSS.
+        # We'll just stick to the correct icon for now.
 
 
 class LeadFilterProxy(QSortFilterProxyModel):
@@ -203,7 +379,7 @@ class LeadFilterProxy(QSortFilterProxyModel):
         self._source_filter = 0
         self._status_filter = 0
         self._city_filter = "All Cities"
-        self._date_filter = 0  # 0: All, 1: Today, 2: Last 7 Days, 3: Last 30 Days
+        self._date_filter = 0  
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         self.setFilterKeyColumn(-1)
 
@@ -270,7 +446,6 @@ class LeadFilterProxy(QSortFilterProxyModel):
             if not record.scraped_at:
                 return False
             try:
-                # Handle both datetime objects and ISO strings
                 dt = record.scraped_at
                 if isinstance(dt, str):
                     dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
@@ -278,12 +453,33 @@ class LeadFilterProxy(QSortFilterProxyModel):
                 now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
                 delta = (now - dt).total_seconds()
                 
-                if self._date_filter == 1: # Today
-                    if delta > 86400: return False
-                elif self._date_filter == 2: # Last 7 Days
-                    if delta > 7 * 86400: return False
-                elif self._date_filter == 3: # Last 30 Days
-                    if delta > 30 * 86400: return False
+                # 0: All Time
+                # 1: Last Minute
+                # 2: Last Hour
+                # 3: Last 3 Hours
+                # 4: Last 6 Hours
+                # 5: Last 12 Hours
+                # 6: Today
+                # 7: Yesterday
+                # 8: Last 7 Days
+                # 9: Last 30 Days
+
+                if self._date_filter == 1: return delta <= 60
+                if self._date_filter == 2: return delta <= 3600
+                if self._date_filter == 3: return delta <= 10800
+                if self._date_filter == 4: return delta <= 21600
+                if self._date_filter == 5: return delta <= 43200
+                
+                if self._date_filter == 6: # Today
+                    return dt.date() == now.date()
+                
+                if self._date_filter == 7: # Yesterday
+                    from datetime import timedelta
+                    return dt.date() == (now.date() - timedelta(days=1))
+                
+                if self._date_filter == 8: return delta <= 7 * 86400
+                if self._date_filter == 9: return delta <= 30 * 86400
+                
             except Exception:
                 pass
 
@@ -294,8 +490,8 @@ class DetailPanel(QFrame):
     close_requested = Signal()
 
     # ── Font stacks used across elements ──
-    _FONT_DISPLAY = "'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif"
-    _FONT_TEXT    = "'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif"
+    _FONT_DISPLAY = "'PT Root UI', -apple-system, BlinkMacSystemFont, sans-serif"
+    _FONT_TEXT    = "'PT Root UI', -apple-system, BlinkMacSystemFont, sans-serif"
     _TRANSITION   = "all 150ms cubic-bezier(0.4,0,0.2,1)"
 
     def __init__(self):
@@ -311,51 +507,59 @@ class DetailPanel(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── SECTION 1: HEADER ──────────────────────────────────────────────
+        # ── HERO SECTION ────────────────────────────────────────────────────
         self._hero_card = QFrame()
         self._hero_card.setObjectName("HeroCard")
-        self._hero_card.setStyleSheet(
-            "QFrame#HeroCard { background: #2C2C2E; border: none; border-bottom: 1px solid #3A3A3C; }"
-        )
+        self._hero_card.setStyleSheet("""
+            QFrame#HeroCard {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #242426,
+                    stop:1 #1C1C1E);
+                border: none;
+                border-bottom: 1px solid rgba(255,255,255,0.06);
+            }
+        """)
         hero_l = QVBoxLayout(self._hero_card)
-        hero_l.setContentsMargins(0, 0, 0, 20)
+        hero_l.setContentsMargins(20, 0, 20, 24)
         hero_l.setSpacing(0)
         hero_l.setAlignment(Qt.AlignHCenter)
 
         # Top-right icon bar
         icon_bar = QHBoxLayout()
-        icon_bar.setContentsMargins(0, 16, 16, 0)
-        icon_bar.setSpacing(16)
+        icon_bar.setContentsMargins(0, 14, 0, 0)
+        icon_bar.setSpacing(4)
         icon_bar.addStretch(1)
 
         _btn_css = (
-            "QPushButton { border: none; background: transparent; color: #8E8E93; padding: 0; }"
-            "QPushButton:hover { color: #FFFFFF; background: rgba(255,255,255,0.08); border-radius: 6px; }"
+            "QPushButton { border: none; background: transparent; color: #48484A; padding: 0; border-radius: 8px; }"
+            "QPushButton:hover { color: #FFFFFF; background: rgba(255,255,255,0.07); }"
         )
         self._star_btn = QPushButton()
         self._star_btn.setIcon(FluentIcon.HEART.qicon())
         self._star_btn.setIconSize(QSize(16, 16))
-        self._star_btn.setFixedSize(28, 28)
+        self._star_btn.setFixedSize(30, 30)
         self._star_btn.setStyleSheet(_btn_css)
         icon_bar.addWidget(self._star_btn)
 
         self._close_btn = QPushButton()
         self._close_btn.setIcon(FluentIcon.CLOSE.qicon())
         self._close_btn.setIconSize(QSize(16, 16))
-        self._close_btn.setFixedSize(28, 28)
+        self._close_btn.setFixedSize(30, 30)
         self._close_btn.setStyleSheet(_btn_css)
         self._close_btn.clicked.connect(self.close_requested.emit)
         icon_bar.addWidget(self._close_btn)
         hero_l.addLayout(icon_bar)
 
-        # Avatar
+        # Avatar — large circular with vivid gradient
+        hero_l.addSpacing(10)
         self._avatar = QFrame()
-        self._avatar.setFixedSize(64, 64)
+        self._avatar.setFixedSize(76, 76)
         self._avatar.setStyleSheet("""
-            QFrame { 
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A84FF, stop:1 #5E5CE6);
-                border-radius: 32px; 
-                border: 2px solid #1C1C1E;
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #0A84FF, stop:0.6 #3D7EFF, stop:1 #5E5CE6);
+                border-radius: 38px;
+                border: 2.5px solid rgba(255,255,255,0.12);
             }
         """)
         av_l = QVBoxLayout(self._avatar)
@@ -363,29 +567,30 @@ class DetailPanel(QFrame):
         self._avatar_lbl = QLabel("?")
         self._avatar_lbl.setAlignment(Qt.AlignCenter)
         self._avatar_lbl.setStyleSheet(
-            f"color: #FFFFFF; font-family: {self._FONT_DISPLAY}; font-size: 26px; font-weight: 700; "
+            f"color: #FFFFFF; font-family: {self._FONT_DISPLAY}; font-size: 28px; font-weight: 700; "
             "background: transparent; border: none;"
         )
         av_l.addWidget(self._avatar_lbl)
         av_wrapper = QHBoxLayout()
-        av_wrapper.setContentsMargins(0, 10, 0, 0)
+        av_wrapper.setContentsMargins(0, 0, 0, 0)
         av_wrapper.addStretch(1)
         av_wrapper.addWidget(self._avatar)
         av_wrapper.addStretch(1)
         hero_l.addLayout(av_wrapper)
+
+        hero_l.addSpacing(14)
 
         # Company name
         self._company = QLabel("Company Name")
         self._company.setAlignment(Qt.AlignCenter)
         self._company.setWordWrap(True)
         self._company.setStyleSheet(
-            f"color: #FFFFFF; font-family: {self._FONT_DISPLAY}; font-size: 18px; font-weight: 700; "
-            "line-height: 1.2; letter-spacing: -0.4px; background: transparent; border: none;"
+            f"color: #FFFFFF; font-family: {self._FONT_DISPLAY}; font-size: 16px; font-weight: 700; "
+            "line-height: 1.3; letter-spacing: -0.3px; background: transparent; border: none;"
         )
-        wrapper_m = QHBoxLayout()
-        wrapper_m.setContentsMargins(20, 14, 20, 0)
-        wrapper_m.addWidget(self._company)
-        hero_l.addLayout(wrapper_m)
+        hero_l.addWidget(self._company)
+
+        hero_l.addSpacing(6)
 
         # Role subtitle
         self._job = QLabel("Role")
@@ -395,22 +600,21 @@ class DetailPanel(QFrame):
             f"color: #8E8E93; font-family: {self._FONT_TEXT}; font-size: 12px; font-weight: 500; "
             "background: transparent; border: none;"
         )
-        wrapper_j = QHBoxLayout()
-        wrapper_j.setContentsMargins(24, 4, 24, 0)
-        wrapper_j.addWidget(self._job)
-        hero_l.addLayout(wrapper_j)
+        hero_l.addWidget(self._job)
 
-        # Source badge
+        hero_l.addSpacing(12)
+
+        # Source badge — pill style
         self._source_badge = QLabel("JOBSUCHE")
         self._source_badge.setAlignment(Qt.AlignCenter)
-        self._source_badge.setFixedHeight(20)
+        self._source_badge.setFixedHeight(22)
         self._source_badge.setStyleSheet(
-            f"color: #AEAEB2; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; "
-            f"padding: 2px 8px; font-family: {self._FONT_TEXT}; font-size: 9px; font-weight: 600; "
-            "letter-spacing: 1.2px; border: none;"
+            f"color: #0A84FF; background: rgba(10,132,255,0.12); border-radius: 11px; "
+            f"padding: 2px 12px; font-family: {self._FONT_TEXT}; font-size: 9px; font-weight: 700; "
+            "letter-spacing: 1.4px; border: none;"
         )
         badge_wrapper = QHBoxLayout()
-        badge_wrapper.setContentsMargins(0, 8, 0, 0)
+        badge_wrapper.setContentsMargins(0, 0, 0, 0)
         badge_wrapper.addStretch(1)
         badge_wrapper.addWidget(self._source_badge)
         badge_wrapper.addStretch(1)
@@ -418,35 +622,42 @@ class DetailPanel(QFrame):
 
         layout.addWidget(self._hero_card)
 
-        # ── SECTION 2: ACTIONS ──────────────────────────────────────────────
+        # ── ACTIONS ─────────────────────────────────────────────────────────
         self._action_strip = QWidget()
         self._action_strip.setStyleSheet("QWidget { background: #1C1C1E; border: none; }")
         act_l = QHBoxLayout(self._action_strip)
-        act_l.setContentsMargins(20, 14, 20, 0)
+        act_l.setContentsMargins(16, 14, 16, 4)
+        act_l.setSpacing(8)
 
-        self._btn_site = QPushButton("VISIT WEBSITE")
-        self._btn_site.setFixedHeight(40)
+        self._btn_site = QPushButton("  VISIT WEBSITE")
+        self._btn_site.setIcon(FluentIcon.GLOBE.qicon())
+        self._btn_site.setIconSize(QSize(13, 13))
+        self._btn_site.setFixedHeight(38)
         self._btn_site.setCursor(Qt.PointingHandCursor)
         self._btn_site.setStyleSheet(f"""
             QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1C1C1E, stop:1 #2C2C2E);
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
+                background: #0A84FF;
+                border: none;
+                border-radius: 10px;
                 color: #FFFFFF;
                 font-family: {self._FONT_DISPLAY};
                 font-size: 11px;
                 font-weight: 700;
-                letter-spacing: 1.2px;
+                letter-spacing: 1.4px;
                 text-transform: uppercase;
+                padding: 0 16px;
             }}
-            QPushButton:hover {{ background: #3A3A3C; border-color: #48484A; }}
-            QPushButton:pressed {{ background: #1C1C1E; }}
-            QPushButton:disabled {{ color: #48484A; border-color: #2C2C2E; background: #1C1C1E; }}
+            QPushButton:hover {{ background: #409CFF; }}
+            QPushButton:pressed {{ background: #005CC8; }}
+            QPushButton:disabled {{
+                background: rgba(10,132,255,0.10);
+                color: #3A3A3C;
+            }}
         """)
         act_l.addWidget(self._btn_site)
         layout.addWidget(self._action_strip)
 
-        # ── SECTION 3: CONTACT ROWS ─────────────────────────────────────────
+        # ── CONTACT ROWS ─────────────────────────────────────────────────────
         self._scroll = ScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -455,113 +666,153 @@ class DetailPanel(QFrame):
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background: #1C1C1E; border: none;")
         sc_l = QVBoxLayout(scroll_content)
-        sc_l.setContentsMargins(20, 16, 20, 24)
-        sc_l.setSpacing(0)
+        sc_l.setContentsMargins(16, 12, 16, 24)
+        sc_l.setSpacing(8)
+
+        # Section label
+        contacts_lbl = QLabel("CONTACT INFO")
+        contacts_lbl.setStyleSheet(
+            f"color: #48484A; font-family: {self._FONT_TEXT}; font-size: 9px; font-weight: 700; "
+            "letter-spacing: 1.8px; background: transparent; border: none; padding: 4px 2px 6px 2px;"
+        )
+        sc_l.addWidget(contacts_lbl)
 
         # All 4 rows in one rounded container
         self._contacts_box = QFrame()
         self._contacts_box.setObjectName("ContactsBox")
-        self._contacts_box.setStyleSheet(f"""
-            QFrame#ContactsBox {{ 
-                background: #2C2C2E; 
-                border-radius: 10px; 
-                border: 1px solid #3A3A3C; 
-            }}
+        self._contacts_box.setStyleSheet("""
+            QFrame#ContactsBox {
+                background: #242426;
+                border-radius: 12px;
+                border: none;
+            }
         """)
         self._contacts_layout = QVBoxLayout(self._contacts_box)
         self._contacts_layout.setContentsMargins(0, 0, 0, 0)
         self._contacts_layout.setSpacing(0)
 
-        self.email_row    = self._create_row(FluentIcon.MAIL,  is_last=False)
-        self.phone_row    = self._create_row(FluentIcon.PHONE, is_last=False)
-        self.website_row  = self._create_row(FluentIcon.GLOBE, is_last=False)
-        self.address_row  = self._create_row(FluentIcon.HOME,  is_last=True)
+        self.email_row    = self._create_row("EMAIL",   FluentIcon.MAIL,  is_last=False)
+        self.phone_row    = self._create_row("PHONE",   FluentIcon.PHONE, is_last=False)
+        self.website_row  = self._create_row("WEBSITE", FluentIcon.GLOBE, is_last=False)
+        self.address_row  = self._create_row("ADDRESS", FluentIcon.HOME,  is_last=True)
 
         for row in [self.email_row, self.phone_row, self.website_row, self.address_row]:
             self._contacts_layout.addWidget(row)
 
         sc_l.addWidget(self._contacts_box)
+        sc_l.addSpacing(10)
 
-        # Optional social rows (separate, smaller container)
+        # Social section label
+        self._social_label = QLabel("SOCIAL")
+        self._social_label.setStyleSheet(
+            f"color: #48484A; font-family: {self._FONT_TEXT}; font-size: 9px; font-weight: 700; "
+            "letter-spacing: 1.8px; background: transparent; border: none; padding: 4px 2px 6px 2px;"
+        )
+        self._social_label.hide()
+        sc_l.addWidget(self._social_label)
+
+        # Social rows
         self._social_box = QFrame()
         self._social_box.setObjectName("SocialBox")
-        self._social_box.setStyleSheet(f"""
-            QFrame#SocialBox {{ 
-                background: #2C2C2E; 
-                border-radius: 10px; 
-                border: 1px solid #3A3A3C; 
-            }}
+        self._social_box.setStyleSheet("""
+            QFrame#SocialBox {
+                background: #242426;
+                border-radius: 12px;
+                border: none;
+            }
         """)
         social_l = QVBoxLayout(self._social_box)
         social_l.setContentsMargins(0, 0, 0, 0)
         social_l.setSpacing(0)
 
-        self.linkedin_row  = self._create_row(FluentIcon.LINK, is_last=False)
-        self.twitter_row   = self._create_row(FluentIcon.LINK, is_last=False)
-        self.instagram_row = self._create_row(FluentIcon.LINK, is_last=True)
+        self.linkedin_row  = self._create_row("LINKEDIN",  FluentIcon.LINK, is_last=False)
+        self.twitter_row   = self._create_row("TWITTER",   FluentIcon.LINK, is_last=False)
+        self.instagram_row = self._create_row("INSTAGRAM", FluentIcon.LINK, is_last=True)
         for row in [self.linkedin_row, self.twitter_row, self.instagram_row]:
             social_l.addWidget(row)
 
-        self._social_box.hide()  # Shown only if social data exists
-        sc_l.addSpacing(8)
+        self._social_box.hide()
         sc_l.addWidget(self._social_box)
         sc_l.addStretch(1)
 
         self._scroll.setWidget(scroll_content)
         layout.addWidget(self._scroll, 1)
 
-        # ── Placeholder ─────────────────────────────────────────────────────
+        # ── Placeholder ──────────────────────────────────────────────────────
         self._placeholder = QWidget()
+        self._placeholder.setStyleSheet("QWidget { background: #1C1C1E; }")
         ph_l = QVBoxLayout(self._placeholder)
         ph_l.setAlignment(Qt.AlignCenter)
-        ph_l.setSpacing(8)
+        ph_l.setSpacing(10)
         ph_icon = IconWidget(FluentIcon.PEOPLE)
         ph_icon.setFixedSize(40, 40)
-        ph_icon.setStyleSheet("color: #3A3A3C;")
+        ph_icon.setStyleSheet("color: #2C2C2E;")
         ph_l.addWidget(ph_icon, 0, Qt.AlignCenter)
         ph_txt = QLabel("Select a lead")
-        ph_txt.setStyleSheet(f"color: #48484A; font-family: {self._FONT_DISPLAY}; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+        ph_txt.setStyleSheet(
+            f"color: #48484A; font-family: {self._FONT_DISPLAY}; font-size: 13px; "
+            "font-weight: 600; background: transparent; border: none;"
+        )
         ph_l.addWidget(ph_txt, 0, Qt.AlignCenter)
+        ph_sub = QLabel("Details will appear here")
+        ph_sub.setStyleSheet(
+            f"color: #3A3A3C; font-family: {self._FONT_TEXT}; font-size: 11px; "
+            "font-weight: 400; background: transparent; border: none;"
+        )
+        ph_l.addWidget(ph_sub, 0, Qt.AlignCenter)
         layout.addWidget(self._placeholder)
 
-    def _create_row(self, icon, is_last: bool = False):
+    def _create_row(self, label_text: str, icon, is_last: bool = False):
         container = QFrame()
-        container.setFixedHeight(44)
-        divider_css = "" if is_last else "border-bottom: 0.5px solid #3A3A3C;"
+        divider_css = "" if is_last else "border-bottom: 1px solid rgba(255,255,255,0.04);"
         container.setStyleSheet(f"""
             QFrame {{
                 background: transparent;
                 border: none;
                 {divider_css}
             }}
-            QFrame:hover {{ background: #323234; }}
+            QFrame:hover {{ background: rgba(255,255,255,0.03); }}
         """)
         row_l = QHBoxLayout(container)
-        row_l.setContentsMargins(14, 0, 10, 0)
+        row_l.setContentsMargins(14, 10, 10, 10)
         row_l.setSpacing(12)
 
+        # Icon
         icon_w = IconWidget(icon)
         icon_w.setFixedSize(16, 16)
-        icon_w.setStyleSheet("color: #636366; background: transparent; border: none;")
-        row_l.addWidget(icon_w, 0, Qt.AlignVCenter)
+        icon_w.setStyleSheet("color: #48484A; background: transparent; border: none;")
+        row_l.addWidget(icon_w, 0, Qt.AlignTop)
 
-        val_label = QLabel("\u2014")
+        # Label + value stacked
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
+
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet(
+            f"color: #48484A; font-family: {self._FONT_TEXT}; font-size: 9px; "
+            "font-weight: 700; letter-spacing: 1.2px; background: transparent; border: none;"
+        )
+        text_col.addWidget(lbl)
+
+        val_label = QLabel("—")
         val_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         val_label.setWordWrap(True)
         val_label.setStyleSheet(
             f"color: #48484A; font-family: {self._FONT_TEXT}; font-size: 13px; "
             "font-weight: 400; background: transparent; border: none;"
         )
-        row_l.addWidget(val_label, 1)
+        text_col.addWidget(val_label)
+        row_l.addLayout(text_col, 1)
 
         copy_btn = QPushButton()
         copy_btn.setIcon(FluentIcon.COPY.qicon())
-        copy_btn.setIconSize(QSize(15, 15))
-        copy_btn.setFixedSize(26, 26)
+        copy_btn.setIconSize(QSize(13, 13))
+        copy_btn.setFixedSize(28, 28)
         copy_btn.setCursor(Qt.PointingHandCursor)
         copy_btn.setStyleSheet("""
-            QPushButton { border: none; background: transparent; color: #636366; opacity: 0; }
-            QPushButton:hover { color: #0A84FF; }
+            QPushButton { border: none; background: transparent; color: #3A3A3C; border-radius: 6px; }
+            QPushButton:hover { color: #0A84FF; background: rgba(10,132,255,0.10); }
         """)
         copy_btn.clicked.connect(lambda: self._copy_to_clipboard(val_label.text()))
         row_l.addWidget(copy_btn, 0, Qt.AlignVCenter)
@@ -638,6 +889,7 @@ class DetailPanel(QFrame):
         _set(self.instagram_row, record.instagram)
         has_social = any([record.linkedin, record.twitter, record.instagram])
         self._social_box.setVisible(has_social)
+        self._social_label.setVisible(has_social)
 
 
     def _open_url(self, url):
@@ -685,45 +937,26 @@ class ResultsPage(QWidget):
         self._search_box.setPlaceholderText("SEARCH...")
         self._search_box.textChanged.connect(self._apply_text_filter)
         self._search_box.setFixedWidth(180)
-        self._search_box.setFixedHeight(40)
+        self._search_box.setFixedHeight(34)
         self._search_box.setStyleSheet(Theme.line_edit())
         topRow.addWidget(self._search_box)
 
-        topRow.addSpacing(4)
+        # Filter Chips
+        self._source_chip = FilterChip("ALL SOURCES")
+        self._source_chip.clicked.connect(self._show_source_menu)
+        topRow.addWidget(self._source_chip)
 
-        # Filter combos
-        self._source_filter = ComboBox()
-        self._source_filter.addItems(["ALL SOURCES", "GOOGLE MAPS", "JOBSUCHE", "AUSBILDUNG.DE", "AUBI-PLUS"])
-        self._source_filter.currentIndexChanged.connect(self._apply_source_filter)
-        self._source_filter.setFixedHeight(40)
-        self._source_filter.setMinimumWidth(115)
-        self._style_combo(self._source_filter)
-        topRow.addWidget(self._source_filter)
+        self._status_chip = FilterChip("ALL STATUSES")
+        self._status_chip.clicked.connect(self._show_status_menu)
+        topRow.addWidget(self._status_chip)
 
-        self._status_filter = ComboBox()
-        self._status_filter.addItems(["ALL STATUSES", "VERIFIED EMAIL", "MISSING EMAIL"])
-        self._status_filter.currentIndexChanged.connect(self._apply_status_filter)
-        self._status_filter.setFixedHeight(40)
-        self._status_filter.setMinimumWidth(125)
-        self._style_combo(self._status_filter)
-        topRow.addWidget(self._status_filter)
+        self._city_chip = FilterChip("ALL CITIES")
+        self._city_chip.clicked.connect(self._show_city_menu)
+        topRow.addWidget(self._city_chip)
 
-        self._city_filter = ComboBox()
-        self._city_filter.setPlaceholderText("ALL CITIES")
-        self._city_filter.addItem("ALL CITIES")
-        self._city_filter.currentTextChanged.connect(self._apply_city_filter)
-        self._city_filter.setFixedHeight(40)
-        self._city_filter.setMinimumWidth(110)
-        self._style_combo(self._city_filter)
-        topRow.addWidget(self._city_filter)
-
-        self._date_range_filter = ComboBox()
-        self._date_range_filter.addItems(["ALL TIME", "TODAY", "LAST 7 DAYS", "LAST 30 DAYS"])
-        self._date_range_filter.currentIndexChanged.connect(self._apply_date_filter)
-        self._date_range_filter.setFixedHeight(40)
-        self._date_range_filter.setMinimumWidth(110)
-        self._style_combo(self._date_range_filter)
-        topRow.addWidget(self._date_range_filter)
+        self._date_chip = FilterChip("ALL TIME")
+        self._date_chip.clicked.connect(self._show_date_menu)
+        topRow.addWidget(self._date_chip)
 
         topRow.addStretch(1)
 
@@ -817,7 +1050,7 @@ class ResultsPage(QWidget):
             QHeaderView::section {{
                 background-color: transparent;
                 color: #636366;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-weight: 600;
                 font-size: 10px;
                 letter-spacing: 1.6px;
@@ -865,33 +1098,85 @@ class ResultsPage(QWidget):
 
 
 
-    def _style_combo(self, combo: ComboBox) -> None:
-        def update_style():
-            is_active = combo.currentIndex() > 0
-            bg = "rgba(10, 132, 255, 0.15)" if is_active else "#2C2C2E"
-            border = "1px solid rgba(10, 132, 255, 0.3)" if is_active else "1px solid transparent"
-            color = "#0A84FF" if is_active else "#FFFFFF"
-            hover_bg = "rgba(10, 132, 255, 0.25)" if is_active else "#3A3A3C"
-            combo.setStyleSheet(f"""
-                ComboBox {{
-                    background: {bg};
-                    color: {color};
-                    border: {border};
-                    border-radius: 8px;
-                    font-family: 'SF Pro Text', '-apple-system', sans-serif;
-                    font-size: 12px;
-                    padding: 0 10px;
-                }}
-                ComboBox:hover {{
-                    background: {hover_bg};
-                }}
-                ComboBox::drop-down {{
-                    border: none;
-                    width: 20px;
-                }}
-            """)
-        combo.currentIndexChanged.connect(update_style)
-        update_style()
+    def _show_source_menu(self):
+        menu = FilterMenu(self)
+        menu.add_item("All Sources", 0, self._proxy._source_filter == 0)
+        menu.add_divider()
+        menu.add_item("Google Maps", 1, self._proxy._source_filter == 1)
+        menu.add_item("Jobsuche", 2, self._proxy._source_filter == 2)
+        menu.add_item("Ausbildung.de", 3, self._proxy._source_filter == 3)
+        menu.add_item("Aubi-Plus", 4, self._proxy._source_filter == 4)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_source_filter(i, t))
+        self._source_chip.set_open(True)
+        menu.closed.connect(lambda: self._source_chip.set_open(False))
+        
+        pos = self._source_chip.mapToGlobal(QPoint(0, self._source_chip.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _show_status_menu(self):
+        menu = FilterMenu(self)
+        menu.add_item("All Statuses", 0, self._proxy._status_filter == 0)
+        menu.add_divider()
+        menu.add_item("Email Valid", 1, self._proxy._status_filter == 1)
+        menu.add_item("Email Invalid", 2, self._proxy._status_filter == 2)
+        menu.add_item("No Email Found", 3, self._proxy._status_filter == 3)
+        menu.add_item("Pending", 4, self._proxy._status_filter == 4)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_status_filter(i, t))
+        self._status_chip.set_open(True)
+        menu.closed.connect(lambda: self._status_chip.set_open(False))
+        
+        pos = self._status_chip.mapToGlobal(QPoint(0, self._status_chip.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _show_city_menu(self):
+        menu = FilterMenu(self)
+        menu.add_item("All Cities", 0, self._proxy._city_filter == "All Cities")
+        menu.add_divider()
+        
+        cities = set()
+        for record in self._model.get_all_records():
+            if record.city: cities.add(record.city.strip())
+        
+        if not cities:
+            menu.add_placeholder("No cities found")
+        else:
+            for idx, city in enumerate(sorted(list(cities)), 1):
+                menu.add_item(city, idx, self._proxy._city_filter == city)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_city_filter(t))
+        self._city_chip.set_open(True)
+        menu.closed.connect(lambda: self._city_chip.set_open(False))
+        
+        pos = self._city_chip.mapToGlobal(QPoint(0, self._city_chip.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _show_date_menu(self):
+        menu = FilterMenu(self)
+        menu.add_item("All Time", 0, self._proxy._date_filter == 0)
+        menu.add_divider()
+        menu.add_item("Last Minute", 1, self._proxy._date_filter == 1)
+        menu.add_item("Last Hour", 2, self._proxy._date_filter == 2)
+        menu.add_item("Last 3 Hours", 3, self._proxy._date_filter == 3)
+        menu.add_item("Last 6 Hours", 4, self._proxy._date_filter == 4)
+        menu.add_item("Last 12 Hours", 5, self._proxy._date_filter == 5)
+        menu.add_divider()
+        menu.add_item("Today", 6, self._proxy._date_filter == 6)
+        menu.add_item("Yesterday", 7, self._proxy._date_filter == 7)
+        menu.add_item("Last 7 Days", 8, self._proxy._date_filter == 8)
+        menu.add_item("Last 30 Days", 9, self._proxy._date_filter == 9)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_date_filter(i, t))
+        self._date_chip.set_open(True)
+        menu.closed.connect(lambda: self._date_chip.set_open(False))
+        
+        pos = self._date_chip.mapToGlobal(QPoint(0, self._date_chip.height() + 6))
+        menu.move(pos)
+        menu.show()
 
     def _setup_shortcuts(self):
         shortcut_find = QShortcut(QKeySequence("Ctrl+F"), self)
@@ -957,7 +1242,6 @@ class ResultsPage(QWidget):
 
         if added:
             self._update_count_label()
-            self._refresh_city_list()
             if not self._columns_auto_resized and self._model.rowCount() >= 3:
                 self._columns_auto_resized = True
                 self._table.resizeColumnsToContents()
@@ -990,44 +1274,29 @@ class ResultsPage(QWidget):
         self._proxy.setFilterFixedString(text.strip())
         self._update_count_label()
 
-    def _apply_source_filter(self, index: int):
+    def _apply_source_filter(self, index: int, name: str):
         self._proxy.set_source_filter(index)
+        self._source_chip.setText(name.upper())
+        self._source_chip.set_active(index > 0)
         self._update_count_label()
 
-    def _apply_status_filter(self, index: int):
+    def _apply_status_filter(self, index: int, name: str):
         self._proxy.set_status_filter(index)
+        self._status_chip.setText(name.upper())
+        self._status_chip.set_active(index > 0)
         self._update_count_label()
 
     def _apply_city_filter(self, city: str):
         self._proxy.set_city_filter(city)
+        self._city_chip.setText(city.upper())
+        self._city_chip.set_active(city != "ALL CITIES")
         self._update_count_label()
 
-    def _apply_date_filter(self, index: int):
+    def _apply_date_filter(self, index: int, name: str):
         self._proxy.set_date_filter(index)
+        self._date_chip.setText(name.upper())
+        self._date_chip.set_active(index > 0)
         self._update_count_label()
-
-    def _refresh_city_list(self):
-        """Re-populates the city filter from all unique cities in the model."""
-        cities = set()
-        for record in self._model.get_all_records():
-            if record.city:
-                cities.add(record.city.strip())
-        
-        sorted_cities = sorted(list(cities))
-        current = self._city_filter.currentText()
-        
-        self._city_filter.blockSignals(True)
-        self._city_filter.clear()
-        self._city_filter.addItem("All Cities")
-        self._city_filter.addItems(sorted_cities)
-        
-        # Restore selection
-        idx = self._city_filter.findText(current)
-        if idx >= 0:
-            self._city_filter.setCurrentIndex(idx)
-        else:
-            self._city_filter.setCurrentIndex(0)
-        self._city_filter.blockSignals(False)
 
     def _update_count_label(self):
         pass # Page subtitle was removed for a cleaner macOS aesthetic
@@ -1211,7 +1480,6 @@ class ResultsPage(QWidget):
         self._model.clear_records()
         for record in records:
             self._model.add_record(record)
-        self._refresh_city_list()
         self._update_count_label()
         if self._model.rowCount() > 0:
             self._columns_auto_resized = True
@@ -1246,4 +1514,3 @@ class ResultsPage(QWidget):
             self._model.clear_records()
             self._update_count_label()
             self._show_placeholder_state()
-            self._refresh_city_list()

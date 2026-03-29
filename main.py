@@ -178,12 +178,19 @@ def main():
     app.setApplicationVersion("1.0.0")
     app.setOrganizationName("ZUGZWANG")
 
-    # Default font globally
-    font = QFont("Segoe UI", 10)
+    # Load and register PT Root UI font family
+    from PySide6.QtGui import QFontDatabase
+    base_dir = Path(__file__).parent
+    _fonts_dir = base_dir / "src" / "ui" / "assets" / "fonts"
+    for _ttf in _fonts_dir.glob("pt-root-ui*.ttf"):
+        QFontDatabase.addApplicationFont(str(_ttf))
+
+    # Default font globally — PT Root UI Regular 10pt
+    font = QFont("PT Root UI", 10)
+    font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
 
     # Set icon globally (used for taskbar, window title, and all dialogs)
-    base_dir = Path(__file__).parent
     icon_path = base_dir / "assets" / "icon.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))

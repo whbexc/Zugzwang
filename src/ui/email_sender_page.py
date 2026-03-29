@@ -39,7 +39,7 @@ from ..core.config import config_manager
 class _SendSignals(QObject):
     log = Signal(str, str)        # message, level
     progress = Signal(int, int)   # current, total
-    finished = Signal(int, int)   # sent, failed
+    finished = Signal(int, int, bool) # sent, failed, was_aborted
     error = Signal(str)           # global error
 
 
@@ -50,6 +50,7 @@ class EmailSenderPage(QWidget):
         self._successful_emails: list[str] = []
         self._sending = False
         self._stop_requested = False
+        self._active_server = None
         self._signals = _SendSignals()
         self._isPreview = False
         
@@ -120,6 +121,11 @@ class EmailSenderPage(QWidget):
         self._interval_input = LineEdit(); self._interval_input.setText("15")
         self._interval_input.setFixedWidth(70)
         
+        self._batch_size = LineEdit(); self._batch_size.setText("100")
+        self._batch_size.setFixedWidth(70)
+        
+        self._btn_purge_sent = PushButton("PURGE SENT")
+        
         self._btn_send_one = PushButton("SEND ONE")
         self._btn_stop = PushButton("STOP")
         self._btn_stop.setEnabled(False)
@@ -150,72 +156,37 @@ class EmailSenderPage(QWidget):
         header_h.setSpacing(12)
         
         self._page_title = QLabel("ZUGZWANG Broadcast")
-        self._page_title.setStyleSheet("color: white; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-weight: 600; font-size: 28px;")
+        self._page_title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-weight: 600; font-size: 28px;")
         header_h.addWidget(self._page_title)
         
         self._status_badge = QLabel("READY")
-        self._status_badge.setStyleSheet("background: #1C3A1C; border: 1px solid #30D158; color: #30D158; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
+        self._status_badge.setStyleSheet("background: #1C3A1C; border: 1px solid #30D158; color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
         header_h.addWidget(self._status_badge, 0, Qt.AlignVCenter)
         
         header_h.addStretch(1)
 
-        btn_base_css = """
-            QPushButton {
-                background: #2C2C2E;
-                border: 1px solid #3A3A3C;
-                color: white;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
-                font-weight: 600;
-                font-size: 12px;
-                letter-spacing: 1.6px;
-                border-radius: 8px;
-                padding: 0 18px;
-            }
-            QPushButton:hover { background: #3A3A3C; }
-            QPushButton:disabled { background: transparent; border: 1px solid #3A3A3C; color: rgba(255,255,255,0.2); }
-        """
-        btn_send_one_css = """
-            QPushButton {
-                background: #0D1F0D;
-                border: 1px solid #30D158;
-                color: #30D158;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
-                font-weight: 600;
-                font-size: 12px;
-                letter-spacing: 1.6px;
-                border-radius: 8px;
-                padding: 0 18px;
-            }
-            QPushButton:hover { background: #1C3A1C; }
-            QPushButton:disabled { background: transparent; border: 1px solid #30D158; color: rgba(48,209,88,0.4); }
-        """
-
         self._btn_send_one.setFixedHeight(36)
         self._btn_send_one.setCursor(Qt.PointingHandCursor)
-        self._btn_send_one.setStyleSheet(btn_send_one_css)
+        self._btn_send_one.setStyleSheet(Theme.zugzwang_success_button())
         header_h.addWidget(self._btn_send_one)
         
         self._btn_stop.setFixedHeight(36)
         self._btn_stop.setCursor(Qt.PointingHandCursor)
-        self._btn_stop.setStyleSheet(btn_base_css)
+        self._btn_stop.setStyleSheet(Theme.secondary_button())
         header_h.addWidget(self._btn_stop)
 
+        self._btn_clear_data.setFixedHeight(36)
         self._btn_clear_data.setStyleSheet(Theme.zugzwang_danger_button())
         self._btn_clear_data.clicked.connect(self._clear_all_data)
         header_h.addWidget(self._btn_clear_data)
 
         self._btn_send_all.setFixedHeight(36)
         self._btn_send_all.setCursor(Qt.PointingHandCursor)
-        self._btn_send_all.setStyleSheet(btn_base_css)
+        self._btn_send_all.setStyleSheet(Theme.zugzwang_primary_button())
         header_h.addWidget(self._btn_send_all)
 
         body.addWidget(header_widget)
         
-        # ProgressBar replaces the manual divider for a cleaner look
-        self._progress_bar = ProgressBar()
-        self._progress_bar.setFixedHeight(2)
-        self._progress_bar.hide()
-        body.addWidget(self._progress_bar)
 
         # ── Step 1: Identity & Credentials ───────────────────────────────────
         body.addWidget(self._step_card("1", "ZUGZWANG Identity", self._build_identity_section(), compact=True))
@@ -249,11 +220,11 @@ class EmailSenderPage(QWidget):
         badge = QLabel(num)
         badge.setFixedSize(20, 20)
         badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-weight: 700; font-size: 11px;")
+        badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: 'PT Root UI', sans-serif; font-weight: 700; font-size: 11px;")
         hdr.addWidget(badge)
 
         ttl = QLabel(title.upper())
-        ttl.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
+        ttl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
         hdr.addWidget(ttl)
         hdr.addStretch(1)
         layout.addLayout(hdr)
@@ -363,13 +334,13 @@ class EmailSenderPage(QWidget):
             ToolButton:hover { color: #FF453A; }
         """)
         
-        self._attach_badge.setStyleSheet("color: #636366; font-family: 'SF Mono', monospace; font-size: 11px; background: transparent;")
+        self._attach_badge.setStyleSheet("color: #636366; font-family: 'PT Root UI', monospace; font-size: 11px; background: transparent;")
         lbl_row.addWidget(self._attach_badge)
         
         lbl_row.addSpacing(14)
         
         html_lbl = QLabel("HTML")
-        html_lbl.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 12px; background: transparent; border: none;")
+        html_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none;")
         lbl_row.addWidget(html_lbl)
         
         self._type_toggle.toggled.connect(self._save_fields)
@@ -394,37 +365,63 @@ class EmailSenderPage(QWidget):
         rec_widget.setFixedHeight(44)
         rec_h = QHBoxLayout(rec_widget)
         rec_h.setContentsMargins(0, 0, 0, 0)
-        rec_h.addWidget(self._field_label("RECIPIENT QUEUE"))
+        rec_h.setSpacing(12)
         
         self._style_input(self._interval_input)
         self._interval_input.setFixedHeight(34)
         self._interval_input.setFixedWidth(52)
         
         iv_lbl = self._field_label("INTERVAL (S)")
-        rec_h.addSpacing(16)
-        rec_h.addWidget(iv_lbl)
-        rec_h.addWidget(self._interval_input)
+        rec_h.addWidget(iv_lbl, 0, Qt.AlignVCenter)
+        rec_h.addWidget(self._interval_input, 0, Qt.AlignVCenter)
+        
+        bs_lbl = self._field_label("BATCH SIZE")
+        rec_h.addWidget(bs_lbl, 0, Qt.AlignVCenter)
+        
+        self._style_input(self._batch_size)
+        self._batch_size.setFixedHeight(34)
+        self._batch_size.setFixedWidth(64)
+        rec_h.addWidget(self._batch_size, 0, Qt.AlignVCenter)
+        
         rec_h.addStretch(1)
 
-        self._btn_dedup.setFixedHeight(28)
-        self._btn_dedup.setMinimumWidth(80)
+        self._btn_dedup.setFixedHeight(34)
+        self._btn_dedup.setFixedWidth(100)
         self._btn_dedup.setStyleSheet(Theme.zugzwang_danger_button())
-        rec_h.addWidget(self._btn_dedup)
+        rec_h.addWidget(self._btn_dedup, 0, Qt.AlignVCenter)
         
-        rec_h.addSpacing(16)
-        self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'SF Mono', monospace; font-size: 12px; font-weight: 600; background: transparent;")
-        rec_h.addWidget(self._rec_count)
+        self._btn_purge_sent.setFixedHeight(34)
+        self._btn_purge_sent.setFixedWidth(140)
+        self._btn_purge_sent.setStyleSheet(Theme.zugzwang_danger_button())
+        rec_h.addWidget(self._btn_purge_sent, 0, Qt.AlignVCenter)
+        
+        self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;")
+        rec_h.addWidget(self._rec_count, 0, Qt.AlignVCenter)
         layout.addWidget(rec_widget)
 
+        # Side-by-Side Monitor Area
+        monitor_split = QHBoxLayout()
+        monitor_split.setSpacing(12)
+        
+        # Left: Recipients
+        rec_col = QVBoxLayout()
+        rec_col.setSpacing(6)
+        
+        lbl_rec = self._field_label("RECIPIENT QUEUE")
+        lbl_rec.setFixedHeight(28)
+        rec_col.addWidget(lbl_rec)
+        
+        # Re-use existing recipients text
         self._style_plaintext(self._recipients_text)
-        self._recipients_text.setMinimumHeight(0)
-        layout.addWidget(self._recipients_text, 1)
-
-        log_col = QVBoxLayout()
-        log_col.setSpacing(6)
+        rec_col.addWidget(self._recipients_text, 1)
+        monitor_split.addLayout(rec_col, 5) # 50/50 balance
+        
+        # Right: Log Stack
+        log_stack = QVBoxLayout()
+        log_stack.setSpacing(6)
         lbl_log = self._field_label("BROADCAST ACTIVITY LOG")
         lbl_log.setFixedHeight(28)
-        log_col.addWidget(lbl_log)
+        log_stack.addWidget(lbl_log)
         
         self._status_log.setStyleSheet("""
             QTextEdit {
@@ -433,14 +430,32 @@ class EmailSenderPage(QWidget):
                 border-radius: 10px;
                 padding: 12px;
                 color: #48484A;
-                font-family: 'SF Mono', monospace;
+                font-family: 'PT Root UI', monospace;
                 font-size: 12px;
                 line-height: 1.8;
             }
         """)
-        self._status_log.setFixedHeight(52)
-        log_col.addWidget(self._status_log)
-        layout.addLayout(log_col)
+        # Remove fixed height to let it expand naturally with the recipient panel
+        log_stack.addWidget(self._status_log, 1)
+        
+        monitor_split.addLayout(log_stack, 5)
+        layout.addLayout(monitor_split, 1)
+
+        # Gmail Policy Notice - Spanning Full Width at Bottom
+        notice_card = QFrame()
+        notice_card.setObjectName("NoticeCard")
+        notice_card.setStyleSheet("QFrame#NoticeCard { background: rgba(10, 132, 255, 0.08); border: none; border-radius: 10px; }")
+        notice_h = QHBoxLayout(notice_card); notice_h.setContentsMargins(12, 10, 12, 10); notice_h.setSpacing(10)
+        
+        from qfluentwidgets import IconWidget
+        n_ic = IconWidget(FluentIcon.INFO); n_ic.setFixedSize(16, 16); n_ic.setStyleSheet("background: transparent; border: none; color: #0A84FF;")
+        notice_h.addWidget(n_ic)
+        
+        n_txt = QLabel("Gmail Policy: Sending >100 emails/day may flag your account as spam. Use batching for safety.")
+        n_txt.setStyleSheet("color: #4EA1FF; font-size: 11px; font-weight: 500; font-family: 'PT Root UI', sans-serif;")
+        notice_h.addWidget(n_txt, 1)
+        
+        layout.addWidget(notice_card)
 
         return container
 
@@ -466,7 +481,7 @@ class EmailSenderPage(QWidget):
 
     def _field_label(self, text: str) -> QLabel:
         label = QLabel(text.upper())
-        label.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 1.3px; background: transparent; border: none;")
+        label.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 1.3px; background: transparent; border: none;")
         return label
 
     def _make_field(self, label: str, widget: QWidget) -> QVBoxLayout:
@@ -484,7 +499,7 @@ class EmailSenderPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 8px;
                 color: white;
-                font-family: 'SF Pro Text', '-apple-system', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-size: 13px;
                 padding: 0 12px;
             }
@@ -501,7 +516,7 @@ class EmailSenderPage(QWidget):
                 border-radius: 10px;
                 padding: 12px;
                 color: #8E8E93;
-                font-family: 'SF Mono', monospace;
+                font-family: 'PT Root UI', monospace;
                 font-size: 12px;
             }
             QPlainTextEdit:focus, QTextEdit:focus {
@@ -527,7 +542,7 @@ class EmailSenderPage(QWidget):
         h = QHBoxLayout()
         h.setSpacing(10)
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #AEAEB2; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 10px; font-weight: 500; background: transparent; border: none;")
+        lbl.setStyleSheet("color: #AEAEB2; font-family: 'PT Root UI', sans-serif; font-size: 10px; font-weight: 500; background: transparent; border: none;")
         
         switch.setOnColor(on_color)
         
@@ -548,6 +563,7 @@ class EmailSenderPage(QWidget):
         self._btn_send_one.clicked.connect(self._send_test)
         self._btn_send_all.clicked.connect(self._send_all)
         self._btn_stop.clicked.connect(self._on_stop)
+        self._btn_purge_sent.clicked.connect(self._on_purge_sent)
         self._btn_export.clicked.connect(self._on_export)
         self._recipients_text.textChanged.connect(self._on_recipients_changed)
         
@@ -577,14 +593,14 @@ class EmailSenderPage(QWidget):
         self._status_log.verticalScrollBar().setValue(self._status_log.verticalScrollBar().maximum())
 
     def _on_progress(self, current: int, total: int):
-        pct = int((current / total) * 100) if total > 0 else 0
-        self._progress_bar.setValue(pct)
         self._status_badge.setText(f"SENDING {current}/{total}")
 
-    def _on_finished(self, sent: int, failed: int):
+    def _on_finished(self, sent: int, failed: int, was_aborted: bool):
         self._set_sending_state(False)
-        self._status_badge.setText("FINISHED")
-        self._status_log.append(f'<span style="color: #4EA1FF">Broadcast concluded. Sent: {sent}, Failed: {failed}</span>')
+        self._status_badge.setText("ABORTED" if was_aborted else "FINISHED")
+        msg = f"Broadcast aborted by user. Sent: {sent}, Failed: {failed}" if was_aborted else f"Broadcast concluded. Sent: {sent}, Failed: {failed}"
+        color = "#FF453A" if was_aborted else "#4EA1FF"
+        self._status_log.append(f'<span style="color: {color}">{msg}</span>')
 
     def _on_error(self, message: str):
         self._on_log(message, "ERROR")
@@ -623,6 +639,25 @@ class EmailSenderPage(QWidget):
     def _on_stop(self):
         self._stop_requested = True
         self._on_log("Stop requested by user...", "WARNING")
+        # Aggressive Stop: Force close the connection if it exists
+        if self._active_server:
+            try:
+                self._active_server.close()
+                self._on_log("Active connection forced to close.", "WARNING")
+            except: pass
+
+    def _on_purge_sent(self):
+        if not self._successful_emails:
+            self._on_log("No successful transmissions to purge.", "WARNING")
+            return
+            
+        current_text = self._recipients_text.toPlainText().splitlines()
+        purged = [e.strip() for e in current_text if e.strip() and e.strip() not in self._successful_emails]
+        
+        self._recipients_text.setPlainText("\n".join(purged))
+        self._successful_emails = [] # Clear tracking after purge
+        self._on_recipients_changed()
+        self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
 
     def _on_export(self):
         if not self._successful_emails:
@@ -665,12 +700,6 @@ class EmailSenderPage(QWidget):
         self._btn_send_one.setEnabled(not sending)
         self._btn_stop.setEnabled(sending)
         self._status_badge.setText("SENDING" if sending else "READY")
-        
-        if sending:
-            self._progress_bar.show()
-        else:
-            self._progress_bar.hide()
-            self._progress_bar.setValue(0)
 
     def _log(self, text: str, level: str = "INFO"):
         self._signals.log.emit(text, level)
@@ -682,22 +711,43 @@ class EmailSenderPage(QWidget):
 
         try:
             self._log("Initializing SMTP Handshake...")
-            server = self._create_smtp_connection()
+            self._active_server = self._create_smtp_connection()
+            if self._stop_requested:
+                try: self._active_server.quit()
+                except: pass
+                self._active_server = None
+                self._signals.finished.emit(0, 0, True)
+                return
             self._log("Authenticated successfully.", "SUCCESS")
         except Exception as e:
-            self._signals.error.emit(f"Handshake Failed: {e}")
-            self._signals.finished.emit(0, 0)
+            if self._stop_requested:
+                self._signals.finished.emit(0, 0, True)
+            else:
+                self._signals.error.emit(f"Handshake Failed: {e}")
+                self._signals.finished.emit(0, 0, False)
             return
+
+        # Respect Batch Size
+        try: 
+            bs = int(self._batch_size.text().strip())
+            if bs < len(recipients):
+                self._log(f"Limiting broadcast to batch size of {bs}...", "WARNING")
+                recipients = recipients[:bs]
+                total = bs
+        except: pass
 
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
             try:
                 msg = self._build_message(rec)
-                server.send_message(msg)
+                if self._stop_requested: break
+                
+                self._active_server.send_message(msg)
                 sent += 1
                 self._successful_emails.append(rec)
                 self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
             except Exception as e:
+                if self._stop_requested: break
                 failed += 1
                 self._log(f"Error for {rec}: {e}", "ERROR")
             
@@ -705,9 +755,12 @@ class EmailSenderPage(QWidget):
             if i < total - 1 and not self._stop_requested:
                 time.sleep(interval)
 
-        try: server.quit()
+        try: 
+            if self._active_server:
+                self._active_server.quit()
         except: pass
-        self._signals.finished.emit(sent, failed)
+        self._active_server = None
+        self._signals.finished.emit(sent, failed, self._stop_requested)
 
     def _build_message(self, recipient: str) -> MIMEMultipart:
         msg = MIMEMultipart()

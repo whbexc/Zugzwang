@@ -66,7 +66,7 @@ class SearchSourceCard(QFrame):
         layout.addStretch(1)
 
         self._title = QLabel(title)
-        self._title.setStyleSheet(f"color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 18px; font-weight: 700; background: transparent; border: none;")
+        self._title.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 18px; font-weight: 700; background: transparent; border: none;")
         layout.addWidget(self._title)
 
         self._body = QLabel(body)
@@ -162,7 +162,7 @@ class SearchToggleTile(QWidget):
         layout.addWidget(switch, 0, Qt.AlignVCenter)
 
         label = QLabel(title)
-        label.setStyleSheet(f"color: #FFFFFF; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 13px; font-weight: 500; background: transparent; border: none;")
+        label.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 500; background: transparent; border: none;")
         layout.addWidget(label, 0, Qt.AlignVCenter)
         layout.addStretch(1)
 
@@ -196,7 +196,7 @@ class SearchPage(QWidget):
 
         header = QHBoxLayout()
         self._page_title = QLabel("Target Generation")
-        self._page_title.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
+        self._page_title.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
         header.addWidget(self._page_title)
         header.addStretch(1)
 
@@ -264,13 +264,13 @@ class SearchPage(QWidget):
         badge_layout.setContentsMargins(0, 0, 0, 0)
         badge_label = QLabel(num)
         badge_label.setAlignment(Qt.AlignCenter)
-        badge_label.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 12px; font-weight: 800; background: transparent; border: none;")
+        badge_label.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 800; background: transparent; border: none;")
         badge_layout.addWidget(badge_label)
         header.addWidget(badge)
 
         title_label = QLabel(title.upper())
         title_label.setStyleSheet(
-            f"color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.8px; "
+            f"color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.8px; "
             "background: transparent; border: none;"
         )
         header.addWidget(title_label)
@@ -529,13 +529,10 @@ class SearchPage(QWidget):
     def _launch(self) -> None:
         # Check for License Activation (Trial logic)
         from ..core.security import LicenseManager
-        from .activation_dialog import ActivationDialog
-        
         if not LicenseManager.is_active():
             status = LicenseManager.get_trial_status()
             if status["remaining"] <= 0:
-                activation = ActivationDialog(self.window())
-                if not activation.exec():
+                if not self.window().show_activation_dialog():
                     return  # User closed the dialog without activating
         
         job_title = self._job_title.text().strip()

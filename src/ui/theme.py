@@ -44,7 +44,7 @@ class Theme:
     # ── Design Tokens ────────────────────────────────────────────────────────
     RADIUS_MODAL   = 16
     RADIUS_CARD    = 14
-    RADIUS_BUTTON  = 8
+    RADIUS_BUTTON  = 10
     ANIMATION_FAST = 200
     ANIMATION_SLOW = 450
     
@@ -89,14 +89,14 @@ class Theme:
 
     @staticmethod
     def zugzwang_button() -> str:
-        """Canonical ZUGZWANG button (Secondary/Reset)."""
+        """Canonical ZUGZWANG button (Secondary/Reset) — borderless, 10px radius."""
         return f"""
             QPushButton {{
                 background: #2C2C2E;
-                border: 1px solid #3A3A3C;
+                border: none;
                 border-radius: {Theme.RADIUS_BUTTON}px;
-                color: #636366;
-                font-family: "-apple-system", "SF Pro Text", sans-serif;
+                color: #FFFFFF;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
                 font-weight: 600;
                 font-size: 12px;
                 letter-spacing: 1.6px;
@@ -104,11 +104,10 @@ class Theme:
                 padding: 0 18px;
             }}
             QPushButton:hover {{
-                background: #333333;
-                color: #FFFFFF;
+                background: #3A3A3C;
             }}
             QPushButton:pressed {{ background: #252525; }}
-            QPushButton:disabled {{ color: #444444; border-color: #2C2C2E; background: #252525; }}
+            QPushButton:disabled {{ color: #444444; background: #252525; }}
         """
 
     @staticmethod
@@ -120,7 +119,7 @@ class Theme:
                 border: none;
                 border-radius: {Theme.RADIUS_BUTTON}px;
                 color: #FFFFFF;
-                font-family: "-apple-system", "SF Pro Text", sans-serif;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
                 font-weight: 600;
                 font-size: 12px;
                 letter-spacing: 1.6px;
@@ -144,23 +143,23 @@ class Theme:
 
     @staticmethod
     def zugzwang_danger_button() -> str:
-        """Danger button — dark red-tinted bg, red text, no border (CLEAR ALL style)."""
+        """Danger button — dark red-tinted bg, vivid red text, no border (CLEAN style)."""
         return f"""
             QPushButton {{
-                background: rgba(255, 69, 58, 0.18);
+                background-color: #3C1A1A;
                 border: none;
-                border-radius: {Theme.RADIUS_BUTTON}px;
+                border-radius: 10px;
                 color: #FF453A;
-                font-family: "-apple-system", "SF Pro Text", sans-serif;
-                font-weight: 600;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-weight: 700;
                 font-size: 12px;
-                letter-spacing: 1.6px;
+                letter-spacing: 1.8px;
                 text-transform: uppercase;
                 padding: 0 18px;
             }}
-            QPushButton:hover {{ background: rgba(255, 69, 58, 0.28); color: #FF6259; }}
-            QPushButton:pressed {{ background: rgba(255, 69, 58, 0.38); }}
-            QPushButton:disabled {{ color: #444444; background: rgba(255,69,58,0.06); }}
+            QPushButton:hover {{ background-color: #4A2020; color: #FF6259; }}
+            QPushButton:pressed {{ background-color: #5A1F1F; }}
+            QPushButton:disabled {{ color: #5A3030; background-color: #2A1212; }}
         """
 
     @staticmethod
@@ -170,23 +169,23 @@ class Theme:
 
     @staticmethod
     def zugzwang_success_button() -> str:
-        """ZUGZWANG success button — #30D158 tint, same metrics as zugzwang_button."""
+        """Success button — dark green-tinted bg, vivid green text, no border (matches danger style)."""
         return """
             QPushButton {
-                background: rgba(48, 209, 88, 0.10);
-                border: 1px solid rgba(48, 209, 88, 0.40);
-                border-radius: 6px;
+                background-color: #1A3C22;
+                border: none;
+                border-radius: 10px;
                 color: #30D158;
-                font-family: "-apple-system", "BlinkMacSystemFont", "SF Pro Text", sans-serif;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
                 font-weight: 700;
                 font-size: 12px;
                 letter-spacing: 1.8px;
                 text-transform: uppercase;
                 padding: 0 20px;
             }
-            QPushButton:hover { background: rgba(48, 209, 88, 0.20); border-color: rgba(48, 209, 88, 0.65); }
-            QPushButton:pressed { background: rgba(48, 209, 88, 0.30); }
-            QPushButton:disabled { color: #636366; border-color: #2C2C2E; background: #252525; }
+            QPushButton:hover { background-color: #20492A; color: #5EE27A; }
+            QPushButton:pressed { background-color: #275A33; }
+            QPushButton:disabled { color: #305040; background: #1A2A1E; }
         """
 
     @staticmethod
@@ -200,10 +199,10 @@ class Theme:
             LineEdit {{
                 background: #1C1C1E;
                 border: 1px solid #3A3A3C;
-                border-radius: 10px;
+                border-radius: 8px;
                 color: #FFFFFF;
                 padding: 4px 12px;
-                font-family: "SF Pro Text", "-apple-system", sans-serif;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
                 font-size: 14px;
             }}
             LineEdit:focus {{
@@ -218,10 +217,10 @@ class Theme:
             ComboBox, EditableComboBox {{
                 background: #1C1C1E;
                 border: 1px solid #3A3A3C;
-                border-radius: 10px;
+                border-radius: 8px;
                 color: #FFFFFF;
                 padding: 4px 12px;
-                font-family: "SF Pro Text", "-apple-system", sans-serif;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
                 font-size: 14px;
             }}
             ComboBox:hover, EditableComboBox:hover {{
@@ -239,7 +238,7 @@ class Theme:
                 background: {Theme.BG_ZINC};
                 border: 1px solid {Theme.BORDER_LIGHT};
                 border-bottom: 1px solid {Theme.BORDER_LIGHT};
-                border-radius: 10px;
+                border-radius: 8px;
                 padding: 10px;
                 color: #FFFFFF;
                 font-size: 13px;

@@ -48,13 +48,13 @@ _ACCENT   = AppTheme.ACCENT_PRIMARY
 
 _GLOBAL_CSS = f"""
 * {{
-    font-family: "-apple-system", "SF Pro Display", "BlinkMacSystemFont", "Segoe UI", sans-serif;
+    font-family: "-apple-system", "PT Root UI", "BlinkMacSystemFont", "PT Root UI", sans-serif;
 }}
 QWidget {{ color: {AppTheme.TEXT_PRIMARY}; font-size: 13px; }}
 QLabel {{ background: transparent; border: none; }}
 /* Specialized Typography */
-TitleLabel {{ font-family: "SF Pro Display", "-apple-system", sans-serif; font-size: 28px; font-weight: 600; color: {AppTheme.TEXT_PRIMARY}; }}
-.SectionHeader {{ font-family: "SF Pro Text", "-apple-system", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.2px; color: {AppTheme.TEXT_TERTIARY}; text-transform: uppercase; }}
+TitleLabel {{ font-family: "PT Root UI", sans-serif; font-size: 28px; font-weight: 600; color: {AppTheme.TEXT_PRIMARY}; }}
+.SectionHeader {{ font-family: "PT Root UI", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.2px; color: {AppTheme.TEXT_TERTIARY}; text-transform: uppercase; }}
 ElevatedCardWidget {{ background-color: {AppTheme.BG_ZINC}; border: none; border-radius: {AppTheme.RADIUS_CARD}px; }}
 """
 
@@ -78,7 +78,7 @@ class _HeaderButton(QPushButton):
                 background: transparent;
                 border: none;
                 color: {active_color if self.isChecked() else idle_color};
-                font-family: "SF Pro Text", "-apple-system", sans-serif;
+                font-family: "PT Root UI", sans-serif;
                 font-size: 13px;
                 letter-spacing: 0.3px;
                 padding: 0 16px;
@@ -141,7 +141,7 @@ class _CustomTitleBar(TitleBar):
         left_layout.addWidget(self._status_dot)
 
         self._name = QLabel("ZUGZWANG")
-        self._name.setStyleSheet(f"color: #FFFFFF; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 14px; font-weight: 600; background: transparent;")
+        self._name.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 14px; font-weight: 600; background: transparent;")
         left_layout.addWidget(self._name)
 
         left_area.setFixedWidth(220)
@@ -320,6 +320,13 @@ class MainWindow(FramelessWindow):
     def _connect_signals(self):
         self.dashboard_page.navigate_to_search.connect(lambda: self._switch(1))
         self.dashboard_page.navigate_to_results.connect(lambda: self._switch(2))
+
+    def show_activation_dialog(self):
+        """Centralized activation check with navigation support."""
+        from .activation_dialog import ActivationDialog
+        dialog = ActivationDialog(self)
+        dialog.open_send_requested.connect(lambda: self._switch(4))
+        return dialog.exec()
 
     def _restore_saved_results(self):
         try:

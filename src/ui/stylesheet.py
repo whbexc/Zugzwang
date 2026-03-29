@@ -25,7 +25,7 @@ _RAVEN_5 = "#0B111D"
 
 APP_STYLESHEET = """
 * {
-    font-family: "Segoe UI", "Arial", sans-serif;
+    font-family: "PT Root UI", "Arial", sans-serif;
     color: #F3EFF4;
     outline: none;
 }
@@ -130,7 +130,7 @@ QPushButton#NavBtn {
     font-size: 12px;
     font-weight: 500;
     color: #B7B0B9;
-    border-radius: 10px;
+    border-radius: 8px;
     margin: 2px 0;
 }
 
@@ -154,7 +154,7 @@ QPushButton#SidebarPrimaryBtn {
     background: #635BFF;
     color: #F7F5FF;
     border: none;
-    border-radius: 16px;
+    border-radius: 8px;
     min-width: 56px;
     max-width: 56px;
     min-height: 56px;
@@ -177,7 +177,7 @@ QPushButton#SidebarUtilityBtn {
     background: transparent;
     color: #AEA7B1;
     border: none;
-    border-radius: 14px;
+    border-radius: 8px;
     min-width: 56px;
     max-width: 56px;
     min-height: 44px;
@@ -307,7 +307,7 @@ QLabel#WorkspaceItemBadge {
 QPushButton#TopNavBtn {
     background: transparent;
     border: 1px solid #334155;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 8px 14px;
     min-height: 20px;
     color: #94A3B8;
@@ -345,7 +345,7 @@ QLineEdit#ShellSearchInput::placeholder {
 QPushButton#TopBarIconBtn {
     background: #1A171B;
     border: 1px solid #2A2630;
-    border-radius: 12px;
+    border-radius: 8px;
     color: #F3EFF4;
     padding: 0;
 }
@@ -379,7 +379,7 @@ QTableView:focus {
 QPushButton#ToolbarPill {
     background: #1F1B20;
     border: none;
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 10px 18px;
     font-size: 12px;
     font-weight: 700;
@@ -394,7 +394,7 @@ QPushButton#ToolbarIconBtn:hover {
 QPushButton#ToolbarIconBtn {
     background: #1F1B20;
     border: 1px solid #2A2630;
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 0;
     font-size: 16px;
     font-weight: 700;
@@ -645,7 +645,7 @@ QDoubleSpinBox::up-arrow {
 }
 
 QPushButton {
-    border-radius: 14px;
+    border-radius: 8px;
     font-size: 13px;
     font-weight: 600;
     padding: 10px 18px;
@@ -2155,7 +2155,7 @@ QFrame#ResultsIntro {
 }
 
 QLabel#ResultsPageTitle {
-    font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "PT Root UI", sans-serif;
     font-size: 28px;
     font-weight: 800;
     color: #F8FAFC;
@@ -2181,7 +2181,7 @@ QLabel#ResultsMetricLabel {
 }
 
 QLabel#ResultsMetricValue {
-    font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "PT Root UI", sans-serif;
     font-size: 24px;
     font-weight: 800;
     color: #F5F8FC;
@@ -2735,7 +2735,7 @@ QPushButton#ResultsRoundIconBtn:disabled {
 
 /* Strict Monochrome / Grayscale override layer */
 * {
-    font-family: "Inter", "Geist Sans", "Segoe UI", sans-serif;
+    font-family: "Inter", "Geist Sans", "PT Root UI", sans-serif;
     color: #F5F5F5;
 }
 
@@ -3129,5 +3129,55 @@ SubtitleLabel,
 TitleLabel {
     background: transparent;
     border: none;
+}
+
+QPushButton#btn_reset {
+    background-color: #2C2C2E;
+    border: 1px solid #3A3A3C;
+    border-radius: 8px;
+    color: #636366;
+    height: 36px;
+    padding: 0px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+}
+QPushButton#btn_reset:hover {
+    background-color: #333333;
+    color: #FFFFFF;
+}
+
+QPushButton#btn_save {
+    background-color: #0A84FF;
+    border: none;
+    border-radius: 8px;
+    color: #FFFFFF;
+    height: 36px;
+    padding: 0px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+}
+QPushButton#btn_save:hover {
+    background-color: #409CFF;
+}
+
+QPushButton#btn_wipe_data {
+    background-color: #2C1A1A;
+    border: 1px solid #3A2020;
+    border-radius: 8px;
+    color: #FF453A;
+    height: 36px;
+    padding: 0px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+}
+QPushButton#btn_wipe_data:hover {
+    background-color: #3A1F1F;
+    color: #FF6259;
 }
 """.replace("__CHEVRON_DOWN__", _CHEVRON_DOWN).replace("__CHEVRON_UP__", _CHEVRON_UP)

@@ -59,7 +59,7 @@ class MetricTile(QFrame):
 
         row = QHBoxLayout()
         self._value = QLabel(value)
-        self._value.setStyleSheet(f"color: {color}; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 44px; font-weight: 700; background: transparent; border: none; padding: 0; margin-top: 4px;")
+        self._value.setStyleSheet(f"color: {color}; font-family: 'PT Root UI', sans-serif; font-size: 44px; font-weight: 700; background: transparent; border: none; padding: 0; margin-top: 4px;")
         row.addWidget(self._value)
         row.addStretch()
 
@@ -128,13 +128,13 @@ class MonitorPage(QWidget):
         header_row.setContentsMargins(0, 0, 0, 4)
 
         self._page_title = QLabel("Runtime Monitor")
-        self._page_title.setStyleSheet("color: white; font-family: 'SF Pro Display', '-apple-system', sans-serif; font-size: 28px; font-weight: 600; letter-spacing: 0.3px;")
+        self._page_title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; letter-spacing: 0.3px;")
         header_row.addWidget(self._page_title)
         header_row.addStretch(1)
 
         self._status_badge = QLabel("IDLE")
         self._status_badge.setAlignment(Qt.AlignCenter)
-        self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         header_row.addWidget(self._status_badge, 0, Qt.AlignVCenter)
         root.addLayout(header_row)
 
@@ -160,7 +160,7 @@ class MonitorPage(QWidget):
 
         title_row = QHBoxLayout()
         self._query_label = QLabel("No active session")
-        self._query_label.setStyleSheet("color: white; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 15px; font-weight: 600;")
+        self._query_label.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 15px; font-weight: 600;")
         title_row.addWidget(self._query_label, 1)
         
         self._status_line = QLabel("Waiting for a search to begin")
@@ -190,10 +190,10 @@ class MonitorPage(QWidget):
 
         prog_hdr = QHBoxLayout()
         self._progress_label = QLabel("Idle")
-        self._progress_label.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 13px;")
+        self._progress_label.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 13px;")
         prog_hdr.addWidget(self._progress_label, 1)
         self._pct_label = QLabel("0%")
-        self._pct_label.setStyleSheet("color: #0A84FF; font-family: 'SF Mono', monospace; font-size: 13px; font-weight: 600;")
+        self._pct_label.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', monospace; font-size: 13px; font-weight: 600;")
         prog_hdr.addWidget(self._pct_label)
         hero_layout.addLayout(prog_hdr)
 
@@ -201,7 +201,7 @@ class MonitorPage(QWidget):
         def _time_pill(default_text):
             lbl = QLabel(default_text)
             lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("color: #8E8E93; background: #1C1C1E; border-radius: 6px; padding: 4px 8px; font-family: 'SF Mono', monospace; font-size: 12px; font-weight: 500;")
+            lbl.setStyleSheet("color: #8E8E93; background: #1C1C1E; border-radius: 6px; padding: 4px 8px; font-family: 'PT Root UI', monospace; font-size: 12px; font-weight: 500;")
             return lbl
 
         time_row = QHBoxLayout()
@@ -261,7 +261,7 @@ class MonitorPage(QWidget):
         act_head.addStretch()
         
         self._live_badge = QLabel("• LIVE")
-        self._live_badge.setStyleSheet("color: #30D158; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._live_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         act_head.addWidget(self._live_badge)
         act_layout.addLayout(act_head)
 
@@ -405,7 +405,7 @@ class MonitorPage(QWidget):
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("RUNNING")
-        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_bar.setValue(0)
         self._progress_label.setText("Initializing browser...")
@@ -467,7 +467,7 @@ class MonitorPage(QWidget):
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("DONE")
-        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_label.setText("All records captured and ready for export.")
         self._elapsed_value.setText(f"ELAPSED {self._format_time(time.monotonic() - self._job_start_time, fixed=True)}")
@@ -482,7 +482,7 @@ class MonitorPage(QWidget):
         self._status_line.setStyleSheet("color: #FF453A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("FAILED")
-        self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_label.setText("Scraper stopped. Review the activity stream.")
         self._btn_pause.setEnabled(False)
@@ -493,7 +493,7 @@ class MonitorPage(QWidget):
         self._status_line.setText("Paused — waiting for resume")
         self._status_line.setStyleSheet("color: #FF9F0A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         self._status_badge.setText("PAUSED")
-        self._status_badge.setStyleSheet("color: #FF9F0A; background: rgba(255,159,10,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #FF9F0A; background: rgba(255,159,10,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         self._progress_label.setText("Paused. Resume when ready to continue.")
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(True)
@@ -505,7 +505,7 @@ class MonitorPage(QWidget):
         self._status_line.setText("Cancelled by user")
         self._status_line.setStyleSheet("color: #FF9F0A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         self._status_badge.setText("IDLE")
-        self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         self._progress_label.setText("The current scraping run was cancelled.")
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
@@ -518,7 +518,7 @@ class MonitorPage(QWidget):
         self._status_line.setStyleSheet("color: #FF453A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("TRIAL OVER")
-        self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_label.setText("Daily limit of 20 scraps reached. Upgrade to unlock unlimited scraping.")
         self._btn_pause.setEnabled(False)
@@ -535,9 +535,7 @@ class MonitorPage(QWidget):
         dialog.ok_btn.setText("UPGRADE NOW")
         dialog.cancel_btn.setText("CLOSE")
         if dialog.exec():
-            from .activation_dialog import ActivationDialog
-            activation = ActivationDialog(self.window())
-            activation.exec()
+            self.window().show_activation_dialog()
 
     def _ui_log(self, level: str, message: str):
         color_map = {
@@ -578,7 +576,7 @@ class MonitorPage(QWidget):
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("RUNNING")
-        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;")
+        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_label.setText("Resuming network activity...")
         self._btn_pause.setEnabled(True)

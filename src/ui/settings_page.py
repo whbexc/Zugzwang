@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, Propert
 from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QGridLayout, QFrame,
-    QLabel, QPushButton as _QPBtn, QScrollArea
+    QLabel, QPushButton as _QPBtn, QScrollArea, QSizePolicy
 )
 
 from qfluentwidgets import (
@@ -23,7 +23,6 @@ from qfluentwidgets import (
 from ..core.config import config_manager
 from ..services.orchestrator import orchestrator
 from ..core.security import LicenseManager
-from .activation_dialog import ActivationDialog
 from .theme import Theme
 
 
@@ -62,7 +61,7 @@ class SettingsPage(QWidget):
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("color: white; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 14px; background: transparent; border: none;")
+        title_lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 14px; background: transparent; border: none;")
         text_col.addWidget(title_lbl)
         if caption:
             cap = QLabel(caption)
@@ -77,7 +76,7 @@ class SettingsPage(QWidget):
     def _section_label(self, text: str) -> QLabel:
         lbl = QLabel(text.upper())
         lbl.setStyleSheet(
-            "color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 11px; font-weight: 600; "
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; "
             "letter-spacing: 1.6px; background: transparent; border: none;"
         )
         return lbl
@@ -102,13 +101,13 @@ class SettingsPage(QWidget):
         badge.setStyleSheet(f"QFrame#Badge{num} {{ background: #0A84FF; border-radius: 10px; border: none; }}")
         bl = QHBoxLayout(badge); bl.setContentsMargins(0, 0, 0, 0)
         bn = QLabel(num); bn.setAlignment(Qt.AlignCenter)
-        bn.setStyleSheet("color: white; font-family: 'SF Pro Text', sans-serif; font-size: 11px; font-weight: 700; background: transparent; border: none;")
+        bn.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 700; background: transparent; border: none;")
         bl.addWidget(bn)
         hdr.addWidget(badge)
 
         tl = QLabel(title.upper())
         tl.setStyleSheet(
-            "color: #8E8E93; font-family: 'SF Pro Text', '-apple-system', sans-serif; font-size: 11px; font-weight: 600; "
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; "
             "letter-spacing: 1.6px; background: transparent; border: none;"
         )
         hdr.addWidget(tl); hdr.addStretch()
@@ -146,7 +145,7 @@ class SettingsPage(QWidget):
         title_box = QWidget()
         tl = QVBoxLayout(title_box); tl.setContentsMargins(0, 0, 0, 12)
         title = QLabel("Settings")
-        title.setStyleSheet("color: white; font-family: 'SF Pro Display', sans-serif; font-size: 28px; font-weight: 600;")
+        title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600;")
         tl.addWidget(title)
         root.addWidget(title_box, 0)
 
@@ -201,9 +200,9 @@ class SettingsPage(QWidget):
                 LineEdit {
                     background: #1C1C1E;
                     border: 1px solid #3A3A3C;
-                    border-radius: 6px;
+                    border-radius: 8px;
                     color: white;
-                    font-family: 'SF Mono', monospace;
+                    font-family: 'PT Root UI', monospace;
                     font-size: 13px;
                     padding: 8px;
                 }
@@ -240,7 +239,7 @@ class SettingsPage(QWidget):
             QTextEdit {
                 background: #1A1A1A;
                 color: #8E8E93;
-                font-family: 'SF Mono', monospace;
+                font-family: 'PT Root UI', monospace;
                 font-size: 12px;
                 line-height: 1.8;
                 border: 1px solid #3A3A3C;
@@ -279,7 +278,7 @@ class SettingsPage(QWidget):
             QTextEdit {
                 background: #1A1A1A;
                 color: #8E8E93;
-                font-family: 'SF Mono', monospace;
+                font-family: 'PT Root UI', monospace;
                 font-size: 11px;
                 line-height: 1.7;
                 border: 1px solid #3A3A3C;
@@ -297,77 +296,149 @@ class SettingsPage(QWidget):
         container = QWidget(); container.setStyleSheet("background: transparent;")
         vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(0)
 
-        # 3. LOGGING + TIMEOUT row
-        perf_frame = QWidget()
-        perf_hl = QHBoxLayout(perf_frame); perf_hl.setContentsMargins(0, 0, 0, 0); perf_hl.setSpacing(12)
+        # 1. LOGGING + TIMEOUT labels/inputs
+        # ── Group 1: Modern Settings Rows ─────────────────────────────────────
+        # Instead of generic columns, we use a "macOS Settings Row" pattern.
+        # This increases the vertical height but significantly boosts legibility and "premium" feel.
         
-        log_col = QVBoxLayout(); log_col.setSpacing(6)
-        log_col.addWidget(self._section_label("Logging"))
-        self._log_level = ComboBox(); self._log_level.setFixedHeight(36); self._log_level.setFixedWidth(140) # Slightly wider
-        self._log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
-        self._style_combo(self._log_level)
-        log_col.addWidget(self._log_level); perf_hl.addLayout(log_col)
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        
+        # ── Group 1: Modern Split Layout ─────────────────────────────────────
+        # Left: Config Rows | Right: Action Cluster
+        top_split = QHBoxLayout(); top_split.setSpacing(16); top_split.setContentsMargins(0, 0, 0, 0)
 
-        tm_col = QVBoxLayout(); tm_col.setSpacing(6)
-        tm_col.addWidget(self._section_label("Timeout"))
-        self._request_timeout = LineEdit(); self._request_timeout.setFixedSize(84, 36)
-        self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
-        self._request_timeout.setStyleSheet("""
-            LineEdit {
-                background: #1C1C1E;
-                border: 1px solid #3A3A3C;
-                border-radius: 6px;
-                color: white;
-                font-family: 'SF Mono', monospace;
-                font-size: 13px;
-                padding: 0 10px;
+        # ── LEFT: Config Group ──────────────────────────────────────────
+        conf_group = QFrame()
+        conf_group.setObjectName("LeftConfigGroup")
+        conf_group.setStyleSheet("""
+            QFrame#LeftConfigGroup {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                                          stop:0 rgba(44, 44, 46, 0.4), 
+                                          stop:1 rgba(28, 28, 30, 0.3));
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
             }
         """)
-        tm_col.addWidget(self._request_timeout); perf_hl.addLayout(tm_col)
-        perf_hl.addStretch()
-        vl.addWidget(perf_frame)
+        conf_vl = QVBoxLayout(conf_group); conf_vl.setContentsMargins(16, 8, 16, 8); conf_vl.setSpacing(0)
 
-        # 4. margin-top: 16px
+        def _setting_row(icon: FluentIcon, title: str, description: str, widget: QWidget):
+            row = QFrame()
+            row.setStyleSheet("background: transparent; border: none;")
+            row_hl = QHBoxLayout(row); row_hl.setContentsMargins(0, 8, 0, 8); row_hl.setSpacing(12)
+            from qfluentwidgets import IconWidget
+            ic = IconWidget(icon); ic.setFixedSize(16, 16); ic.setStyleSheet("color: #8E8E93;")
+            row_hl.addWidget(ic)
+            txt_vl = QVBoxLayout(); txt_vl.setSpacing(2); txt_vl.setContentsMargins(0, 0, 0, 0)
+            t = QLabel(title); t.setStyleSheet("color: white; font-size: 13px; font-weight: 600;")
+            d = QLabel(description); d.setStyleSheet("color: #8E8E93; font-size: 11px;")
+            txt_vl.addWidget(t); txt_vl.addWidget(d)
+            row_hl.addLayout(txt_vl, 1); row_hl.addWidget(widget)
+            return row
+
+        # Logging Row
+        self._log_level = ComboBox(); self._log_level.setFixedHeight(30); self._log_level.setFixedWidth(110)
+        self._log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
+        self._log_level.setStyleSheet("ComboBox { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; padding: 0 8px; font-size: 12px; } ComboBox:hover { background: #3A3A3C; }")
+        conf_vl.addWidget(_setting_row(FluentIcon.HISTORY, "Logging Level", "Control log verbosity.", self._log_level))
+        
+        # Divider
+        div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
+        conf_vl.addWidget(div)
+
+        # Timeout Row
+        self._request_timeout = LineEdit(); self._request_timeout.setFixedSize(70, 30)
+        self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
+        self._request_timeout.setStyleSheet("LineEdit { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; font-family: 'PT Root UI', monospace; font-size: 12px; padding: 0 8px; } LineEdit:focus { border-color: #0A84FF; }")
+        conf_vl.addWidget(_setting_row(FluentIcon.SETTING, "Timeout (s)", "Max request duration.", self._request_timeout))
+        
+        top_split.addWidget(conf_group, 3)
+
+        # ── RIGHT: Action Stack ──────────────────────────────────────────
+        action_vl = QVBoxLayout(); action_vl.setSpacing(8); action_vl.setContentsMargins(0, 0, 0, 0)
+        
+        from PySide6.QtWidgets import QPushButton
+        class _Btn(QPushButton): pass
+
+        self._save_btn = _Btn("SAVE CONFIGURATIONS")
+        self._save_btn.setFixedHeight(36)
+        self._save_btn.setMinimumWidth(200)
+        self._save_btn.setCursor(Qt.PointingHandCursor)
+        self._save_btn.setStyleSheet("""
+            _Btn {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0A84FF, stop:1 #0070E0);
+                border: none; border-radius: 8px; color: white;
+                font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+                padding: 0 16px;
+                text-align: center;
+            }
+            _Btn:hover { background: #409CFF; }
+        """)
+        self._save_btn.clicked.connect(self._save)
+        action_vl.addWidget(self._save_btn)
+
+        self._reset_btn = _Btn("RESET DEFAULTS")
+        self._reset_btn.setFixedHeight(36)
+        self._reset_btn.setMinimumWidth(200)
+        self._reset_btn.setCursor(Qt.PointingHandCursor)
+        self._reset_btn.setStyleSheet("""
+            _Btn {
+                background-color: transparent; border: 1.5px solid #3A3A3C;
+                border-radius: 8px; color: #8E8E93;
+                font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase;
+            }
+            _Btn:hover { color: white; border-color: #48484A; background: rgba(255,255,255,0.03); }
+        """)
+        self._reset_btn.clicked.connect(self._reset)
+        action_vl.addWidget(self._reset_btn)
+        
+        action_vl.addStretch()
+        top_split.addLayout(action_vl, 1)
+
+        vl.addLayout(top_split)
         vl.addSpacing(16)
 
-        # 5. Action row: [RESET] [SAVE CONFIGURATIONS]
-        btn_hl = QHBoxLayout(); btn_hl.setSpacing(8); btn_hl.setContentsMargins(0, 0, 0, 0)
+        # ── Group 2: Danger Zone card ──────────────────────────────────────────
+        danger_card = QFrame()
+        danger_card.setObjectName("DangerCard")
+        danger_card.setStyleSheet("QFrame#DangerCard { background: rgba(255, 69, 58, 0.05); border: 1px solid rgba(255, 69, 58, 0.12); border-radius: 12px; }")
+        danger_hl = QHBoxLayout(danger_card); danger_hl.setContentsMargins(16, 12, 16, 12); danger_hl.setSpacing(12)
         
-        self._reset_btn = PushButton("RESET")
-        self._reset_btn.setStyleSheet(Theme.zugzwang_button() + "QPushButton { color: #8E8E93; border: 1px solid #444444; }")
-        self._reset_btn.setFixedHeight(36)
-        self._reset_btn.clicked.connect(self._reset); btn_hl.addWidget(self._reset_btn)
-        
-        self._save_btn  = PushButton("SAVE CONFIGURATIONS")
-        self._save_btn.setStyleSheet(Theme.zugzwang_primary_button())
-        self._save_btn.setFixedHeight(36)
-        self._save_btn.clicked.connect(self._save); btn_hl.addWidget(self._save_btn) # Removed stretch factor 1
-        
-        btn_hl.addStretch()
-        vl.addLayout(btn_hl)
+        from qfluentwidgets import IconWidget
+        d_ic = IconWidget(FluentIcon.INFO); d_ic.setFixedSize(16, 16); d_ic.setStyleSheet("color: #FF453A;")
+        danger_hl.addWidget(d_ic)
 
-        # 6. margin-top: 20px
-        vl.addSpacing(20)
-
-        # 7. Wipe danger row
-        d_row = QHBoxLayout(); d_row.setContentsMargins(0, 0, 0, 0)
-        dtxt = QVBoxLayout(); dtxt.setSpacing(4); dtxt.setContentsMargins(0, 0, 0, 0)
-        dh = QLabel("Wipe Local Database")
-        dh.setStyleSheet("color: #FF453A; font-family: 'SF Pro Text', sans-serif; font-size: 13px; font-weight: 600; background: transparent;")
-        db = QLabel("Permanently delete data.")
-        db.setStyleSheet("color: #636366; font-family: 'SF Pro Text', sans-serif; font-size: 11px; background: transparent;")
+        dtxt = QVBoxLayout(); dtxt.setSpacing(2); dtxt.setContentsMargins(0, 0, 0, 0)
+        dh = QLabel("DATABASE PERSISTENCE"); dh.setStyleSheet("color: rgba(255, 69, 58, 0.9); font-size: 10px; font-weight: 800; letter-spacing: 1px;")
+        db = QLabel("Permanently purge all locally cached records and results."); db.setStyleSheet("color: #8E8E93; font-size: 11px;")
         dtxt.addWidget(dh); dtxt.addWidget(db)
-        d_row.addLayout(dtxt)
+        danger_hl.addLayout(dtxt, 1)
+
+        self._clear_btn = _Btn("WIPE DATA")
+        self._clear_btn.setFixedSize(140, 40)
+        self._clear_btn.setCursor(Qt.PointingHandCursor)
+        self._clear_btn.setStyleSheet("""
+            _Btn {
+                background-color: #3C1A1A;
+                border: none;
+                border-radius: 10px;
+                color: #FF453A;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 1.8px;
+                text-transform: uppercase;
+                padding: 0 12px;
+            }
+            _Btn:hover { background-color: #4A2020; color: #FF6259; }
+            _Btn:pressed { background-color: #5A1F1F; }
+        """)
+        self._clear_btn.clicked.connect(self._clear_saved_leads)
+        danger_hl.addWidget(self._clear_btn)
         
-        d_row.addStretch()
-        
-        self._clear_btn = PushButton("WIPE DATA")
-        self._clear_btn.setStyleSheet(Theme.zugzwang_danger_button())
-        self._clear_btn.setFixedHeight(36)
-        self._clear_btn.clicked.connect(self._clear_saved_leads); d_row.addWidget(self._clear_btn)
-        
-        vl.addLayout(d_row)
-        
+        from PySide6.QtWidgets import QStyleFactory
+        for btn in (self._reset_btn, self._save_btn, self._clear_btn):
+            btn.setStyle(QStyleFactory.create("Fusion"))
+
+        vl.addWidget(danger_card)
         vl.addStretch()
         return container
 
@@ -402,7 +473,7 @@ class SettingsPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 8px;
                 color: white;
-                font-family: 'SF Pro Text', sans-serif;
+                font-family: 'PT Root UI', sans-serif;
                 font-size: 13px;
                 padding: 0 10px;
             }
@@ -414,7 +485,7 @@ class SettingsPage(QWidget):
         lic_frame = QFrame()
         lh = QHBoxLayout(lic_frame); lh.setContentsMargins(0, 4, 0, 0); lh.setSpacing(10)
         lt = QVBoxLayout(); lt.setSpacing(2)
-        lbl = QLabel("Product License"); lbl.setStyleSheet("color: white; font-family: 'SF Pro Text', sans-serif; font-size: 13px; font-weight: 600;")
+        lbl = QLabel("Product License"); lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600;")
         self._lic_desc = QLabel("Activating..."); self._lic_desc.setStyleSheet("background: transparent; border: none;")
         lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
         self._btn_activate = PushButton("ACTIVATE"); self._btn_activate.setStyleSheet(Theme.primary_button())
@@ -470,7 +541,7 @@ class SettingsPage(QWidget):
                 
                 title_lbl = QLabel("SET SECURITY PIN")
                 title_lbl.setAlignment(Qt.AlignCenter)
-                title_lbl.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Display'; font-size: 22px; font-weight: 800;")
+                title_lbl.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI'; font-size: 22px; font-weight: 800;")
                 layout.addWidget(title_lbl)
                 
                 desc_lbl = QLabel("Required for application launch.")
@@ -488,9 +559,9 @@ class SettingsPage(QWidget):
                     LineEdit {
                         background: #2C2C2E;
                         border: 1px solid #3A3A3C;
-                        border-radius: 10px;
+                        border-radius: 8px;
                         color: #0A84FF;
-                        font-family: 'SF Mono', monospace;
+                        font-family: 'PT Root UI', monospace;
                         font-size: 18px;
                         font-weight: 700;
                     }
@@ -509,9 +580,9 @@ class SettingsPage(QWidget):
                     QPushButton {
                         background: #0A84FF;
                         border: none;
-                        border-radius: 12px;
+                        border-radius: 8px;
                         color: #FFFFFF;
-                        font-family: 'SF Pro Text';
+                        font-family: 'PT Root UI';
                         font-size: 15px;
                         font-weight: 700;
                     }
@@ -527,9 +598,9 @@ class SettingsPage(QWidget):
                     QPushButton {
                         background: #2C2C2E;
                         border: 1px solid #3A3A3C;
-                        border-radius: 12px;
+                        border-radius: 8px;
                         color: #FFFFFF;
-                        font-family: 'SF Pro Text';
+                        font-family: 'PT Root UI';
                         font-size: 15px;
                         font-weight: 500;
                     }
@@ -564,8 +635,7 @@ class SettingsPage(QWidget):
         return False
 
     def _open_activation(self):
-        dialog = ActivationDialog(self.window())
-        if dialog.exec():
+        if self.window().show_activation_dialog():
             self._update_license_display()
 
     def _reset_to_trial(self):
