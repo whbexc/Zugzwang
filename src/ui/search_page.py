@@ -529,11 +529,32 @@ class SearchPage(QWidget):
     def _launch(self) -> None:
         # Check for License Activation (Trial logic)
         from ..core.security import LicenseManager
-        if not LicenseManager.is_active():
+        is_active = LicenseManager.is_active()
+        
+        # Get and validate max_results early for trial users
+        max_results = self._int_value(self._max_results_input, 100)
+        
+        if not is_active:
             status = LicenseManager.get_trial_status()
             if status["remaining"] <= 0:
                 if not self.window().show_activation_dialog():
-                    return  # User closed the dialog without activating
+                    return
+            
+            # Enforce strict 20-scrap limit for trial users
+            if max_results > 20:
+                from .components import ZugzwangDialog
+                res = ZugzwangDialog(
+                    "Trial Limit", 
+                    "Free trial search is limited to 20 records per session to keep the server stable. "
+                    "Would you like to activate the full version for unlimited depth?", 
+                    self
+                ).exec()
+                if res:
+                    if not self.window().show_activation_dialog():
+                        return
+                # Force to 20 if they skip activation
+                max_results = 20
+                self._max_results_input.setText("20")
         
         job_title = self._job_title.text().strip()
         if not job_title:
@@ -575,7 +596,11 @@ class SearchPage(QWidget):
         self._offer_type.setCurrentIndex(0)
         self._clear_validation_error()
 
-        self._max_results_input.setText(str(max(10, min(10000, settings.default_max_results))))
+        from ..core.security import LicenseManager
+        is_free = not LicenseManager.is_active()
+        default_max = 20 if is_free else settings.default_max_results
+
+        self._max_results_input.setText(str(max(10, min(10000, default_max))))
         self._delay_min.setText(f"{settings.default_delay_min:.1f}")
         self._delay_max.setText(f"{settings.default_delay_max:.1f}")
         self._chk_emails.setChecked(settings.default_scrape_emails)
@@ -597,7 +622,13 @@ class SearchPage(QWidget):
         offer_index = self._offer_type.findText(settings.last_search_offer_type or "Arbeit")
         self._offer_type.setCurrentIndex(max(offer_index, 0))
 
-        self._max_results_input.setText(str(max(10, min(10000, settings.last_search_max_results or settings.default_max_results))))
+        from ..core.security import LicenseManager
+        is_free = not LicenseManager.is_active()
+        last_max = settings.last_search_max_results or settings.default_max_results
+        if is_free:
+            last_max = min(20, last_max)
+
+        self._max_results_input.setText(str(max(10, min(10000, last_max))))
         self._delay_min.setText(f"{(settings.last_search_delay_min or settings.default_delay_min):.1f}")
         self._delay_max.setText(f"{(settings.last_search_delay_max or settings.default_delay_max):.1f}")
         self._chk_emails.setChecked(bool(settings.last_search_scrape_emails))

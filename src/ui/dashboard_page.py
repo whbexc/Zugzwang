@@ -33,6 +33,8 @@ from ..core.events import event_bus
 from ..core.models import ScrapingJob
 from ..core.security import LicenseManager
 from .theme import Theme
+from .components import FeedbackDialog
+from ..services.orchestrator import orchestrator
 
 
 class DashboardMetricCard(QFrame):
@@ -302,6 +304,28 @@ class DashboardPage(QWidget):
         """)
         header.addWidget(self.newSearchBtn, 0, Qt.AlignVCenter)
 
+        self.loveBtn = _QPB("SUPPORT US")
+        self.loveBtn.setFixedSize(140, 36)
+        self.loveBtn.setCursor(Qt.PointingHandCursor)
+        self.loveBtn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1.5px solid #3A3A3C;
+                border-radius: 10px;
+                color: #30D158;
+                height: 36px;
+                padding: 0 16px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1.2px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: rgba(48, 209, 88, 0.05); border-color: rgba(48, 209, 88, 0.3); }
+        """)
+        self.loveBtn.clicked.connect(self._open_feedback)
+        header.addWidget(self.loveBtn, 0, Qt.AlignVCenter)
+
         body.addLayout(header)
 
         # ── Metrics Grid ──────────────────────────────────────────────────────
@@ -400,6 +424,10 @@ class DashboardPage(QWidget):
         self._refresh_activity()
         self._refresh_stats()
 
+    def _open_feedback(self):
+        msg = FeedbackDialog(self.window())
+        msg.exec()
+
     def _connect_events(self):
         from .event_bridge import event_bridge
         event_bridge.job_started.connect(self._on_job_started)
@@ -409,6 +437,8 @@ class DashboardPage(QWidget):
         event_bridge.job_log.connect(self._on_job_log)
         event_bridge.export_completed.connect(self._on_export_event)
         event_bridge.export_failed.connect(self._on_export_event)
+        event_bridge.job_progress.connect(lambda _: self._refresh_stats())
+        event_bridge.job_result.connect(self._on_live_result)
 
         self.newSearchBtn.clicked.connect(self.navigate_to_search.emit)
         self.viewAllBtn.clicked.connect(self.navigate_to_results.emit)
@@ -445,6 +475,11 @@ class DashboardPage(QWidget):
         if message:
             self._record_activity(f"{level} | {message[:60]}")
 
+    def _on_live_result(self, record):
+        """Adds a live finding note to the activity log."""
+        if hasattr(record, "name") and record.name:
+            self._record_activity(f"FOUND: {record.name[:40]}")
+
     def _on_export_event(self, **kwargs):
         fmt = str(kwargs.get("format", "")).upper()
         count = kwargs.get("count")
@@ -465,17 +500,27 @@ class DashboardPage(QWidget):
         self._refresh_stats()
 
     def _totals(self):
-        if not self._jobs and any(self._saved_summary):
-            return self._saved_summary[0], self._saved_summary[1], self._saved_summary[2], 0, 0, 0, 0
-
+        # Base totals from past jobs
         total_leads = sum(j.total_found for j in self._jobs)
         total_emails = sum(j.total_emails for j in self._jobs)
         total_websites = sum(j.total_websites for j in self._jobs)
-        active_jobs = sum(1 for j in self._jobs if j.status.value in {"running", "paused", "pending"})
+        
+        # Include active job from orchestrator if not already in self._jobs
+        active_job = orchestrator.current_job
+        if active_job and active_job not in self._jobs:
+            total_leads += active_job.total_found
+            total_emails += active_job.total_emails
+            total_websites += active_job.total_websites
+
+        active_jobs_count = sum(1 for j in self._jobs if j.status.value in {"running", "paused", "pending"})
+        if active_job and active_job.status.value in {"running", "paused", "pending"} and active_job not in self._jobs:
+            active_jobs_count += 1
+            
         completed_jobs = sum(1 for j in self._jobs if j.status.value == "completed")
         failed_jobs = sum(1 for j in self._jobs if j.status.value in {"failed", "cancelled"})
-        total_jobs = len(self._jobs)
-        return total_leads, total_emails, total_websites, active_jobs, completed_jobs, failed_jobs, total_jobs
+        total_jobs = len(self._jobs) + (1 if active_job and active_job not in self._jobs else 0)
+        
+        return total_leads, total_emails, total_websites, active_jobs_count, completed_jobs, failed_jobs, total_jobs
 
     def refresh(self):
         """Public method to refresh all dashboard components."""

@@ -168,6 +168,27 @@ class Theme:
         return Theme.zugzwang_danger_button()
 
     @staticmethod
+    def zugzwang_warning_button() -> str:
+        """Warning button — dark orange-tinted bg, vivid orange text, no border (PAUSE style)."""
+        return f"""
+            QPushButton {{
+                background-color: #3C2A1A;
+                border: none;
+                border-radius: 10px;
+                color: #FF9F0A;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-weight: 700;
+                font-size: 12px;
+                letter-spacing: 1.8px;
+                text-transform: uppercase;
+                padding: 0 18px;
+            }}
+            QPushButton:hover {{ background-color: #4A3520; color: #FFB340; }}
+            QPushButton:pressed {{ background-color: #5A401F; }}
+            QPushButton:disabled {{ color: #5A4030; background-color: #2A1A12; }}
+        """
+
+    @staticmethod
     def zugzwang_success_button() -> str:
         """Success button — dark green-tinted bg, vivid green text, no border (matches danger style)."""
         return """

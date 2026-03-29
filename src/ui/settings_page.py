@@ -461,10 +461,10 @@ class SettingsPage(QWidget):
         self._chk_auto_update = self._sw()
         vl.addWidget(self._row("Auto Update", self._chk_auto_update, "GitHub core sync."))
 
-        # Core Repo URL inside persistent block
+        # Core Repo URL
         url_frame = QFrame()
         url_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
-        uh = QHBoxLayout(url_frame); uh.setContentsMargins(0, 0, 0, 0); uh.setSpacing(10)
+        uh = QHBoxLayout(url_frame); uh.setContentsMargins(12, 0, 12, 0); uh.setSpacing(10)
         self._git_repo_url = LineEdit(); self._git_repo_url.setFixedHeight(34)
         self._git_repo_url.setPlaceholderText("Core Repo URL")
         self._git_repo_url.setStyleSheet("""
@@ -481,24 +481,24 @@ class SettingsPage(QWidget):
         uh.addWidget(self._git_repo_url)
         vl.addWidget(url_frame)
 
-        # Fix 6: Product License Footer
+        # Product License
         lic_frame = QFrame()
-        lh = QHBoxLayout(lic_frame); lh.setContentsMargins(0, 4, 0, 0); lh.setSpacing(10)
+        lh = QHBoxLayout(lic_frame); lh.setContentsMargins(12, 8, 12, 0); lh.setSpacing(10)
         lt = QVBoxLayout(); lt.setSpacing(2)
         lbl = QLabel("Product License"); lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600;")
         self._lic_desc = QLabel("Activating..."); self._lic_desc.setStyleSheet("background: transparent; border: none;")
         lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
+        
         self._btn_activate = PushButton("ACTIVATE"); self._btn_activate.setStyleSheet(Theme.primary_button())
         self._btn_activate.setFixedHeight(36)
-        
         self._btn_deactivate = PushButton("RESET TO TRIAL"); self._btn_deactivate.setStyleSheet(Theme.secondary_button())
         self._btn_deactivate.setFixedHeight(36)
         self._btn_deactivate.clicked.connect(self._reset_to_trial)
         
         lh.addWidget(self._btn_deactivate)
         lh.addWidget(self._btn_activate)
-        
         vl.addWidget(lic_frame)
+
         vl.addStretch()
         return container
 

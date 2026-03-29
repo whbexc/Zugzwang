@@ -412,6 +412,191 @@ class ZugzwangDialog(QDialog):
             self.move(event.globalPos() - self._drag_pos)
             event.accept()
 
+class FeedbackDialog(QDialog):
+    """
+    Premium Feedback & Recommendation Dialog.
+    Direct links to Telegram/WhatsApp and one-click recommendation.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(480, 560)
+        
+        # Main shadow/glass container
+        self.container = QFrame(self)
+        self.container.setObjectName("FeedbackContainer")
+        self.container.setFixedSize(480, 560)
+        self.container.setStyleSheet("""
+            QFrame#FeedbackContainer {
+                background-color: #1C1C1E;
+                border: 1px solid #323232;
+                border-radius: 20px;
+            }
+        """)
+        
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(40, 42, 40, 36)
+        layout.setSpacing(15)
+        
+        # Header/Text area (Grouped in a widget to prevent layout drift)
+        header_widget = QWidget()
+        hl = QVBoxLayout(header_widget); hl.setContentsMargins(0,0,0,0); hl.setSpacing(10)
+        self.icon_lbl = QLabel("❤️")
+        self.icon_lbl.setStyleSheet("font-size: 40px; background: transparent;")
+        self.icon_lbl.setAlignment(Qt.AlignCenter)
+        self.title_label = QLabel("Love ZUGZWANG?")
+        self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI'; font-size: 26px; font-weight: 800; background: transparent;")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.message_label = QLabel("Support the developer or recommend us to a friend!")
+        self.message_label.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI'; font-size: 15px; font-weight: 400; line-height: 1.4; background: transparent;")
+        self.message_label.setAlignment(Qt.AlignCenter); self.message_label.setWordWrap(True)
+        hl.addWidget(self.icon_lbl); hl.addWidget(self.title_label); hl.addWidget(self.message_label)
+        layout.addWidget(header_widget)
+
+        # 1. Social Sharing Section
+        social_box = QWidget()
+        sl = QVBoxLayout(social_box); sl.setContentsMargins(0,5,0,5); sl.setSpacing(10)
+        share_title = QLabel("PROMOTE ON SOCIAL MEDIA")
+        share_title.setStyleSheet("color: #8E8E93; font-family: 'SF Mono'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        share_title.setAlignment(Qt.AlignCenter)
+        sl.addWidget(share_title)
+
+        srow = QHBoxLayout(); srow.setSpacing(10)
+        self.x_btn = self._create_btn("X", "#000000", "#1A1A1A", is_half=True)
+        self.x_btn.clicked.connect(lambda: self._on_share("x"))
+        self.fb_btn = self._create_btn("FACEBOOK", "#1877F2", "#2D88FF", is_half=True)
+        self.fb_btn.clicked.connect(lambda: self._on_share("fb"))
+        self.wa_share_btn = self._create_btn("WHATSAPP", "#25D366", "#2CE071", is_half=True)
+        self.wa_share_btn.clicked.connect(lambda: self._on_share("wa"))
+        self.ig_btn = self._create_btn("INSTAGRAM", "#E4405F", "#F55376", is_half=True)
+        self.ig_btn.clicked.connect(lambda: self._on_share("ig"))
+        srow.addWidget(self.x_btn); srow.addWidget(self.fb_btn); srow.addWidget(self.wa_share_btn); srow.addWidget(self.ig_btn)
+        sl.addLayout(srow)
+        layout.addWidget(social_box)
+
+        # 2. Main Copy CTA (Large & Vibrant)
+        self.rec_btn = self._create_btn("COPY PROMO TEXT & LINKS ❤️", "#0A84FF", "#409CFF")
+        self.rec_btn.setFixedHeight(50)
+        self.rec_btn.setStyleSheet(self.rec_btn.styleSheet() + """
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0A84FF, stop:1 #0070E0);
+                font-size: 14px; font-weight: 800; border-radius: 12px;
+            }
+        """)
+        self.rec_btn.clicked.connect(self._on_recommend)
+        layout.addWidget(self.rec_btn)
+
+        # 3. Direct Contact Section
+        contact_box = QWidget()
+        cl = QVBoxLayout(contact_box); cl.setContentsMargins(0,5,0,5); cl.setSpacing(10)
+        contact_title = QLabel("DIRECT SUPPORT")
+        contact_title.setStyleSheet("color: #8E8E93; font-family: 'SF Mono'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        contact_title.setAlignment(Qt.AlignCenter)
+        cl.addWidget(contact_title)
+
+        crow = QHBoxLayout(); crow.setSpacing(10)
+        self.tg_btn = self._create_btn("TELEGRAM", "#2C2C2E", "#3A3A3C", is_half=True)
+        self.tg_btn.clicked.connect(self._on_telegram)
+        self.wa_btn = self._create_btn("WHATSAPP", "#2C2C2E", "#3A3A3C", is_half=True)
+        self.wa_btn.clicked.connect(self._on_whatsapp)
+        crow.addWidget(self.tg_btn); crow.addWidget(self.wa_btn)
+        cl.addLayout(crow)
+        layout.addWidget(contact_box)
+
+        layout.addStretch()
+
+        # 4. Close (Bottom)
+        self.close_btn = QPushButton("CLOSE WINDOW")
+        self.close_btn.setCursor(Qt.PointingHandCursor); self.close_btn.setFixedHeight(30)
+        self.close_btn.setStyleSheet("color: #48484A; font-family: 'PT Root UI'; font-size: 11px; font-weight: 600; border: none; background: transparent;")
+        self.close_btn.clicked.connect(self.reject)
+        layout.addWidget(self.close_btn, 0, Qt.AlignCenter)
+
+        if parent:
+            center = parent.geometry().center()
+            self.move(center.x() - self.width() // 2, center.y() - self.height() // 2)
+
+    def _create_btn(self, text: str, bg: str, hover: str, is_half: bool = False) -> QPushButton:
+        btn = QPushButton(text)
+        if not is_half: btn.setFixedHeight(46)
+        else: btn.setFixedHeight(44)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg};
+                border: none;
+                border-radius: 12px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI';
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }}
+            QPushButton:hover {{ background: {hover}; }}
+        """)
+        return btn
+
+    def _on_telegram(self):
+        import webbrowser
+        webbrowser.open("https://t.me/+OsHHWTSv_bVkZTM0")
+
+    def _on_whatsapp(self):
+        import webbrowser
+        webbrowser.open("https://wa.me/212663007212")
+
+    def _on_share(self, platform: str):
+        import webbrowser
+        from urllib.parse import quote
+        
+        msg = ("supportina bach nkmlo lkhdma ela l app, ana khdam b had l app w kt3awni bach njm3 w nsyft Bewerbungen, "
+               "dkhl l goupe telegram w atfhm klchi, merci : https://t.me/+OsHHWTSv_bVkZTM0 w dkhl lien bach "
+               "telechargiha direct : https://github.com/whbexc/Zugzwang/releases")
+        
+        if platform == "x":
+            # Share on X (Twitter)
+            url = f"https://twitter.com/intent/tweet?text={quote(msg)}"
+            webbrowser.open(url)
+        elif platform == "fb":
+            # Share on Facebook
+            # Note: FB sharer primarily uses the 'u' (URL) but 'quote' works for the text body in some contexts
+            url = f"https://www.facebook.com/sharer/sharer.php?u=https://github.com/whbexc/Zugzwang/releases&quote={quote(msg)}"
+            webbrowser.open(url)
+        elif platform == "wa":
+            # Share on WhatsApp
+            url = f"https://wa.me/?text={quote(msg)}"
+            webbrowser.open(url)
+        elif platform == "ig":
+            # Instagram Fallback: Copy to clipboard and open IG
+            from PySide6.QtGui import QGuiApplication
+            QGuiApplication.clipboard().setText(msg)
+            self.rec_btn.setText("TEXT COPIED! OPENING INSTAGRAM...")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda: self.rec_btn.setText("COPY PROMO LINK & TEXT"))
+            webbrowser.open("https://www.instagram.com/")
+
+    def _on_recommend(self):
+        from PySide6.QtGui import QClipboard, QGuiApplication
+        from PySide6.QtCore import QTimer
+        
+        msg = ("supportina bach nkmlo lkhdma ela l app, ana khdam b had l app w kt3awni bach njm3 w nsyft Bewerbungen, "
+               "dkhl l goupe telegram w atfhm klchi, merci : https://t.me/+OsHHWTSv_bVkZTM0 w dkhl lien bach "
+               "telechargiha direct : https://github.com/whbexc/Zugzwang/releases")
+        
+        QGuiApplication.clipboard().setText(msg)
+        self.rec_btn.setText("PROMO TEXT COPIED!")
+        QTimer.singleShot(2500, lambda: self.rec_btn.setText("COPY PROMO LINK & TEXT"))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
+
 class MacSwitch(QWidget):
     """Premium macOS-style toggle switch with smooth animations."""
     toggled = Signal(bool)

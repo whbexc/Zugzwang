@@ -76,7 +76,8 @@ class MetricTile(QFrame):
 
 class MonitorControlButton(QPushButton):
     """Custom high-fidelity button with stable icon/text alignment."""
-    def __init__(self, text: str, is_danger: bool = False, is_primary: bool = False, is_success: bool = False):
+    def __init__(self, text: str, is_danger: bool = False, is_primary: bool = False, 
+                 is_success: bool = False, is_warning: bool = False):
         super().__init__()
         self.setFixedHeight(36)
         self.setCursor(Qt.PointingHandCursor)
@@ -84,6 +85,7 @@ class MonitorControlButton(QPushButton):
         self.is_danger = is_danger
         self.is_primary = is_primary
         self.is_success = is_success
+        self.is_warning = is_warning
         self._set_style()
 
     def _set_style(self):
@@ -93,6 +95,8 @@ class MonitorControlButton(QPushButton):
             self.setStyleSheet(Theme.zugzwang_primary_button())
         elif self.is_success:
             self.setStyleSheet(Theme.zugzwang_success_button())
+        elif self.is_warning:
+            self.setStyleSheet(Theme.zugzwang_warning_button())
         else:
             self.setStyleSheet(Theme.zugzwang_button())
 
@@ -213,7 +217,7 @@ class MonitorPage(QWidget):
         
         time_row.addStretch()
         
-        self._btn_pause = MonitorControlButton("PAUSE")
+        self._btn_pause = MonitorControlButton("PAUSE", is_warning=True)
         self._btn_pause.setEnabled(False)
         self._btn_pause.clicked.connect(self._pause)
         time_row.addWidget(self._btn_pause)

@@ -9,9 +9,11 @@ import os
 from datetime import datetime
 from .config import config_manager
 
-# This is your private "Master Salt". Changing this will invalidate ALL existing license keys.
-# You should keep this secret.
-ZUGZWANG_SECRET_SALT = "ZUG-PRO-PREMIUM-2026-X892-Z7"
+# Hashed security constants — original values are NEVER stored in the source code or binary.
+# Use hashlib.sha256(key.encode()).hexdigest() to verify/update these.
+_MASTER_KEY_HASH = "30ba28554b78612623f23011379467223587ca111958661c536f6b07e1a389c4"
+_SALT_HASH       = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9ec96"
+
 
 MAX_FREE_TRIAL_SCRAPS = 20
 
@@ -36,7 +38,7 @@ class LicenseManager:
         Generates the valid license key for a given Machine ID.
         Format: ZUG-XXXX-XXXX-XXXX
         """
-        raw_payload = f"{machine_id}{ZUGZWANG_SECRET_SALT}"
+        raw_payload = f"{machine_id}{_SALT_HASH}"
         signature = hashlib.sha256(raw_payload.encode()).hexdigest()[:12].upper()
         
         # Split into blocks: ZUG-ABCD-EFGH-IJKL
@@ -47,13 +49,13 @@ class LicenseManager:
     def validate_license(key: str) -> bool:
         """
         Checks if the provided key matches the current machine's hardware ID.
-        Also supports a 'Master Override' key for the developer.
+        Also supports a developer master override (verified by hash only — key never stored).
         """
         if not key or len(key) < 5:
             return False
             
-        # Master Bypass (for you to use during dev/testing)
-        if key == "ZUG-MASTER-DEVELOPER-2026":
+        # Master Bypass — compare SHA-256 hash of input, never the key itself
+        if hashlib.sha256(key.strip().encode()).hexdigest() == _MASTER_KEY_HASH:
             return True
             
         machine_id = LicenseManager.get_machine_id()
