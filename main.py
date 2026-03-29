@@ -180,7 +180,13 @@ def main():
 
     # Load and register PT Root UI font family
     from PySide6.QtGui import QFontDatabase
-    base_dir = Path(__file__).parent
+    
+    # Handle PyInstaller bundle path resolution
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base_dir = Path(sys._MEIPASS)
+    else:
+        base_dir = Path(__file__).parent
+        
     _fonts_dir = base_dir / "src" / "ui" / "assets" / "fonts"
     for _ttf in _fonts_dir.glob("pt-root-ui*.ttf"):
         QFontDatabase.addApplicationFont(str(_ttf))
