@@ -1,4 +1,4 @@
-ZUGZWANG 1.0.0
+ZUGZWANG 1.0.1
 Professional Lead Generation & Recruitment Research Tool
 
 OVERVIEW:

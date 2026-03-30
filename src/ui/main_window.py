@@ -235,6 +235,7 @@ class MainWindow(FramelessWindow):
 
         self.update_service = UpdateService(self)
         if config_manager.settings.auto_update_enabled:
+            self.update_service.update_available.connect(self._show_update_dialog)
             QTimer.singleShot(5000, self.update_service.check)
 
     def _build_shell(self):
@@ -327,6 +328,26 @@ class MainWindow(FramelessWindow):
         dialog = ActivationDialog(self)
         dialog.open_send_requested.connect(lambda: self._switch(4))
         return dialog.exec()
+
+    def _show_update_dialog(self, version: str, url: str):
+        """Show the macOS-style update notification."""
+        from .update_dialog import UpdateDialog
+        self._update_dialog = UpdateDialog(version, url, self)
+        self._update_dialog.update_started.connect(self._on_update_started)
+        self._update_dialog.show()
+
+    def _on_update_started(self, url: str):
+        """Handle 'Update Now' button click from dialog."""
+        self.update_service.start_download(
+            url,
+            progress_callback=self._update_dialog.set_progress,
+            finished_callback=self._on_update_downloaded,
+            error_callback=self._update_dialog.set_error
+        )
+
+    def _on_update_downloaded(self, path: str):
+        """Handle successful download."""
+        self.update_service.apply_update(path)
 
     def _restore_saved_results(self):
         try:

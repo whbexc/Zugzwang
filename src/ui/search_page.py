@@ -385,7 +385,7 @@ class SearchPage(QWidget):
             "Praktikum/Trainee/Werkstudent", "Selbstständigkeit"
         ])
         self._style_combo(self._offer_type)
-        offer_vbox.addLayout(self._make_field("Offer Type (Jobsuche specific)", self._offer_type))
+        offer_vbox.addLayout(self._make_field("Offer Type", self._offer_type))
         
         layout.addWidget(self._offer_type_container)
         return container

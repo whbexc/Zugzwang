@@ -62,6 +62,7 @@ class LogViewerPage(QWidget):
         self._pending_logs: queue.Queue = queue.Queue()
         self._session_start: datetime = datetime.now()  # for LAST SESSION filter
         self._build_ui()
+        self._load_initial_logs() # Load from file first
         register_ui_log_sink(self._receive_log)
 
         self._timer = QTimer(self)
@@ -312,6 +313,35 @@ class LogViewerPage(QWidget):
         elif sel == "LAST SESSION":
             return self._session_start
         return None  # ALL TIME
+
+    def _load_initial_logs(self):
+        """Read existing logs from today's log file."""
+        from ..core.config import get_logs_dir
+        log_file = get_logs_dir() / f"zugzwang_{datetime.now().strftime('%Y%m%d')}.log"
+        if not log_file.exists():
+            return
+            
+        try:
+            content = log_file.read_text(encoding="utf-8")
+            lines = content.splitlines()[-200:] # Last 200 lines
+            for line in lines:
+                # Format: 2026-03-30 02:21:34 | INFO     | leadhunter.core.config         | message
+                parts = line.split("|", 3)
+                if len(parts) == 4:
+                    ts_str = parts[0].strip()
+                    lvl = parts[1].strip()
+                    nm = parts[2].strip()
+                    msg = parts[3].strip()
+                    
+                    try:
+                        dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                        timestamp = dt.strftime("%H:%M:%S")
+                        self._all_logs.append((dt, timestamp, lvl, nm, msg))
+                    except:
+                        continue
+            self._apply_filter()
+        except Exception:
+            pass
 
     def _apply_filter(self):
         self._log_view.clear()

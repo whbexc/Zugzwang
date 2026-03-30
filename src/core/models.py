@@ -69,6 +69,7 @@ class LeadRecord:
     email_source_page: Optional[str] = None
     email_source_type: Optional[EmailSource] = None
     phone: Optional[str] = None
+    contact_person: Optional[str] = None
     
     # Social 
     linkedin: Optional[str] = None
@@ -123,6 +124,7 @@ class LeadRecord:
             self._normalize_key_part(self.job_title),
             self._normalize_key_part(self.email),
             self._normalize_key_part(self.phone),
+            self._normalize_key_part(self.contact_person),
             self._normalize_key_part(self.address),
             self._normalize_key_part(self.city),
         ]
@@ -317,7 +319,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.0"
+    app_version: str = "1.0.1"
 
     # Free Trial Tracking
     trial_scraps_count: int = 0

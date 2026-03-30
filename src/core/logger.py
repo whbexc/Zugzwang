@@ -55,8 +55,7 @@ class UISinkHandler(logging.Handler):
 
             # Also forward to legacy sink if registered (LogViewerPage)
             if _ui_log_sink:
-                formatted = self.format(record)
-                _ui_log_sink(record.levelname, record.name, formatted)
+                _ui_log_sink(record.levelname, record.name, msg)
         except Exception:
             pass
 

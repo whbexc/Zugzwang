@@ -124,4 +124,3 @@ class UpdateService(QObject):
         import subprocess
         os.startfile(path)
         sys.exit(0)
-mode:AGENT_MODE_EXECUTION

@@ -38,7 +38,12 @@ class AusbildungScraper:
         
         # Build search URL
         query = self.config.job_title.replace(" ", "%20")
-        loc = (self.config.city or self.config.country).replace(" ", "%20")
+        
+        location_val = self.config.city or ""
+        if not location_val and self.config.country and self.config.country != "Germany":
+            location_val = self.config.country
+            
+        loc = location_val.replace(" ", "%20")
         url = f"https://www.ausbildung.de/suche/?suchbegriff={query}&ort={loc}&umkreis=50"
         
         page = await self.session.new_page()

@@ -96,10 +96,13 @@ class JobsucheScraper:
     # ── Main scrape loop ──────────────────────────────────────────────────
 
     async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
-        location = self.config.city or self.config.region or self.config.country
+        location = self.config.city or self.config.region
+        if not location and self.config.country and self.config.country != "Germany":
+            location = self.config.country
+        
         logger.info(
             f"[{self.job_id}] Jobsuche scrape: '{self.config.job_title}' "
-            f"in '{location}'"
+            f"in '{location or 'All Germany'}'"
         )
 
         page = await self.session.new_page()

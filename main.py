@@ -175,7 +175,7 @@ def main():
     app.setStyle("Fusion")
     
     app.setApplicationName("ZUGZWANG")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion("1.0.1")
     app.setOrganizationName("ZUGZWANG")
 
     # Load and register PT Root UI font family

@@ -17,7 +17,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QLineEdit, QTextEdit, QFileDialog, QSizePolicy, QStackedWidget, QTextBrowser,
@@ -28,8 +28,9 @@ from qfluentwidgets import (
     InfoBadge, ProgressBar,
     PushButton, PrimaryPushButton, TransparentPushButton, ToolButton,
     ElevatedCardWidget, FluentIcon, LineEdit, PlainTextEdit,
-    ScrollArea
+    ScrollArea, RoundMenu, Action
 )
+from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
 
 from ..core.events import event_bus
 from .theme import Theme
@@ -132,6 +133,34 @@ class EmailSenderPage(QWidget):
         self._btn_export = PushButton("EXPORT SENT")
         self._btn_send_all = PushButton("SEND ALL")
         self._btn_clear_data = PushButton("CLEAR ALL")
+        
+        # New Search & Delete
+        self._search_input = LineEdit()
+        self._search_input.setPlaceholderText("Search email...")
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.setFixedWidth(150)
+        
+        # Simple Delete Button (Neutral Square)
+        self._btn_delete_menu = TransparentPushButton(FluentIcon.DELETE.icon(color=QColor("#8E8E93")), "")
+        self._btn_delete_menu.setFixedSize(32, 32)
+        self._btn_delete_menu.setIconSize(QSize(16, 16))
+        self._btn_delete_menu.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_menu.setStyleSheet("""
+            TransparentPushButton { 
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                padding: 0;
+            }
+            TransparentPushButton:hover { 
+                background: rgba(44, 44, 46, 0.8);
+                border: 1px solid #0A84FF;
+            }
+            TransparentPushButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+        """)
 
     def _build_ui(self):
         self.setObjectName("emailPage")
@@ -160,7 +189,7 @@ class EmailSenderPage(QWidget):
         header_h.addWidget(self._page_title)
         
         self._status_badge = QLabel("READY")
-        self._status_badge.setStyleSheet("background: #1C3A1C; border: 1px solid #30D158; color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
+        self._status_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
         header_h.addWidget(self._status_badge, 0, Qt.AlignVCenter)
         
         header_h.addStretch(1)
@@ -399,28 +428,64 @@ class EmailSenderPage(QWidget):
         rec_h.addWidget(self._rec_count, 0, Qt.AlignVCenter)
         layout.addWidget(rec_widget)
 
-        # Side-by-Side Monitor Area
-        monitor_split = QHBoxLayout()
+        # Side-by-Side Monitor Area (Grid for perfect 50/50 split)
+        monitor_split = QGridLayout()
         monitor_split.setSpacing(12)
+        monitor_split.setColumnStretch(0, 1)
+        monitor_split.setColumnStretch(1, 1)
         
         # Left: Recipients
         rec_col = QVBoxLayout()
         rec_col.setSpacing(6)
         
+        lbl_rec_row = QHBoxLayout()
+        lbl_rec_row.setSpacing(12)
         lbl_rec = self._field_label("RECIPIENT QUEUE")
-        lbl_rec.setFixedHeight(28)
-        rec_col.addWidget(lbl_rec)
+        lbl_rec.setFixedHeight(32) # Match height with search input
+        lbl_rec_row.addWidget(lbl_rec)
+        
+        lbl_rec_row.addSpacing(12) # Unified gap
+        
+        # Add Search Input (Optimized Width for 50/50 balance)
+        self._search_input.setFixedWidth(160)
+        self._search_input.setFixedHeight(32)
+        self._search_input.setPlaceholderText("Find recipient...")
+        self._search_input.setStyleSheet("""
+            QLineEdit {
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 0 10px;
+            }
+            QLineEdit:focus {
+                background: rgba(44, 44, 46, 0.7);
+                border: 1px solid #0A84FF;
+            }
+        """)
+        self._search_input.textChanged.connect(self._on_search_recipients)
+        lbl_rec_row.addWidget(self._search_input, 0, Qt.AlignVCenter)
+        
+        # Add Delete Button (Simple Square Balanced)
+        self._setup_delete_menu()
+        lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
+        
+        lbl_rec_row.addStretch(1) # Push all to the left as a unit
+        
+        rec_col.addLayout(lbl_rec_row)
         
         # Re-use existing recipients text
         self._style_plaintext(self._recipients_text)
         rec_col.addWidget(self._recipients_text, 1)
-        monitor_split.addLayout(rec_col, 5) # 50/50 balance
+        monitor_split.addLayout(rec_col, 0, 0)
         
         # Right: Log Stack
         log_stack = QVBoxLayout()
         log_stack.setSpacing(6)
         lbl_log = self._field_label("BROADCAST ACTIVITY LOG")
-        lbl_log.setFixedHeight(28)
+        lbl_log.setFixedHeight(32) # Perfectly vertically aligned with left side
         log_stack.addWidget(lbl_log)
         
         self._status_log.setStyleSheet("""
@@ -438,7 +503,7 @@ class EmailSenderPage(QWidget):
         # Remove fixed height to let it expand naturally with the recipient panel
         log_stack.addWidget(self._status_log, 1)
         
-        monitor_split.addLayout(log_stack, 5)
+        monitor_split.addLayout(log_stack, 0, 1)
         layout.addLayout(monitor_split, 1)
 
         # Gmail Policy Notice - Spanning Full Width at Bottom
@@ -659,6 +724,73 @@ class EmailSenderPage(QWidget):
         self._on_recipients_changed()
         self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
 
+    def _setup_delete_menu(self):
+        menu = RoundMenu(parent=self)
+        del_sel = Action(FluentIcon.DELETE, "Delete Selection", self)
+        del_sel.triggered.connect(self._on_delete_selection)
+        
+        del_all = Action(FluentIcon.DELETE, "Delete All", self)
+        del_all.triggered.connect(self._on_delete_all)
+        
+        menu.addAction(del_sel)
+        menu.addAction(del_all)
+        self._btn_delete_menu.setMenu(menu)
+
+    def _on_delete_all(self):
+        self._recipients_text.clear()
+        self._on_recipients_changed()
+        self._on_log("Cleared all recipients.", "WARNING")
+
+    def _on_delete_selection(self):
+        cursor = self._recipients_text.textCursor()
+        if not cursor.hasSelection():
+            self._on_log("No selection to delete.", "WARNING")
+            return
+        
+        selected_text = cursor.selectedText()
+        # Count lines properly (selectedText() uses \u2029 for newlines in QTextEdit)
+        count = selected_text.replace('\u2029', '\n').count('\n') + 1
+        
+        cursor.removeSelectedText()
+        
+        # Post-delete cleanup: remove empty lines and redundant newlines
+        text = self._recipients_text.toPlainText()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        self._recipients_text.setPlainText("\n".join(lines))
+        
+        self._on_recipients_changed()
+        self._on_log(f"Deleted selection ({count} rows).", "SUCCESS")
+
+    def _on_search_recipients(self, text: str):
+        text = text.strip().lower()
+        # Reset selections (highlighting)
+        self._recipients_text.setExtraSelections([])
+        if not text:
+            return
+
+        doc = self._recipients_text.document()
+        extra_selections = []
+        
+        cursor = doc.find(text)
+        while not cursor.isNull():
+            selection = QTextEdit.ExtraSelection()
+            selection.format.setBackground(QColor("#30D158")) # macOS Success Green
+            selection.format.setForeground(QColor("#000000"))
+            selection.cursor = cursor
+            extra_selections.append(selection)
+            
+            # Find next occurrence
+            cursor = doc.find(text, cursor)
+        
+        if extra_selections:
+            self._recipients_text.setExtraSelections(extra_selections)
+            # Ensure the first match is visible
+            self._recipients_text.setTextCursor(extra_selections[0].cursor)
+            self._recipients_text.ensureCursorVisible()
+        else:
+            # Highlight border red if not found? No, keep it simple.
+            pass
+
     def _on_export(self):
         if not self._successful_emails:
             self._on_log("No successful transmissions to export.", "WARNING")
@@ -846,9 +978,10 @@ class EmailSenderPage(QWidget):
         self._on_recipients_changed()
 
     def _on_recipients_changed(self):
-        """Updates the numeric badge showing the current target count."""
+        """Updates the numeric badge and persists the updated list."""
         raw = self._recipients_text.toPlainText().strip()
         count = len([r for r in raw.split("\n") if r.strip()])
         self._rec_count.setText(f"{count} EMAIL(S)")
+        self._save_fields()
 
     # End of class

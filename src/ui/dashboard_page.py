@@ -400,7 +400,7 @@ class DashboardPage(QWidget):
         self.activityCard.setStyleSheet(
             f"QFrame#DashboardSideCard {{ "
             f"background: #2C2C2E; "
-            f"border: none; "
+            f"border: 1px solid {Theme.BORDER_SUBTLE}; "
             f"border-radius: 12px; "
             f"}}"
         )
@@ -587,10 +587,37 @@ class DashboardPage(QWidget):
         if not self._activity_items:
             # If no items, ensure there's a placeholder inside and no other elements.
             if not self._activity_labels:
-                empty = QLabel("No system activity recorded yet. Logs will stream here during operation.")
-                empty.setWordWrap(True)
-                empty.setStyleSheet(f"color: {Theme.TEXT_TERTIARY}; font-size: 13px; border: none;")
-                self.activityLayout.addWidget(empty)
+                # Clear existing
+                while self.activityLayout.count():
+                    item = self.activityLayout.takeAt(0)
+                    if item.widget(): item.widget().deleteLater()
+                
+                # Center alignment for empty state
+                self.activityLayout.setAlignment(Qt.AlignCenter)
+                
+                placeholder_container = QWidget()
+                placeholder_container.setStyleSheet("background: transparent; border: none;")
+                pv = QVBoxLayout(placeholder_container)
+                pv.setAlignment(Qt.AlignCenter)
+                pv.setSpacing(12)
+
+                icon = IconWidget(FluentIcon.RINGER)
+                icon.setFixedSize(28, 28)
+                icon.setStyleSheet(f"color: #444446; border: none;") # Muted icon
+                pv.addWidget(icon, 0, Qt.AlignHCenter)
+
+                empty = QLabel("NO RECENT ACTIVITY")
+                empty.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1px; border: none;")
+                pv.addWidget(empty, 0, Qt.AlignHCenter)
+
+                desc = QLabel("System logs and scraping signals will stream here in real-time.")
+                desc.setWordWrap(True)
+                desc.setAlignment(Qt.AlignCenter)
+                desc.setStyleSheet(f"color: {Theme.TEXT_TERTIARY}; font-size: 12px; border: none;")
+                desc.setFixedWidth(200)
+                pv.addWidget(desc, 0, Qt.AlignHCenter)
+                
+                self.activityLayout.addWidget(placeholder_container)
             return
 
         # Initialize the fixed UI rows on first data arrival
@@ -600,6 +627,8 @@ class DashboardPage(QWidget):
                 item = self.activityLayout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
+            
+            self.activityLayout.setAlignment(Qt.AlignTop)
             
             # Pre-create 8 rows maximum
             for _ in range(8):

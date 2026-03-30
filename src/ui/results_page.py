@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QModelIndex, Qt, QSortFilterProxyModel, QTimer, Signal, QSize, QPoint
-from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut, QStandardItem, QStandardItemModel, QColor, QBrush, QFont, QPainter
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut, QStandardItem, QStandardItemModel, QColor, QBrush, QFont, QPainter, QCursor
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QVBoxLayout, QWidget, QHeaderView, QFileDialog, QSplitter, QTableView, QFrame,
     QLabel, QPushButton, QStyledItemDelegate, QStyleOptionViewItem, QStyle, QGraphicsDropShadowEffect, QSizePolicy
@@ -693,10 +693,11 @@ class DetailPanel(QFrame):
 
         self.email_row    = self._create_row("EMAIL",   FluentIcon.MAIL,  is_last=False)
         self.phone_row    = self._create_row("PHONE",   FluentIcon.PHONE, is_last=False)
+        self.contact_row  = self._create_row("CONTACT PERSON", FluentIcon.PEOPLE, is_last=False)
         self.website_row  = self._create_row("WEBSITE", FluentIcon.GLOBE, is_last=False)
         self.address_row  = self._create_row("ADDRESS", FluentIcon.HOME,  is_last=True)
 
-        for row in [self.email_row, self.phone_row, self.website_row, self.address_row]:
+        for row in [self.email_row, self.phone_row, self.contact_row, self.website_row, self.address_row]:
             self._contacts_layout.addWidget(row)
 
         sc_l.addWidget(self._contacts_box)
@@ -880,6 +881,7 @@ class DetailPanel(QFrame):
 
         _set(self.email_row,   record.email)
         _set(self.phone_row,   record.phone)
+        _set(self.contact_row, record.contact_person)
         _set(self.website_row, record.website)
         _set(self.address_row, record.address)
 
@@ -1024,6 +1026,8 @@ class ResultsPage(QWidget):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setFrameShape(QFrame.NoFrame)
         self._table.setShowGrid(False)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._table.setItemDelegate(RowSelectionDelegate(self._table))
         self._table.setStyleSheet(f"""
             QTableView {{
@@ -1309,6 +1313,49 @@ class ResultsPage(QWidget):
         record = self._model.get_record(source_row)
         if record:
             self._show_record_state(record)
+
+    def _on_context_menu(self, pos: QPoint):
+        index = self._table.indexAt(pos)
+        if not index.isValid():
+            return
+            
+        source_row = self._proxy.mapToSource(index).row()
+        record = self._model.get_record(source_row)
+        if not record:
+            return
+
+        menu = RoundMenu(parent=self)
+        
+        # Copy Email
+        if record.email:
+            copy_action = Action(FluentIcon.COPY, "Copy Email", self)
+            copy_action.triggered.connect(lambda: QGuiApplication.clipboard().setText(record.email))
+            menu.addAction(copy_action)
+            
+        # Visit Website
+        if record.website or record.source_url:
+            target_url = record.website or record.source_url
+            visit_action = Action(FluentIcon.GLOBE, "Visit Website", self)
+            from PySide6.QtGui import QDesktopServices, QUrl
+            visit_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
+            menu.addAction(visit_action)
+            
+        menu.addSeparator()
+        
+        # Copy All Emails in View
+        copy_all_action = Action(FluentIcon.MAIL, "Copy All Search Results (Emails)", self)
+        copy_all_action.triggered.connect(self._copy_all_emails_in_view)
+        menu.addAction(copy_all_action)
+        
+        menu.exec(QCursor.pos(), aniType=MenuAnimationType.DROP_DOWN)
+
+    def _copy_all_emails_in_view(self):
+        records = self._get_visible_records()
+        emails = [r.email for r in records if r.email]
+        if emails:
+            QGuiApplication.clipboard().setText("\n".join(emails))
+            from qfluentwidgets import InfoBar
+            InfoBar.success("Copied", f"{len(emails)} emails have been copied to clipboard.", duration=3000, parent=self)
 
     def _on_job_started(self, *args, **kw):
         self._ui_event_queue.put(("job_started", ()))
