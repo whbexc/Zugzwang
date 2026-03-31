@@ -137,8 +137,17 @@ class BrowserSession:
         self._browser = await self._playwright.chromium.launch(**launch_kwargs)
 
         user_agent = random.choice(self.settings.user_agents)
+        
+        # Proxy Rotation logic
+        proxy_config = None
+        if self.settings.proxy_enabled and self.settings.proxies:
+            proxy_url = random.choice(self.settings.proxies)
+            proxy_config = {"server": proxy_url}
+            logger.info(f"[{self.job_id}] Using proxy: {proxy_url}")
+
         context_kwargs = {
             "user_agent": user_agent,
+            "proxy": proxy_config,
             "device_scale_factor": 1,
             "locale": "de-DE",
             "timezone_id": "Europe/Berlin",

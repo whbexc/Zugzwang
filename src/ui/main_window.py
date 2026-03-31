@@ -187,7 +187,7 @@ class _CustomTitleBar(TitleBar):
 class MainWindow(FramelessWindow):
     # Signals for thread-safe UI updates from background scraper
     captcha_requested = Signal(str, bytes)
-    solver_requested = Signal(str, str, list) # job_id, url, cookies
+    solver_requested = Signal(str, str, list, str) # job_id, url, cookies, user_agent
     """App root window (Aesthetic 4.0) - Full-width, Top-Navigation."""
 
     def __init__(self):
@@ -411,11 +411,11 @@ class MainWindow(FramelessWindow):
         print(f"[DEBUG] Solver finished for {self._active_captcha_dialog.job_id if self._active_captcha_dialog else 'unknown'}")
         self._active_captcha_dialog = None
 
-    def _on_solver_requested(self, job_id: str, url: str, cookies: list, **kw):
+    def _on_solver_requested(self, job_id: str, url: str, cookies: list, user_agent: str = "", **kw):
         """Marshall solver request to UI thread."""
-        self.solver_requested.emit(job_id, url, cookies)
+        self.solver_requested.emit(job_id, url, cookies, user_agent)
 
-    def _launch_headed_solver(self, job_id: str, url: str, cookies: list):
+    def _launch_headed_solver(self, job_id: str, url: str, cookies: list, user_agent: str = ""):
         """Open a REAL browser window for the user to solve the captcha."""
         logger.info(f"[{job_id}] Launching headed solver for {url}")
         
@@ -437,7 +437,12 @@ class MainWindow(FramelessWindow):
             from playwright.async_api import async_playwright
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=False)
-                context = await browser.new_context()
+                
+                context_kwargs = {}
+                if user_agent:
+                    context_kwargs["user_agent"] = user_agent
+                
+                context = await browser.new_context(**context_kwargs)
                 if cookies:
                     await context.add_cookies(cookies)
                 

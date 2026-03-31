@@ -523,6 +523,7 @@ class SettingsPage(QWidget):
                 self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
                 self.setAttribute(Qt.WA_TranslucentBackground)
                 self.setFixedSize(400, 280)
+                self._drag_pos = None
                 
                 self.container = QFrame(self)
                 self.container.setObjectName("DialogContainer")
@@ -618,7 +619,7 @@ class SettingsPage(QWidget):
                     event.accept()
 
             def mouseMoveEvent(self, event):
-                if event.buttons() == Qt.LeftButton:
+                if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
                     self.move(event.globalPos() - self._drag_pos)
                     event.accept()
 
@@ -719,9 +720,11 @@ class SettingsPage(QWidget):
         self._chk_debug_screenshots.setChecked(s.debug_screenshots)
         self._discovery_paths.setPlainText("\n".join(s.email_discovery_paths))
         self._chk_proxy.setChecked(s.proxy_enabled)
-        self._proxy_url.setText(s.proxy_url or "")
+        # Handle transition from proxy_url to proxies list
+        main_proxy = s.proxies[0] if s.proxies else ""
+        self._proxy_url.setText(main_proxy)
         self._proxy_url.setEnabled(s.proxy_enabled)
-        self._proxy_port.setText(self._extract_proxy_port(s.proxy_url or ""))
+        self._proxy_port.setText(self._extract_proxy_port(main_proxy))
         self._proxy_port.setEnabled(s.proxy_enabled)
         self._user_agents.setPlainText("\n".join(s.user_agents))
         idx = self._log_level.findText(s.log_level)
@@ -781,7 +784,7 @@ class SettingsPage(QWidget):
             blacklisted_domains=config_manager.settings.blacklisted_domains,
             whitelisted_domains=config_manager.settings.whitelisted_domains,
             proxy_enabled=self._chk_proxy.isChecked(),
-            proxy_url=self._proxy_url.text().strip() or None,
+            proxies=[self._proxy_url.text().strip()] if self._proxy_url.text().strip() else [],
             user_agents=user_agents or config_manager.settings.user_agents,
             log_level=self._log_level.currentText(),
             security_enabled=self._chk_security_enabled.isChecked(),

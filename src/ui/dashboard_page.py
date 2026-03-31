@@ -5,6 +5,7 @@ Premium Obsidian Core analytics and recent activity overview.
 
 from __future__ import annotations
 
+import json
 from collections import deque
 
 from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QEasingCurve
@@ -222,6 +223,55 @@ class DashboardPage(QWidget):
         self._activity_timer.timeout.connect(self._refresh_activity)
         self._build_ui()
         self._connect_events()
+        QTimer.singleShot(100, self._load_recent_jobs_from_disk)
+
+    def _load_recent_jobs_from_disk(self):
+        """Loads historical job definitions to populate the Recent Jobs list."""
+        from ..core.config import get_data_dir
+        import glob
+        import os
+
+        # Find all job_*.db files
+        data_dir = get_data_dir()
+        db_files = glob.glob(os.path.join(data_dir, "job_*.db"))
+        # Sort by filename (which includes timestamp) descending
+        db_files.sort(reverse=True)
+        
+        jobs = []
+        for db_path in db_files[:6]: # Load up to last 6 metadata
+            try:
+                meta, _ = orchestrator._export.load_project(db_path)
+                if meta:
+                    from ..core.models import ScrapingStatus, SearchConfig
+                    # Reconstruct ScrapingJob from meta
+                    config_data = json.loads(meta.get("config_json", "{}"))
+                    from ..core.models import SourceType
+                    if config_data.get("source_type") and isinstance(config_data["source_type"], str):
+                        config_data["source_type"] = SourceType(config_data["source_type"])
+                    
+                    job = ScrapingJob(
+                        config=SearchConfig(**{k: v for k, v in config_data.items() if k in SearchConfig.__dataclass_fields__}),
+                        status=ScrapingStatus(meta.get("status", "completed")),
+                    )
+                    job.id = meta.get("id", "unknown")
+                    job.created_at = meta.get("created_at")
+                    job.started_at = meta.get("started_at")
+                    job.completed_at = meta.get("completed_at")
+                    
+                    stats = json.loads(meta.get("stats_json", "{}"))
+                    job.total_found = stats.get("total_found", 0)
+                    job.total_emails = stats.get("total_emails", 0)
+                    job.total_websites = stats.get("total_websites", 0)
+                    job.total_errors = stats.get("total_errors", 0)
+                    
+                    jobs.append(job)
+            except Exception as e:
+                print(f"[DASHBOARD] Failed to load historical job {db_path}: {e}")
+        
+        if jobs:
+            self._jobs = jobs
+            self._refresh_stats()
+            self._refresh_job_list()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -490,20 +540,31 @@ class DashboardPage(QWidget):
             suffix = f" | {count} records" if count is not None else ""
             self._record_activity(f"EXPORT DONE | {fmt}{suffix}")
 
-    def refresh(self, jobs: list[ScrapingJob]):
-        self._jobs = jobs
+    def refresh(self, jobs: list[ScrapingJob] = None):
+        """Unified refresh: update with new jobs list OR just refresh stats/trial."""
+        if jobs is not None:
+            self._jobs = jobs
+            self._refresh_job_list()
+        
         self._refresh_stats()
-        self._refresh_job_list()
+        if hasattr(self, 'metric_trial'):
+            self.metric_trial._refresh()
 
     def load_summary(self, total_records: int, total_emails: int, total_websites: int):
         self._saved_summary = (total_records, total_emails, total_websites)
         self._refresh_stats()
 
     def _totals(self):
-        # Base totals from past jobs
+        # Base totals from past jobs OR saved summary (fallback for startup)
         total_leads = sum(j.total_found for j in self._jobs)
         total_emails = sum(j.total_emails for j in self._jobs)
         total_websites = sum(j.total_websites for j in self._jobs)
+        
+        # If no jobs in session, use the totals from app_memory provided by MainWindow
+        if not self._jobs:
+            total_leads = self._saved_summary[0]
+            total_emails = self._saved_summary[1]
+            total_websites = self._saved_summary[2]
         
         # Include active job from orchestrator if not already in self._jobs
         active_job = orchestrator.current_job
@@ -522,11 +583,6 @@ class DashboardPage(QWidget):
         
         return total_leads, total_emails, total_websites, active_jobs_count, completed_jobs, failed_jobs, total_jobs
 
-    def refresh(self):
-        """Public method to refresh all dashboard components."""
-        self._refresh_stats()
-        if hasattr(self, 'metric_trial'):
-            self.metric_trial._refresh()
 
     def _refresh_stats(self):
         total_leads, total_emails, total_websites, active_jobs, completed_jobs, failed_jobs, total_jobs = self._totals()

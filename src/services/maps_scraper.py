@@ -761,7 +761,7 @@ class GoogleMapsScraper:
 
 
 
-        return record if record.company_name else None
+        return record.normalize() if record.company_name else None
 
 
 

@@ -314,6 +314,7 @@ class ZugzwangDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(480, 260)
+        self._drag_pos = None
         
         # Main shadow/glass container
         self.container = QFrame(self)
@@ -408,7 +409,7 @@ class ZugzwangDialog(QDialog):
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPos() - self._drag_pos)
             event.accept()
 
@@ -422,6 +423,7 @@ class FeedbackDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(480, 560)
+        self._drag_pos = None
         
         # Main shadow/glass container
         self.container = QFrame(self)
@@ -615,7 +617,7 @@ class FeedbackDialog(QDialog):
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPos() - self._drag_pos)
             event.accept()
 

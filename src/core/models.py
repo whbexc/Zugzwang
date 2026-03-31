@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 import hashlib
+import re
 from typing import Optional
 from urllib.parse import urlparse
 import uuid
@@ -94,6 +95,68 @@ class LeadRecord:
     notes: Optional[str] = None
     scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     is_duplicate: bool = False
+
+    def normalize(self) -> "LeadRecord":
+        """Clean and standardize all fields in the record. Call before yielding/saving."""
+        # 1. Company Name - Strip "Arbeitgeber:" and generic prefixes
+        if self.company_name:
+            # Handle "Arbeitgeber:" on same line or separated by colon/dash
+            self.company_name = re.sub(r'(?i)arbeitgeber\s*[:\-]?\s*', '', self.company_name).strip()
+            # Remove trailing ellipses
+            self.company_name = re.sub(r'\.{3}$', '', self.company_name).strip()
+            # Generic cleanup
+            self.company_name = self.company_name.strip()
+
+        # 2. Location (City/Zip) - Extract from address if city is generic or missing
+        # We also want to capitalize city names nicely
+        if self.address:
+            # Try to find "12345 City" pattern
+            plz_match = re.search(r"\b(\d{5})\b", self.address)
+            if plz_match and not self.postal_code:
+                self.postal_code = plz_match.group(1)
+            
+            city_match = re.search(r"\d{5}\s+([A-ZÄÖÜa-zäöüß][^\n,]{2,})", self.address)
+            if city_match and (not self.city or self.city.lower() in ["", "ort", "standort"]):
+                self.city = city_match.group(1).strip()
+            elif not self.city or self.city.lower() in ["", "ort", "standort"]:
+                 # Fallback: Street, City
+                 if "," in self.address:
+                     self.city = self.address.split(",")[-1].strip()
+
+        if self.city:
+            self.city = self.city.strip()
+            # If city was extracted from search query (config), sometimes it's like "berlin"
+            if self.city.islower():
+                self.city = self.city.title()
+
+        # 3. Phone - Standard formatting
+        if self.phone:
+            cleaned = self.phone.strip()
+            # German international prefix: 0049 → +49
+            cleaned = re.sub(r"^0049\s*", "+49 ", cleaned)
+            # Remove cosmetic (0) in area codes: +49 (0)89 → +49 89
+            cleaned = re.sub(r"\(0\)\s*", "", cleaned)
+            # Strip everything except digits, +, (, ), -, space
+            cleaned = re.sub(r"[^\d+\(\)\-\s]", "", cleaned)
+            self.phone = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+        # 4. Website - Ensure scheme
+        if self.website:
+            self.website = self.website.strip().rstrip("/")
+            if self.website and not self.website.startswith(("http://", "https://")):
+                self.website = "https://" + self.website
+
+        # 5. Email - Force lower case
+        if self.email:
+            self.email = self.email.strip().lower()
+
+        # 6. Job Title - Strip screen-reader artifacts
+        if self.job_title:
+            self.job_title = re.sub(r'(?i)^\d+\.\s*ergebnis\s*[:\-]?\s*', '', self.job_title).strip()
+            if self.job_title.startswith("***"):
+                self.job_title = self.job_title.lstrip("* ").strip()
+
+        return self
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -263,7 +326,7 @@ class AppSettings:
     ])
 
     # Proxy
-    proxy_url: Optional[str] = None
+    proxies: list[str] = field(default_factory=list)
     proxy_enabled: bool = False
 
     # Debug

@@ -16,6 +16,8 @@ from ..core.models import LeadRecord, SearchConfig, SourceType
 
 logger = get_logger(__name__)
 
+_DEDUP_LOG_EVERY = 5  # emit a JOB_LOG every N deduplicated records to avoid spam
+
 # Basic fallback regex for deep email scanning
 _EMAIL_REGEX = re.compile(r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})")
 
@@ -105,15 +107,14 @@ class AubiPlusScraper:
         
         page = await self.session.new_page()
         try:
-            if self._cancelled: return
             success = await self.session.navigate(page, url, wait_until="domcontentloaded")
-            if not success or self._cancelled:
+            if not success:
                 logger.error(f"[{self.job_id}] Failed to load Aubi-Plus search page")
                 return
 
             # CRITICAL: Dismiss cookie modal FIRST before any other interaction
+            # Log shows it was intercepting pointer events 54+ times
             await self._dismiss_cookie_modal(page)
-            if self._cancelled: return
 
             # Wait for page to settle after cookie dismissal
             await asyncio.sleep(1)
@@ -123,79 +124,120 @@ class AubiPlusScraper:
             if not location_query and self.config.country and self.config.country != "Germany":
                 location_query = self.config.country
 
-            # Fill search inputs using type + autocomplete selection (critical for results)
-            # This avoids the redirect to /lass-dich-finden/
+            # Fill search inputs — use JS fill to avoid autocomplete dropdown interception
+            filled = False
             for sel_m, sel_a in [("#mSuggest", "#aSuggest"), ("#mSuggestModal", "#aSuggestModal")]:
                 try:
                     el_m = await page.query_selector(sel_m)
                     if el_m and await el_m.is_visible():
-                        # Fill Beruf (Job)
-                        await el_m.click()
-                        await el_m.fill("") # Clear first
-                        await el_m.type(self.config.job_title, delay=50)
-                        await asyncio.sleep(1.5) # Wait for dropdown
-                        
-                        # Click the first matching dropdown item
-                        dropdown = await page.query_selector(".dropdown-menu, .autocomplete")
-                        if dropdown and await dropdown.is_visible():
-                            suggestion = await dropdown.query_selector(".dropdown-item, .autocomplete-suggestion")
-                            if suggestion:
-                                await suggestion.click()
-                                await asyncio.sleep(0.5)
-
-                        # Fill Ort (Location)
+                        # JS fill bypasses autocomplete suggestion interception
+                        await el_m.evaluate(f"el => {{ el.value = {repr(self.config.job_title)}; el.dispatchEvent(new Event('input')); }}")
+                        await asyncio.sleep(0.3)
+                        # Dismiss any autocomplete dropdown that appears
+                        await page.evaluate("() => { const ac = document.querySelector('.autocomplete'); if (ac) ac.style.display = 'none'; }")
                         if location_query:
                             el_a = await page.query_selector(sel_a)
                             if el_a:
-                                await el_a.click()
-                                await el_a.fill("")
-                                await el_a.type(location_query, delay=50)
-                                await asyncio.sleep(1.5)
-                                
-                                dropdown = await page.query_selector(".dropdown-menu, .autocomplete")
-                                if dropdown and await dropdown.is_visible():
-                                    suggestion = await dropdown.query_selector(".dropdown-item, .autocomplete-suggestion")
-                                    if suggestion:
-                                        await suggestion.click()
-                                        await asyncio.sleep(0.5)
+                                await el_a.evaluate(f"el => {{ el.value = {repr(location_query)}; el.dispatchEvent(new Event('input')); }}")
+                                await asyncio.sleep(0.3)
+                                await page.evaluate("() => { const ac = document.querySelector('.autocomplete'); if (ac) ac.style.display = 'none'; }")
+                        filled = True
                         break
                 except Exception as e:
-                    logger.debug(f"[{self.job_id}] Autocomplete selection failed: {e}")
+                    logger.debug(f"[{self.job_id}] Input fill failed for {sel_m}: {e}")
                     continue
 
-            if self._cancelled: return
-            # Step 2: Apply filters
-            if self.config.offer_type or self.config.latest_offers_only:
-                logger.info(f"[{self.job_id}] Applying search filters for: {self.config.job_title or 'Latest Offers'}")
-                await self._apply_filters(page)
+            # Verify we landed on the right page — not /lass-dich-finden/ or similar
+            current_url = page.url
+            logger.info(f"[{self.job_id}] Current URL after search: {current_url}")
             
-            if self._cancelled: return
+            if "lass-dich-finden" in current_url or "register" in current_url or "login" in current_url:
+                logger.error(f"[{self.job_id}] Landed on wrong page: {current_url}. Trying direct URL.")
+                # Force navigate to results
+                kw = self.config.job_title.replace(' ', '+')
+                loc = (location_query or "").replace(' ', '+')
+                fallback_url = f"https://www.aubi-plus.de/suchmaschine/suche/?what={kw}&where={loc}"
+                await self.session.navigate(page, fallback_url, wait_until="domcontentloaded")
+                await asyncio.sleep(3)
+                logger.info(f"[{self.job_id}] Fallback URL: {page.url}")
 
-            # Step 3: Trigger search via JS click (avoids interception issues)
-            searched = False
-            for btn_sel in [".btn-info", "button.btn-info", "button[type='submit']", "button:has-text('STELLEN FINDEN')"]:
+            # Replaced UI click filtering with direct URL parameters to speed up search
+
+            # Step 3: Build search URL using Aubi-Plus's INTERNAL parameter format.
+            # ⚠ Critical:
+            #   - Use mSuggest/aSuggest so pagination links carry the search context.
+            #   - Resolve aSuggestLat/aSuggestLon via Nominatim geocoding so Aubi-Plus
+            #     uses its geo-radius filter (fGeo). Without real coords it falls back to
+            #     text-only city matching → ~6 results. With coords + fGeo=50 → 168+ results.
+            from urllib.parse import quote_plus
+            import json, urllib.request as _ureq
+
+            per_page = min(max(self.config.max_results, 20), 50)
+            loc = (location_query or "").strip()
+
+            # Geocode the city name → lat/lon (Nominatim, no API key needed)
+            lat, lon = 0.0, 0.0
+            if loc:
                 try:
-                    if self._cancelled: break
-                    btn = await page.query_selector(btn_sel)
-                    if btn and await btn.is_visible():
-                        # JS click is more reliable against overlays
-                        await btn.evaluate("el => el.click()")
-                        searched = True
-                        logger.debug(f"[{self.job_id}] Search triggered with: {btn_sel}")
-                        break
-                except Exception:
-                    continue
+                    geo_url = (
+                        f"https://nominatim.openstreetmap.org/search"
+                        f"?q={quote_plus(loc + ', Germany')}&format=json&limit=1"
+                    )
+                    geo_req = _ureq.Request(geo_url, headers={"User-Agent": "ZUGZWANG-LeadHunter/1.0"})
+                    with _ureq.urlopen(geo_req, timeout=6) as _r:
+                        geo_data = json.loads(_r.read().decode())
+                    if geo_data:
+                        lat = round(float(geo_data[0]["lat"]), 4)
+                        lon = round(float(geo_data[0]["lon"]), 4)
+                        logger.info(f"[{self.job_id}] Geocoded '{loc}' → lat={lat}, lon={lon}")
+                    else:
+                        logger.warning(f"[{self.job_id}] Nominatim returned no results for '{loc}', using text-only search")
+                except Exception as _ge:
+                    logger.warning(f"[{self.job_id}] Geocoding failed ({_ge}), falling back to text-only search")
 
-            if not searched and not self._cancelled:
-                try:
-                    await page.keyboard.press("Enter")
-                except Exception:
-                    pass
+            # Map offer_types to Aubi-Plus new array params (fTyp[])
+            ftyp_params = []
+            ot_lower = (self.config.offer_type or "").lower()
+            
+            if "ausbildung" in ot_lower:
+                ftyp_params.append("ausbildung")
+            if "studium" in ot_lower:
+                ftyp_params.append("duales-studium")
+                ftyp_params.append("studium")
+            if "praktikum" in ot_lower:
+                ftyp_params.append("schuelerpraktikum")
+                ftyp_params.append("studentenpraktikum")
+            if "werkstudent" in ot_lower:
+                ftyp_params.append("werkstudent")
+                
+            ftyp_query = ""
+            for typ in ftyp_params:
+                ftyp_query += f"&fTyp%5B%5D={typ}"
+                
+            # Handle sorting
+            sort_param = "aktualitaet" if self.config.latest_offers_only else "relevanz"
 
-            if self._cancelled: return
-
+            # fGeo=100 → 100 km radius around the geocoded point
+            fgeo_param = "&fGeo=100&fLand%5B0%5D=deutschland" if (lat and lon) else ""
+            
+            search_url = (
+                "https://www.aubi-plus.de/suchmaschine/suche/?"
+                f"mSuggest={quote_plus(self.config.job_title.strip())}"
+                f"&aSuggest={quote_plus(loc)}"
+                f"&aSuggestLat={lat}&aSuggestLon={lon}"
+                f"{ftyp_query}"
+                "&fBlitzbewerbung=0"
+                f"&anzahl={per_page}"
+                f"&s={sort_param}"
+                + fgeo_param
+            )
+            logger.info(f"[{self.job_id}] Navigating directly to search URL: {search_url}")
+            success = await self.session.navigate(page, search_url, wait_until="domcontentloaded")
+            if not success:
+                logger.error(f"[{self.job_id}] Failed to load search results page")
+                return
             # Wait for results to load
-            await asyncio.sleep(5)
+            await asyncio.sleep(4)
 
             # Debug: log what's actually on the page
             page_url = page.url
@@ -231,11 +273,11 @@ class AubiPlusScraper:
                 # Try multiple fallbacks in case class names changed
                 job_cards = []
                 for card_sel in [
-                    ".my-3.text-primary-dark.overflow-hidden.rounded-3",  # exact from extension
+                    ".my-3.overflow-hidden.rounded-3",                      # Matches both premium and standard cards
+                    ".my-3.text-primary-dark.overflow-hidden.rounded-3",    # premium exact
                     ".my-3.text-primary-dark",                              # partial match
-                    "article",                                             # generic container
+                    "article.job-card",                                     # semantic fallback
                     "a.stretched-link",                                     # direct link harvest
-                    "[class*='text-primary-dark']",                         # broad matching
                 ]:
                     job_cards = await page.query_selector_all(card_sel)
                     if job_cards:
@@ -260,7 +302,18 @@ class AubiPlusScraper:
                         title_text = await card.inner_text()
                         link_el = card
                     else:
-                        link_el = await card.query_selector("a.stretched-link, h2 a, a:not([href='#'])")
+                        # Find the correct link prioritizing stretched-link or heading link
+                        link_el = await card.query_selector("a.stretched-link")
+                        if not link_el:
+                            link_el = await card.query_selector("h2 a, h3 a, h4 a, .card-title a")
+                        if not link_el:
+                            # Fallback: get first valid content link
+                            links = await card.query_selector_all("a[href]")
+                            for a in links:
+                                h = await a.get_attribute("href")
+                                if h and h != "#" and not h.startswith("javascript"):
+                                    link_el = a
+                                    break
                         if not link_el:
                             continue
                         href = await link_el.get_attribute("href")
@@ -271,7 +324,7 @@ class AubiPlusScraper:
                         if not title_text:
                             title_text = (await link_el.inner_text()).strip()
 
-                    if not href or href == "#":
+                    if not href or href == "#" or href.startswith("javascript"):
                         continue
 
                     full_url = urljoin("https://www.aubi-plus.de", href)
@@ -335,42 +388,53 @@ class AubiPlusScraper:
                     break
                 
                 # Step 3: Pagination
+                # Aubi-Plus uses a.page-link with href containing seite=N
+                # The '>' arrow is the last a.page-link on the page.
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await asyncio.sleep(1.5)
 
-                # Debug: log pagination HTML
-                try:
-                    pagination_html = await page.evaluate("""
-                        () => {
-                            const pag = document.querySelector('.pagination, nav[aria-label*="pagination"], ul.pagination');
-                            return pag ? pag.outerHTML.substring(0, 500) : 'NO PAGINATION FOUND';
-                        }
-                    """)
-                    logger.debug(f"[{self.job_id}] Pagination HTML: {pagination_html}")
-                except Exception:
-                    pass
+                next_page_url = await page.evaluate("""
+                    () => {
+                        const links = Array.from(document.querySelectorAll('a.page-link'));
+                        if (!links.length) return null;
 
-                next_btn = await page.query_selector(
-                    'li.page-item a[rel="next"], '
-                    'a.page-link[aria-label*="Next"], '
-                    'a.page-link[aria-label*="Weiter"], '
-                    'a.page-link[title*="Nächste"], '
-                    'a.page-link[title*="Weiter"], '
-                    'a[rel="next"], '
-                    '.pagination a:last-child'
-                )
-                            
-                if next_btn:
-                    next_url = await next_btn.get_attribute("href")
-                    if next_url and next_url != "#":
-                        full_next = urljoin("https://www.aubi-plus.de", next_url)
-                        logger.info(f"[{self.job_id}] Next page: {full_next}")
-                        success = await self.session.navigate(page, full_next, wait_until="domcontentloaded")
-                        if not success:
-                            break
-                        await asyncio.sleep(2)
-                        continue
-                        
+                        // Determine current page number from URL
+                        const params = new URLSearchParams(window.location.search);
+                        const currentSeite = parseInt(params.get('seite') || '1');
+                        const nextSeite = currentSeite + 1;
+
+                        // 1. Prefer an explicit seite=N+1 link
+                        const explicitNext = links.find(
+                            a => a.href.includes('seite=' + nextSeite) &&
+                                 !a.closest('li')?.classList.contains('disabled')
+                        );
+                        if (explicitNext) return explicitNext.href;
+
+                        // 2. Fallback: last page-link is the '>' arrow button
+                        const lastLink = links[links.length - 1];
+                        if (
+                            lastLink &&
+                            lastLink.href &&
+                            lastLink.href !== '#' &&
+                            lastLink.href !== window.location.href &&
+                            !lastLink.closest('li')?.classList.contains('disabled') &&
+                            !lastLink.href.includes('seite=' + currentSeite)
+                        ) {
+                            return lastLink.href;
+                        }
+
+                        return null;
+                    }
+                """)
+
+                if next_page_url:
+                    logger.info(f"[{self.job_id}] Next page: {next_page_url}")
+                    success = await self.session.navigate(page, next_page_url, wait_until="domcontentloaded")
+                    if not success:
+                        break
+                    await asyncio.sleep(2)
+                    continue
+
                 logger.info(f"[{self.job_id}] No more pages available.")
                 break
                     
@@ -381,70 +445,9 @@ class AubiPlusScraper:
             self._total_errors += 1
             event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, level="ERROR", message=f"Aubi-Plus scan aborted: {str(e)}")
 
-    async def _apply_filters(self, page):
-        """Map UI offer types to Aubi-Plus specific checkboxes."""
-        try:
-            ot = self.config.offer_type or ""
-            targets = []
-            
-            if "Ausbildung" in ot or "Studium" in ot:
-                targets.extend(["fTyp_ausbildung", "fTyp_duales-studium", "fTyp_studium"])
-            if "Praktikum" in ot or "Werkstudent" in ot:
-                targets.extend(["fTyp_schuelerpraktikum", "fTyp_studentenpraktikum", "fTyp_werkstudent"])
-            
-            if self.config.latest_offers_only:
-                targets.append("s_aktualitaet")
-            
-            if not targets:
-                return
-
-            # Open filter dropdown
-            filter_btn = await page.query_selector(".btn-filter")
-            if filter_btn:
-                # Check if it's already open by looking for 'show' class
-                is_open = await filter_btn.evaluate("el => el.classList.contains('show')")
-                if not is_open:
-                    logger.debug(f"[{self.job_id}] Opening filter dropdown")
-                    await filter_btn.click()
-                    await asyncio.sleep(1)
-                
-            # Select target checkboxes
-            for target_id in targets:
-                # Re-query filter button each time to handle potential DOM updates
-                filter_btn = await page.query_selector(".btn-filter")
-                if not filter_btn:
-                    break
-
-                # Re-open dropdown if it closed
-                is_open = await filter_btn.evaluate("el => el.classList.contains('show')")
-                if not is_open:
-                    await filter_btn.click()
-                    await asyncio.sleep(1)
-
-                checkbox = await page.query_selector(f"#{target_id}")
-                if checkbox:
-                    is_checked = await checkbox.is_checked()
-                    if not is_checked:
-                        # Click the label to toggle checkbox (JS click is safer here)
-                        label = await page.query_selector(f'label[for="{target_id}"]')
-                        if label:
-                            await label.evaluate("el => el.click()")
-                            # Dropdown usually closes here, so we wait for dynamic updates
-                            await asyncio.sleep(1.5)
-            
-            # Close dropdown if still open
-            filter_btn = await page.query_selector(".btn-filter")
-            if filter_btn:
-                is_open = await filter_btn.evaluate("el => el.classList.contains('show')")
-                if is_open:
-                    await filter_btn.click()
-                    await asyncio.sleep(0.5)
-                
-        except Exception as e:
-            logger.warning(f"[{self.job_id}] Could not apply filters: {e}")
 
     async def _fetch_html_in_page(self, page, url: str) -> str | None:
-        r"""
+        """
         Fetch a URL using in-page fetch() — exactly like aubiplus_script.js line 138:
             const response = await fetch(href);
             const text = await response.text();
@@ -475,64 +478,88 @@ class AubiPlusScraper:
             return None
 
     def _parse_detail_html(self, html: str, url: str) -> dict:
-        r"""
-        Parse detail page HTML using same field extraction logic as aubiplus_script.js.
+        """
+        Parse Aubi-Plus detail page HTML.
         
-        JS reference (lines 144-178):
-            const companyNameEl = doc.querySelector('.fs-6.mb-0.lh-1');
-            const locationIcons = doc.querySelectorAll('.fa-location-dot');
-            const emailBewerbung = doc.querySelector('#emailbewerbung');
-            const mailtoLinks = Array.from(doc.querySelectorAll('a[href^="mailto:"]'));
-            regex: ([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\\.[a-zA-Z0-9_-]+)
+        From screenshots:
+        - Company: sidebar card top, bold name (.fs-6.mb-0.lh-1 or strong in Kontakt card)
+        - Address: Kontakt section bottom (plain text block)
+        - Phone: teal link a[href^='tel:'] in Kontakt card
+        - Email: HIDDEN behind 'E-Mail anzeigen' link — NOT in static HTML
+        - Website: check for company website link
         """
         from bs4 import BeautifulSoup
         doc = BeautifulSoup(html, "html.parser")
 
-        # 1. Company Name — mirrors JS: doc.querySelector('.fs-6.mb-0.lh-1')
+        # 1. Company Name
         company_name = ""
-        for sel in [".fs-6.mb-0.lh-1", "a[href*='/unternehmen/']", "h2.h4 a"]:
+        for sel in [
+            ".fs-6.mb-0.lh-1",          # sidebar company name
+            "a[href*='/unternehmen/']",   # company profile link
+            "h1.h2",                      # page title fallback
+            "h1",
+        ]:
             el = doc.select_one(sel)
             if el:
                 company_name = re.sub(r'\s+', ' ', el.get_text()).strip()
-                break
+                if company_name:
+                    break
 
-        # 2. Address — mirrors JS: locationIcons[i].nextElementSibling (SPAN)
+        # 2. Address — from Kontakt section bottom block (screenshot shows plain address)
         address = ""
-        for icon in doc.select(".fa-location-dot"):
-            sib = icon.find_next_sibling()
-            if sib and sib.name in ("span", "div") and len(sib.get_text(strip=True)) > 3:
-                address = sib.get_text(strip=True)
+        # Find Kontakt heading then grab address text below it
+        for kontakt_hdr in doc.find_all(["h2", "h3", "h4", "h5"]):
+            if "kontakt" in kontakt_hdr.get_text().lower():
+                # Walk siblings/parent for address block
+                parent = kontakt_hdr.find_parent(["div", "section", "aside"])
+                if parent:
+                    # Look for address-like text: street + city pattern
+                    for p in parent.find_all(["p", "div", "span"]):
+                        txt = p.get_text(separator=" ", strip=True)
+                        if re.search(r'\d{5}', txt):  # German postal code
+                            address = txt
+                            break
                 break
 
-        # 3. Phone
+        # Fallback address: fa-location-dot sibling
+        if not address:
+            for icon in doc.select(".fa-location-dot, .fa-map-marker-alt"):
+                sib = icon.find_next_sibling()
+                if sib and len(sib.get_text(strip=True)) > 3:
+                    address = sib.get_text(strip=True)
+                    break
+
+        # 3. Phone — teal tel: link in Kontakt card (screenshot shows +49 821...)
         phone = ""
-        phone_el = doc.select_one(".phoneNumber, a[href^='tel:']")
-        if phone_el:
-            phone = phone_el.get_text(strip=True)
+        for a in doc.select("a[href^='tel:']"):
+            phone = a.get_text(strip=True)
+            if phone:
+                break
+        if not phone:
+            el = doc.select_one(".phoneNumber")
+            if el:
+                phone = el.get_text(strip=True)
 
-        # 4. Contact person
+        # 4. Contact person — bold name in Kontakt card
         contact_person = ""
-        for hdr in doc.select("h3, h4"):
-            if "kontakt" in hdr.get_text().lower() or "ansprechpartner" in hdr.get_text().lower():
-                container = hdr.find_parent(class_="card-body") or hdr.parent
-                if container:
-                    name_el = container.select_one("strong, b, p.fw-bold, .h5")
-                    if name_el:
-                        contact_person = name_el.get_text(strip=True)
+        for kontakt_hdr in doc.find_all(["h2", "h3", "h4", "h5"]):
+            if "kontakt" in kontakt_hdr.get_text().lower():
+                parent = kontakt_hdr.find_parent(["div", "section", "aside", "article"])
+                if parent:
+                    for el in parent.select("strong, b, .fw-bold, p strong"):
+                        name = el.get_text(strip=True)
+                        if name and len(name) > 3 and "@" not in name:
+                            contact_person = name
+                            break
                 break
 
-        # 5. Email — mirrors JS 3-tier logic (lines 158-178):
-        #    Tier 1: #emailbewerbung
-        #    Tier 2: any a[href^="mailto:"] with @
-        #    Tier 3: regex on .card-body text
+        # 5. Email — try static HTML first (most listings won't have it)
+        # "E-Mail anzeigen" means it's JS-protected → _click_reveal_email handles it
         email = ""
-
-        # Tier 1: #emailbewerbung (JS line 158)
         el = doc.select_one("#emailbewerbung")
         if el and el.get("href", "").startswith("mailto:"):
             email = el["href"].replace("mailto:", "").split("?")[0].strip()
 
-        # Tier 2: any mailto link (JS lines 162-166)
         if not email:
             for a in doc.select('a[href^="mailto:"]'):
                 candidate = a["href"].replace("mailto:", "").split("?")[0].strip()
@@ -540,41 +567,54 @@ class AubiPlusScraper:
                     email = candidate
                     break
 
-        # Tier 3: regex fallback on card bodies (JS lines 167-176)
-        if not email:
-            for cb in doc.select(".card-body.p-4, .card-body"):
-                match = _EMAIL_REGEX.search(cb.get_text())
-                if match:
-                    email = match.group(1).strip()
+        # 6. Company website — for fallback scraping
+        website = ""
+        for a in doc.select("a[href^='http']"):
+            href = a.get("href", "")
+            if "aubi-plus" not in href and "google" not in href:
+                txt = a.get_text(strip=True).lower()
+                if any(w in txt for w in ["website", "homepage", "www", "zur website", "webseite"]):
+                    website = href
+                    break
+        # Also check for explicit website field
+        if not website:
+            for icon in doc.select(".fa-globe, .fa-link"):
+                sib = icon.find_next_sibling("a")
+                if sib and sib.get("href", "").startswith("http"):
+                    if "aubi-plus" not in sib["href"]:
+                        website = sib["href"]
+                        break
+
+        # Fallback: Check 'Bewerben' or arbitrary external links if no website found
+        if not website:
+            for a in doc.select("a.btn[href^='http'], a.button[href^='http']"):
+                href = a.get("href", "")
+                if "aubi-plus" not in href and "google" not in href and "facebook" not in href:
+                    website = href
                     break
 
-        # Final full-page regex fallback
-        if not email:
-            match = _EMAIL_REGEX.search(doc.get_text())
-            if match:
-                email = match.group(1).strip()
+        # Check if "E-Mail anzeigen" exists (tells us reveal click is needed)
+        has_reveal_btn = bool(doc.find(
+            lambda tag: tag.name in ("a", "button", "span", "div") and
+            ("e-mail" in tag.get_text().lower() or "email" in tag.get_text().lower()) and 
+            ("anzeigen" in tag.get_text().lower() or "zeigen" in tag.get_text().lower())
+        ))
 
         return {
-            "company_name": company_name,
-            "address":      address,
-            "phone":        phone,
+            "company_name":   company_name,
+            "address":        address,
+            "phone":          phone,
             "contact_person": contact_person,
-            "email":        email,
+            "email":          email,
+            "website":        website,
+            "has_reveal_btn": has_reveal_btn,
         }
 
     async def _click_reveal_email(self, url: str) -> str:
         """
-        Handle 'E-Mail anzeigen' button — requires actual browser click.
-        
-        The Kontakt card hides the email behind a JS-triggered reveal.
-        Static fetch() returns the button but NOT the email.
-        We must open a real page, click the button, then read the revealed email.
-        
-        Selectors to try (in order):
-          1. a:has-text('E-Mail anzeigen')   ← the teal link in Kontakt card
-          2. button:has-text('E-Mail')        ← button variant
-          3. .reveal-email, [data-reveal]     ← generic reveal patterns
-          4. After click: a[href^='mailto:']  ← revealed mailto link
+        Step 5 from screenshot: click 'E-Mail anzeigen' teal link in Kontakt card.
+        Opens a real browser tab, dismisses cookie modal, clicks the link,
+        reads the revealed mailto href.
         """
         detail_page = None
         try:
@@ -587,110 +627,154 @@ class AubiPlusScraper:
             if not success:
                 return ""
 
-            # Wait for Kontakt section to load
-            await asyncio.sleep(1.5)
+            # Dismiss cookie modal if it appears
+            await self._dismiss_cookie_modal(detail_page)
+            await asyncio.sleep(1.0)
 
-            # Find the "E-Mail anzeigen" link/button
-            reveal_selectors = [
+            # Find "E-Mail anzeigen" — exact text from screenshot
+            reveal_el = None
+            for sel in [
                 "a:has-text('E-Mail anzeigen')",
                 "a:has-text('E-Mail zeigen')",
-                "a:has-text('Email anzeigen')",
                 "button:has-text('E-Mail anzeigen')",
-                "button:has-text('E-Mail')",
-                ".reveal-email",
+                "a:has-text('Email anzeigen')",
                 "[data-reveal-email]",
-                "a[href*='reveal'], a[href*='email-show']",
-            ]
-
-            reveal_el = None
-            for sel in reveal_selectors:
+            ]:
                 try:
-                    reveal_el = await detail_page.query_selector(sel)
-                    if reveal_el:
-                        logger.debug(f"[{self.job_id}] Found reveal button with selector: {sel}")
+                    el = await detail_page.query_selector(sel)
+                    if el:
+                        reveal_el = el
+                        logger.debug(f"[{self.job_id}] Found reveal btn: {sel}")
                         break
-                except:
+                except Exception:
                     continue
 
             if not reveal_el:
-                logger.debug(f"[{self.job_id}] No reveal button found at {url}")
+                logger.debug(f"[{self.job_id}] No 'E-Mail anzeigen' button at {url}")
                 return ""
 
-            # Click it and wait for the email to appear
-            await reveal_el.click(force=True)
-            await asyncio.sleep(1.5)  # Wait for JS to inject the email
+            # Click and wait for JS to inject the mailto
+            await reveal_el.evaluate("el => el.click()")
+            await asyncio.sleep(1.5)
 
-            # Strategy 1: mailto link appeared after click
-            for mail_sel in [
-                "a[href^='mailto:']",
-                "#emailbewerbung",
-                ".kontakt-email",
-                ".email-revealed",
-            ]:
+            # Read revealed email — check mailto links first
+            for mail_sel in ["a[href^='mailto:']", "#emailbewerbung"]:
                 el = await detail_page.query_selector(mail_sel)
                 if el:
                     href = await el.get_attribute("href") or ""
-                    text = await el.inner_text()
                     if href.startswith("mailto:"):
                         email = href.replace("mailto:", "").split("?")[0].strip()
                         if "@" in email:
-                            logger.info(f"[{self.job_id}] Revealed email (mailto): {email}")
+                            logger.info(f"[{self.job_id}] Reveal email: {email}")
                             return email
-                    # Sometimes it's plain text in the element
+                    # Plain text fallback
+                    text = (await el.inner_text()).strip()
                     if "@" in text:
-                        email = text.strip()
-                        logger.info(f"[{self.job_id}] Revealed email (text): {email}")
-                        return email
+                        logger.info(f"[{self.job_id}] Reveal email (text): {text}")
+                        return text
 
-            # Strategy 2: regex scan the full page after reveal
+            # Regex scan full page after reveal
             body_text = await detail_page.evaluate("document.body.innerText")
             match = _EMAIL_REGEX.search(body_text)
             if match:
                 email = match.group(1).strip()
-                logger.info(f"[{self.job_id}] Revealed email (regex): {email}")
+                logger.info(f"[{self.job_id}] Reveal email (regex): {email}")
                 return email
 
-            # Strategy 3: check if the reveal link itself became a mailto
-            try:
-                href_after = await reveal_el.get_attribute("href") or ""
-                if href_after.startswith("mailto:"):
-                    email = href_after.replace("mailto:", "").split("?")[0].strip()
-                    if "@" in email:
-                        return email
-            except:
-                pass
-
-            logger.debug(f"[{self.job_id}] Reveal clicked but no email found at {url}")
             return ""
 
         except Exception as e:
-            logger.debug(f"[{self.job_id}] Reveal click failed for {url}: {e}")
+            logger.debug(f"[{self.job_id}] Reveal click error: {e}")
             return ""
         finally:
             if detail_page:
                 await detail_page.close()
 
+    async def _scrape_company_website(self, website_url: str) -> str:
+        """
+        Fallback: if no email on Aubi-Plus page and no reveal button,
+        fetch the company website and look for a contact email.
+        Checks: homepage, /kontakt, /impressum pages.
+        """
+        if not website_url:
+            return ""
+
+        from urllib.parse import urlparse
+        base = urlparse(website_url)
+        base_url = f"{base.scheme}://{base.netloc}"
+
+        pages_to_try = [
+            website_url,
+            base_url + "/kontakt",
+            base_url + "/impressum",
+            base_url + "/kontakt.html",
+            base_url + "/contact",
+        ]
+
+        for page_url in pages_to_try:
+            try:
+                html = await self._fetch_html_in_page(None, page_url)
+                if not html:
+                    # Try via background fetch with aiohttp-style call
+                    import urllib.request
+                    req = urllib.request.Request(
+                        page_url,
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=8) as r:
+                        html = r.read().decode("utf-8", errors="ignore")
+
+                if not html:
+                    continue
+
+                from bs4 import BeautifulSoup
+                doc = BeautifulSoup(html, "html.parser")
+
+                # mailto links
+                for a in doc.select('a[href^="mailto:"]'):
+                    email = a["href"].replace("mailto:", "").split("?")[0].strip()
+                    if "@" in email and "example" not in email:
+                        logger.info(f"[{self.job_id}] Website email found: {email} at {page_url}")
+                        return email
+
+                # Regex scan
+                match = _EMAIL_REGEX.search(doc.get_text())
+                if match:
+                    email = match.group(1).strip()
+                    if "example" not in email:
+                        logger.info(f"[{self.job_id}] Website email (regex): {email} at {page_url}")
+                        return email
+
+            except Exception as e:
+                logger.debug(f"[{self.job_id}] Website fetch failed {page_url}: {e}")
+                continue
+
+        return ""
+
     async def _extract_job_detail(self, url: str, page=None) -> LeadRecord | None:
         """
-        Fast detail extraction using in-page fetch() — matches aubiplus_script.js approach.
-        
-        Flow:
-          1. In-page fetch() for HTML — no new tab, ~100ms
-          2. Parse with BeautifulSoup — 3-tier email extraction
-          3. If no email found → click 'E-Mail anzeigen' button in real browser tab
-          4. Fallback: open new_page() if fetch fails entirely
+        Exact flow from screenshots:
+
+        1. Fetch HTML (in-page fetch — fast, no new tab)
+        2. Parse: company, address, phone, contact person
+        3. Check for email in static HTML (rarely present)
+        4. If 'E-Mail anzeigen' button exists → click it (Step 5 from screenshot)
+        5. If no Kontakt section or still no email → try company website
+        6. Return record (even without email if other data exists)
         """
         try:
-            # Step 1: In-page fetch — fast path, no new tab
+            # Step 1: Fast fetch — no new tab
             html = await self._fetch_html_in_page(page, url) if page else None
 
-            # Fallback: if in-page fetch fails open a real tab for HTML
             if not html:
-                logger.debug(f"[{self.job_id}] In-page fetch failed, falling back to new_page for {url}")
+                # Fallback: real tab
                 detail_page = None
                 try:
                     detail_page = await self.session.new_page()
-                    success = await self.session.navigate(detail_page, url, wait_until="domcontentloaded", timeout=30000)
+                    success = await self.session.navigate(
+                        detail_page, url,
+                        wait_until="domcontentloaded", timeout=30000
+                    )
                     if not success:
                         return None
                     await asyncio.sleep(self.config.delay_min)
@@ -702,21 +786,32 @@ class AubiPlusScraper:
             if not html:
                 return None
 
-            # Step 2: Parse static HTML in memory
+            # Step 2: Parse static HTML
             fields = self._parse_detail_html(html, url)
+            logger.debug(
+                f"[{self.job_id}] Parsed {url} — "
+                f"company='{fields['company_name']}' "
+                f"email='{fields['email']}' "
+                f"has_reveal={fields['has_reveal_btn']} "
+                f"website='{fields['website']}'"
+            )
 
-            # Step 3: If no email in static HTML → need real browser click
-            # The "E-Mail anzeigen" button requires JS execution
+            # Step 3: Email already in HTML? Done.
+            # Step 4: 'E-Mail anzeigen' button → click to reveal
+            if not fields["email"] and fields["has_reveal_btn"]:
+                logger.info(f"[{self.job_id}] Clicking 'E-Mail anzeigen' at {url}")
+                fields["email"] = await self._click_reveal_email(url)
+
+            # Step 5: No email + no reveal btn + has website → scrape website
+            if not fields["email"] and fields["website"]:
+                logger.info(f"[{self.job_id}] Trying website fallback: {fields['website']}")
+                fields["email"] = await self._scrape_company_website(fields["website"])
+
+            # Skip only if scrape_emails is ON and we have absolutely nothing
             if not fields["email"] and self.config.scrape_emails:
-                logger.debug(f"[{self.job_id}] No email in static HTML, trying reveal click for {url}")
-                revealed_email = await self._click_reveal_email(url)
-                if revealed_email:
-                    fields["email"] = revealed_email
-                else:
-                    # Still no email after reveal attempt — skip
-                    return None
+                logger.debug(f"[{self.job_id}] No email found, skipping: {url}")
+                return None
 
-            # Polite delay — matches extension's 1000ms sleep
             await asyncio.sleep(max(self.config.delay_min, 0.5))
 
             return LeadRecord(
@@ -730,7 +825,7 @@ class AubiPlusScraper:
                 phone=fields["phone"],
                 contact_person=fields["contact_person"],
                 job_title=self.config.job_title,
-            )
+            ).normalize()
 
         except Exception as e:
             logger.warning(f"[{self.job_id}] Error extracting {url}: {e}")

@@ -379,6 +379,7 @@ class LeadFilterProxy(QSortFilterProxyModel):
         self._source_filter = 0
         self._status_filter = 0
         self._city_filter = "All Cities"
+        self._postal_code_filter = "" # Prefix filter
         self._date_filter = 0  
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         self.setFilterKeyColumn(-1)
@@ -393,6 +394,10 @@ class LeadFilterProxy(QSortFilterProxyModel):
 
     def set_city_filter(self, city: str):
         self._city_filter = city
+        self.invalidateFilter()
+
+    def set_postal_code_filter(self, code: str):
+        self._postal_code_filter = code.strip()
         self.invalidateFilter()
 
     def set_date_filter(self, index: int):
@@ -433,13 +438,20 @@ class LeadFilterProxy(QSortFilterProxyModel):
 
         if self._status_filter != 0:
             has_email = bool(record.email)
-            if self._status_filter == 1 and not has_email:
+            has_website = bool(record.website)
+            if self._status_filter == 1 and not has_email: # Verified
                 return False
-            if self._status_filter == 2 and has_email:
+            if self._status_filter == 2 and (has_email or not has_website): # Partial
+                return False
+            if self._status_filter == 3 and (has_email or has_website): # Cold
                 return False
 
         if self._city_filter != "All Cities":
             if (record.city or "").lower() != self._city_filter.lower():
+                return False
+
+        if self._postal_code_filter:
+            if not record.postal_code or not record.postal_code.startswith(self._postal_code_filter):
                 return False
 
         if self._date_filter != 0:
@@ -448,9 +460,16 @@ class LeadFilterProxy(QSortFilterProxyModel):
             try:
                 dt = record.scraped_at
                 if isinstance(dt, str):
+                    if not dt.endswith("Z") and "+" not in dt:
+                        dt += "+00:00"
                     dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
                 
-                now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+                # Ensure we compare timezone-aware UTC times
+                import datetime as dt_module
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=dt_module.timezone.utc)
+                
+                now = datetime.now(dt_module.timezone.utc)
                 delta = (now - dt).total_seconds()
                 
                 # 0: All Time
@@ -956,6 +975,10 @@ class ResultsPage(QWidget):
         self._city_chip.clicked.connect(self._show_city_menu)
         topRow.addWidget(self._city_chip)
 
+        self._postal_chip = FilterChip("ANY PLZ")
+        self._postal_chip.clicked.connect(self._show_postal_menu)
+        topRow.addWidget(self._postal_chip)
+
         self._date_chip = FilterChip("ALL TIME")
         self._date_chip.clicked.connect(self._show_date_menu)
         topRow.addWidget(self._date_chip)
@@ -1123,10 +1146,9 @@ class ResultsPage(QWidget):
         menu = FilterMenu(self)
         menu.add_item("All Statuses", 0, self._proxy._status_filter == 0)
         menu.add_divider()
-        menu.add_item("Email Valid", 1, self._proxy._status_filter == 1)
-        menu.add_item("Email Invalid", 2, self._proxy._status_filter == 2)
-        menu.add_item("No Email Found", 3, self._proxy._status_filter == 3)
-        menu.add_item("Pending", 4, self._proxy._status_filter == 4)
+        menu.add_item("Verified (Has Email)", 1, self._proxy._status_filter == 1)
+        menu.add_item("Partial (Website Only)", 2, self._proxy._status_filter == 2)
+        menu.add_item("Cold (No Contact Info)", 3, self._proxy._status_filter == 3)
         
         menu.itemSelected.connect(lambda t, i: self._apply_status_filter(i, t))
         self._status_chip.set_open(True)
@@ -1158,6 +1180,42 @@ class ResultsPage(QWidget):
         pos = self._city_chip.mapToGlobal(QPoint(0, self._city_chip.height() + 6))
         menu.move(pos)
         menu.show()
+
+    def _show_postal_menu(self):
+        menu = FilterMenu(self)
+        menu.add_item("All Postal Codes", -1, not self._proxy._postal_code_filter)
+        menu.add_divider()
+        
+        codes = sorted(list(set(r.postal_code[:2] for r in self._model.get_all_records() if r.postal_code and len(r.postal_code) >= 2)))
+        
+        if not codes:
+            menu.add_placeholder("No postal codes found")
+        else:
+            for idx, code in enumerate(codes):
+                display = f"PLZ {code}XXX"
+                menu.add_item(display, idx, self._proxy._postal_code_filter == code)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_postal_filter(t if i >= 0 else ""))
+        self._postal_chip.set_open(True)
+        menu.closed.connect(lambda: self._postal_chip.set_open(False))
+        
+        pos = self._postal_chip.mapToGlobal(QPoint(0, self._postal_chip.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _apply_postal_filter(self, display_text: str):
+        # text is like "PLZ 12XXX" or "All Postal Codes"
+        code = ""
+        if "PLZ " in display_text:
+            code = display_text.replace("PLZ ", "").replace("XXX", "")
+            self._postal_chip.setText(display_text.upper())
+            self._postal_chip.set_active(True)
+        else:
+            self._postal_chip.setText("ANY PLZ")
+            self._postal_chip.set_active(False)
+            
+        self._proxy.set_postal_code_filter(code)
+        self._update_count_label()
 
     def _show_date_menu(self):
         menu = FilterMenu(self)

@@ -16,6 +16,7 @@ Improvements over v1:
 
 from __future__ import annotations
 import asyncio
+import time
 import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -194,7 +195,7 @@ class JobsucheScraper:
                         continue
 
                     if self.crawler and record.website and not record.email:
-                        email, source = await self.crawler.find_email(
+                        email, source, socials = await self.crawler.find_email(
                             record.website, record.company_name, self.job_id
                         )
                         if email:
@@ -384,7 +385,7 @@ class JobsucheScraper:
         if not record.company_name and not record.job_title:
             return None
 
-        return record
+        return record.normalize()
 
     async def _scrape_from_results_view(self, page: Page) -> AsyncGenerator[LeadRecord, None]:
         """Prefer extracting from the split results view to avoid direct jobdetail 403s."""
@@ -427,7 +428,7 @@ class JobsucheScraper:
                 seen.add(dedupe_key)
 
                 if self.crawler and record.website and not record.email:
-                    email, source = await self.crawler.find_email(
+                    email, source, socials = await self.crawler.find_email(
                         record.website, record.company_name, self.job_id
                     )
                     if email:
@@ -591,19 +592,37 @@ class JobsucheScraper:
         logger.warning(f"[{self.job_id}] Could not switch to Detailansicht")
 
     async def _advance_results_list(self, page: Page, previous_count: int) -> bool:
-        """Try to reveal more result cards in the left results column."""
+        """Try to reveal more result cards in the left results column via infinite scroll."""
         try:
-            last_card = page.locator(RESULT_CARD_SEL).nth(max(previous_count - 1, 0))
-            if await last_card.count() > 0:
-                await last_card.scroll_into_view_if_needed(timeout=1_200)
-                box = await last_card.bounding_box()
-                if box:
-                    await page.mouse.move(box['x'] + min(box['width'] / 2, 60), box['y'] + min(box['height'] / 2, 60))
-                    await page.mouse.wheel(0, 2200)
-            else:
-                await page.mouse.wheel(0, 2200)
+            # Jobsuche uses infinite scroll on the results list. 
+            # We need to scroll the actual list container.
+            await page.evaluate("""
+            () => {
+                const listContainer = document.querySelector(
+                    '[id*="ergebnisliste"], .ergebnisliste, main, section'
+                );
+                if (listContainer) {
+                    listContainer.scrollTop = listContainer.scrollHeight;
+                }
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+            """)
+            
+            # Use mouse wheel as a fallback to trigger lazy loading listeners
+            await page.mouse.wheel(0, 3500)
+            await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.debug(f"[{self.job_id}] Scroll failed: {e}")
+            await page.mouse.wheel(0, 2500)
+
+        # Fallback click if a "Mehr laden" button exists (Jobsuche sometimes shows one after many scrolls)
+        clicked_more = await self._click_load_more(page)
+        await asyncio.sleep(0.5 if clicked_more else 0.25)
+
+        try:
+            return await page.locator(RESULT_CARD_SEL).count() > previous_count
         except Exception:
-            await page.mouse.wheel(0, 2200)
+            return False
 
         clicked_more = await self._click_load_more(page)
         await asyncio.sleep(0.5 if clicked_more else 0.25)
@@ -635,22 +654,94 @@ class JobsucheScraper:
             country=self.config.country,
         )
 
-        record.job_title = await self._extract_card_text(card, [
-            'h2', 'h3', '[class*="titel"]', '[class*="title"]',
-        ]) or ''
-        record.company_name = await self._extract_card_text(card, [
-            '[class*="arbeitgeber"]', '[class*="company"]', '[class*="firma"]',
-        ]) or ''
+        # Prefer detail panel on the right side for clean data extraction.
+        # Scoped to the header (kopfbereich) which is stable across all view types.
+        try:
+            extracted = await page.evaluate("""
+            () => {
+                const container = document.querySelector('#jobdetail-container');
+                if (!container) return null;
 
+                // Job title: stable #jobdetail-titel or #detail-kopfbereich-titel
+                let jobTitle = (
+                    container.querySelector('#detail-kopfbereich-titel') ||
+                    container.querySelector('#jobdetail-titel') || 
+                    container.querySelector('.ba-jobdetail-titel') ||
+                    container.querySelector('h1')
+                )?.innerText?.trim() || '';
+                
+                // Company name: stable #detail-kopfbereich-firma or #jobdetail-arbeitgeber
+                let company = (
+                    container.querySelector('#detail-kopfbereich-firma') ||
+                    container.querySelector('#jobdetail-arbeitgeber') ||
+                    container.querySelector('.ba-jobdetail-firma') ||
+                    container.querySelector('.detail-begleittext')
+                )?.innerText?.trim() || '';
+                
+                // Location: usually found in the details below the action buttons or in data-testid
+                let location = (container.querySelector(
+                    '#detail-kopfbereich-ort, [id*="arbeitsort"], [class*="arbeitsort"], [data-testid*="location"]'
+                )?.innerText || '').trim();
+
+                // Final safety scrub for accessibility artifacts
+                if (jobTitle.toLowerCase().includes('sicherheitsabfrage')) jobTitle = '';
+                if (company.toLowerCase().includes('filterbarer inhalt')) company = '';
+                
+                return { jobTitle, company, location };
+            }
+            """)
+            if extracted:
+                record.job_title = extracted.get('jobTitle', '')
+                record.company_name = extracted.get('company', '')
+                location_text = extracted.get('location', '')
+                if location_text:
+                    record.city = location_text
+                    plz_match = __import__('re').search(r'\\b(\\d{5})\\b', location_text)
+                    if plz_match:
+                        record.postal_code = plz_match.group(1)
+        except Exception as e:
+            logger.debug(f"[{self.job_id}] JS extraction failed: {e}")
+
+        # Fallback: read from card selectors
         if not record.job_title:
-            record.job_title = await self._extract_text_with_fallbacks(page, ['h1', 'h2']) or ''
-        if not record.company_name:
-            record.company_name = await self._extract_text_with_fallbacks(page, [
-                'h1 + div',
-                'h2 + div',
-                '[class*="arbeitgeber"]',
-                '[class*="company"]',
+            raw_title = await self._extract_card_text(card, [
+                'h2', 'h3', '[class*="titel"]', '[class*="title"]',
             ]) or ''
+            # Strip screen-reader prefix like "X. Ergebnis: <title>"
+            if ':' in raw_title and 'ergebnis' in raw_title.lower():
+                record.job_title = raw_title.split(':', 1)[-1].strip()
+            elif 'sicherheitsabfrage' not in raw_title.lower() and 'ergebnis' not in raw_title.lower():
+                record.job_title = raw_title
+
+        if not record.company_name:
+            record.company_name = await self._extract_card_text(card, [
+                '[class*="arbeitgeber"]', '[class*="company"]', '[class*="firma"]',
+            ]) or ''
+
+        # Final fallback: read from detail panel h1/h2 via Python
+        if not record.job_title:
+            for sel in ['h1', 'h2']:
+                try:
+                    loc = page.locator(sel).first
+                    if await loc.count() > 0:
+                        text = (await loc.inner_text(timeout=1500)).strip()
+                        if text and 'sicherheitsabfrage' not in text.lower() and 'ergebnis' not in text.lower():
+                            record.job_title = text
+                            break
+                except Exception:
+                    pass
+
+        if not record.company_name:
+            for sel in ['[class*="arbeitgeber"]', '[class*="company"]', 'h2 + div', 'h1 + div']:
+                try:
+                    loc = page.locator(sel).first
+                    if await loc.count() > 0:
+                        text = (await loc.inner_text(timeout=1500)).strip()
+                        if text and 'sicherheitsabfrage' not in text.lower():
+                            record.company_name = text
+                            break
+                except Exception:
+                    pass
 
         record.website = await self._extract_application_website(page) or record.website
 
@@ -667,10 +758,18 @@ class JobsucheScraper:
         if emails:
             record.email = emails[0]
             record.email_source_page = detail_url or page.url
+        
+        # Targeted Phone ID provided by user
+        p_el = page.locator('#detail-bewerbung-telefon-Telefon, [id*="bewerbung-telefon"], [id*="kontakt-telefon"]').first
+        if await p_el.count() > 0:
+            p_text = (await p_el.inner_text(timeout=500)).strip()
+            if p_text:
+                record.phone = normalize_phone(p_text)
 
-        phone_match = _PHONE_PATTERN.search(panel_text or '')
-        if phone_match:
-            record.phone = normalize_phone(phone_match.group(0).strip())
+        if not record.phone:
+            phone_match = _PHONE_PATTERN.search(panel_text or '')
+            if phone_match:
+                record.phone = normalize_phone(phone_match.group(0).strip())
 
         address_block = await self._extract_application_address(page)
         if address_block:
@@ -685,18 +784,20 @@ class JobsucheScraper:
         if not record.company_name and panel_text:
             company_match = re.search(r'Informationen zur Bewerbung\s+(.+?)\n', panel_text, re.DOTALL)
             if company_match:
-                record.company_name = company_match.group(1).strip()
+                candidate = company_match.group(1).strip()
+                if 'sicherheitsabfrage' not in candidate.lower() and 'ergebnis' not in candidate.lower():
+                    record.company_name = candidate
 
-        if not record.company_name:
-            company_link_text = await self._extract_card_text(card, ['a[href*="jobdetail"]', 'a'])
-            if company_link_text:
-                record.company_name = company_link_text
-
-        if not record.company_name and not record.job_title:
+        # Always save if we have useful signal, even with partial data
+        has_useful_data = (
+            record.company_name or record.job_title or
+            record.email or record.website or record.phone
+        )
+        if not has_useful_data:
             logger.debug(f"[{self.job_id}] Card {card_index} did not produce usable data")
             return None
 
-        return record
+        return record.normalize()
 
     async def _wait_for_application_panel(self, page: Page) -> bool:
         selectors = [
@@ -784,11 +885,14 @@ class JobsucheScraper:
 
     async def _get_application_panel_text(self, page: Page) -> str:
         selectors = [
+            '.informationen-zur-bewerbung',
+            '.ba-jobdetail-kontakt',
             'section:has-text("Informationen zur Bewerbung")',
+            'section:has-text("Kontakt")',
             '[id*="detail-bewerbung"]',
             'div:has-text("Bewerben Sie sich")',
+            'div:has-text("Kontakt")',
             'section:has-text("Rückfragen und Bewerbung an")',
-            'section:has-text("Kontakt")',
         ]
         for selector in selectors:
             try:
@@ -806,11 +910,14 @@ class JobsucheScraper:
 
     async def _get_application_panel_html(self, page: Page) -> str:
         selectors = [
+            '.informationen-zur-bewerbung',
+            '.ba-jobdetail-kontakt',
             'section:has-text("Informationen zur Bewerbung")',
+            'section:has-text("Kontakt")',
             '[id*="detail-bewerbung"]',
             'div:has-text("Bewerben Sie sich")',
+            'div:has-text("Kontakt")',
             'section:has-text("Rückfragen und Bewerbung an")',
-            'section:has-text("Kontakt")',
         ]
         for selector in selectors:
             try:
@@ -973,12 +1080,14 @@ class JobsucheScraper:
     async def _click_load_more(self, page: Page) -> bool:
         """Try to click a 'load more' button. Returns True if clicked."""
         try:
+            # Jobsuche mostly uses infinite scroll, but fallback buttons exist
             more_btn = page.locator(
                 'button:has-text("Weitere"), '
                 'button:has-text("Mehr laden"), '
+                'button:has-text("Mehr anzeigen"), '
                 'button:has-text("Mehr Ergebnisse")'
             )
-            if await more_btn.first.is_visible(timeout=2_000):
+            if await more_btn.first.is_visible(timeout=1_500):
                 await more_btn.first.click()
                 await asyncio.sleep(1.5)
                 return True
@@ -1024,16 +1133,36 @@ class JobsucheScraper:
         return None
 
     async def _handle_captcha(self, page: Page) -> bool:
-        """Detect CAPTCHA and wait for human to solve it."""
+        """Detect CAPTCHA and wait for human to solve it via Remote Desktop."""
         try:
-            body_text = (await page.inner_text("body", timeout=2000)).lower()
+            is_blocked = await page.evaluate("""() => {
+                const text = document.body.innerText.toLowerCase();
+                if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
+                
+                const h1 = document.querySelector('h1');
+                if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
+                
+                if (document.querySelector('iframe[src*="captcha"]')) return true;
+                if (document.querySelector('iframe[src*="geo.captcha"]')) return true;
+                if (document.querySelector('#datadome-slider')) return true;
+                
+                if (text.includes('ich bin kein roboter')) return true;
+                if (text.includes('verify you are human')) return true;
+                if (text.includes('beim laden der sicherheitsabfrage ist ein fehler aufgetreten')) return true;
+                
+                return false;
+            }""")
         except Exception:
             return False
 
-        has_captcha = any(sig in body_text for sig in CAPTCHA_SIGNALS)
-        has_captcha_error = any(sig in body_text for sig in CAPTCHA_ERROR_SIGNALS)
-        if not has_captcha and not has_captcha_error:
+        if not is_blocked:
             return False
+
+        try:
+            body_text = (await page.inner_text("body", timeout=1000)).lower()
+            has_captcha_error = any(sig in body_text for sig in CAPTCHA_ERROR_SIGNALS)
+        except Exception:
+            has_captcha_error = False
 
         if has_captcha_error:
             logger.warning(f"[{self.job_id}] Jobsuche security challenge failed to load - retrying")
@@ -1045,40 +1174,126 @@ class JobsucheScraper:
             )
             if await self._recover_security_challenge(page):
                 try:
-                    body_text = (await page.inner_text("body", timeout=2000)).lower()
+                    still_blocked = await page.evaluate("""() => {
+                        const text = document.body.innerText.toLowerCase();
+                        if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
+                        const h1 = document.querySelector('h1');
+                        if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
+                        if (document.querySelector('iframe[src*="captcha"]')) return true;
+                        if (document.querySelector('iframe[src*="geo.captcha"]')) return true;
+                        if (text.includes('ich bin kein roboter')) return true;
+                        return false;
+                    }""")
+                    if not still_blocked:
+                        await self._restore_default_view(page)
+                        logger.info(f"[{self.job_id}] CAPTCHA resolved — resuming")
+                        return True
                 except Exception:
-                    return True
-                has_captcha = any(sig in body_text for sig in CAPTCHA_SIGNALS)
-                has_captcha_error = any(sig in body_text for sig in CAPTCHA_ERROR_SIGNALS)
-                if not has_captcha and not has_captcha_error:
-                    logger.info(f"[{self.job_id}] Jobsuche security challenge recovered")
-                    return True
+                    pass
 
-        await self._prepare_captcha_view(page)
-        logger.warning(f"[{self.job_id}] CAPTCHA detected — waiting for resolution…")
-        event_bus.emit(
-            event_bus.JOB_LOG,
-            job_id=self.job_id,
-            message="⚠ CAPTCHA detected. Please solve it in the browser window.",
-            level="WARNING",
-        )
+        if not self.session.settings.default_headless:
+            # We are already headful, just wait in the current window
+            await self._prepare_captcha_view(page)
+            logger.warning(f"[{self.job_id}] CAPTCHA detected — waiting for resolution directly in browser…")
+            event_bus.emit(
+                event_bus.JOB_LOG,
+                job_id=self.job_id,
+                message="⚠ CAPTCHA detected. Please solve it directly in the browser.",
+                level="WARNING",
+            )
+            for _ in range(120):  # wait up to 4 minutes
+                await asyncio.sleep(2)
+                try:
+                    if await self._is_security_challenge_error(page):
+                        await self._recover_security_challenge(page)
+                    current = (await page.inner_text("body", timeout=2000)).lower()
+                    if (
+                        not any(sig in current for sig in CAPTCHA_SIGNALS)
+                        and not any(sig in current for sig in CAPTCHA_ERROR_SIGNALS)
+                    ):
+                        await self._restore_default_view(page)
+                        logger.info(f"[{self.job_id}] CAPTCHA resolved — resuming")
+                        return True
+                except Exception:
+                    break
+            return True
+        else:
+            # Headless mode detected. Stream screenshots to the native CaptchaDialog.
+            logger.warning(f"[{self.job_id}] Headless CAPTCHA detected — activating remote desktop resolver.")
+            event_bus.emit(
+                event_bus.JOB_LOG,
+                job_id=self.job_id,
+                message="⚠ CAPTCHA detected. The Captcha Solver dialog should open automatically.",
+                level="WARNING",
+            )
+            
+            interaction_queue = asyncio.Queue()
+            
+            def _on_interaction(job_id=None, type=None, x=None, y=None, text=None, **kw):
+                if job_id == self.job_id:
+                    # Thread-safe queue put
+                    interaction_queue.get_loop().call_soon_threadsafe(
+                        interaction_queue.put_nowait, (type, x, y, text)
+                    )
 
-        for _ in range(120):  # wait up to 4 minutes
-            await asyncio.sleep(2)
+            event_bus.subscribe(event_bus.CAPTCHA_INTERACTION, _on_interaction)
+            
             try:
-                if await self._is_security_challenge_error(page):
-                    await self._recover_security_challenge(page)
-                current = (await page.inner_text("body", timeout=2000)).lower()
-                if (
-                    not any(sig in current for sig in CAPTCHA_SIGNALS)
-                    and not any(sig in current for sig in CAPTCHA_ERROR_SIGNALS)
-                ):
-                    await self._restore_default_view(page)
-                    logger.info(f"[{self.job_id}] CAPTCHA resolved — resuming")
-                    return True
-            except Exception:
-                break
-        return True
+                # We will wait up to 5 minutes (300 seconds) for it to clear.
+                start_time = time.time()
+                while time.time() - start_time < 300:
+                    if self._cancelled:
+                        return False
+                        
+                    # Process ANY queued interactions from the user
+                    while not interaction_queue.empty():
+                        itype, ix, iy, itext = interaction_queue.get_nowait()
+                        try:
+                            if itype == "click" and ix is not None and iy is not None:
+                                await page.mouse.click(ix, iy)
+                            elif itype == "type" and itext:
+                                await page.keyboard.type(itext)
+                            elif itype == "refresh":
+                                pass # Handled by the continuous loop below
+                        except Exception as e:
+                            logger.debug(f"[{self.job_id}] Interaction failed: {e}")
+                    
+                    # Capture frame and send to UI
+                    try:
+                        # Attempt to shrink view to focus on the captcha if possible
+                        frame_bytes = await page.screenshot(type="jpeg", quality=65)
+                        event_bus.emit(event_bus.CAPTCHA_CHALLENGE, job_id=self.job_id, image=frame_bytes)
+                    except Exception:
+                        pass
+                        
+                    try:
+                        still_blocked = await page.evaluate("""() => {
+                            const text = document.body.innerText.toLowerCase();
+                            if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            const h1 = document.querySelector('h1');
+                            if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            if (document.querySelector('iframe[src*="captcha"]')) return true;
+                            if (document.querySelector('iframe[src*="geo.captcha"]')) return true;
+                            if (document.querySelector('#datadome-slider')) return true;
+                            if (text.includes('ich bin kein roboter')) return true;
+                            if (text.includes('beim laden der sicherheitsabfrage')) return true;
+                            return false;
+                        }""")
+                        
+                        if not still_blocked:
+                            logger.info(f"[{self.job_id}] CAPTCHA resolved via remote desktop!")
+                            return True
+                    except Exception:
+                        pass
+                        
+                    await asyncio.sleep(0.5) # ~2 FPS refresh rate
+                    
+                logger.error(f"[{self.job_id}] Captcha remote desktop timed out after 5 minutes. Aborting.")
+                self.cancel()
+                raise BrowserError("CAPTCHA solver timed out.")
+                
+            finally:
+                event_bus.unsubscribe(event_bus.CAPTCHA_INTERACTION, _on_interaction)
 
     async def _prepare_captcha_view(self, page: Page) -> None:
         """Zoom out and scroll the Jobsuche security panel into view."""

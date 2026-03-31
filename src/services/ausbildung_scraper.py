@@ -46,6 +46,8 @@ class AusbildungScraper:
         loc = location_val.replace(" ", "%20")
         url = f"https://www.ausbildung.de/suche/?suchbegriff={query}&ort={loc}&umkreis=50"
         
+        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}'", level="INFO")
+        
         page = await self.session.new_page()
         try:
             success = await self.session.navigate(page, url, wait_until="domcontentloaded")
@@ -71,6 +73,9 @@ class AusbildungScraper:
                 
                 # Extract all card links on the current page
                 cards = await page.query_selector_all(".JobPostingCard-module__RpcvXq__cardWrapper a")
+                
+                event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Scanning page: found {len(cards)} total job cards.", level="INFO")
+                
                 urls_to_visit = []
                 for card in cards:
                     href = await card.get_attribute("href")
@@ -81,6 +86,7 @@ class AusbildungScraper:
                 if not urls_to_visit:
                     # Try to load more
                     logger.debug(f"[{self.job_id}] Trying to load more results. Currently have {len(processed_urls)}.")
+                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Loading more results from Ausbildung.de...", level="INFO")
                     loaded_more = await self._load_more(page)
                     if not loaded_more:
                         retries += 1
@@ -99,6 +105,7 @@ class AusbildungScraper:
                         await asyncio.sleep(0.5)
                     
                     full_url = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
+                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Inspecting detail page: {full_url}", level="INFO")
                     record = await self._extract_job_detail(full_url)
                     
                     if record and (record.company_name or record.email or record.address):
@@ -198,19 +205,94 @@ class AusbildungScraper:
             company_name_el = await detail_page.query_selector(".jp-c-header__corporation-link")
             company_name = await company_name_el.inner_text() if company_name_el else ""
             if company_name:
+                company_name = company_name.replace("Arbeitgeber:", "").strip()
                 company_name = company_name.strip()
             
-            address_el = await detail_page.query_selector(".jp-title__address")
-            address = await address_el.inner_text() if address_el else ""
-            if address:
-                address = address.replace("📍", "").strip()
+            address = ""
+            contact_person = ""
+            
+            # Use the richer detail address block if available
+            detail_addr_el = await detail_page.query_selector("#detail-bewerbung-adresse")
+            if detail_addr_el:
+                content = await detail_addr_el.inner_text()
+                lines = [l.strip() for l in content.splitlines() if l.strip()]
+                # Filter out "Arbeitgeber:" label if it appears on its own line
+                lines = [l for l in lines if l.lower().rstrip(":") != "arbeitgeber"]
+                if len(lines) >= 3:
+                    # Format: Company \n Contact \n Street \n Zip City
+                    if "herr " in lines[1].lower() or "frau " in lines[1].lower() or any(x in lines[1].lower() for x in ["dir. ", "dr. ", "diederik"]):
+                        if not company_name:
+                            company_name = lines[0].replace("Arbeitgeber:", "").strip()
+                        contact_person = lines[1]
+                        address = ", ".join(lines[2:])
+                    else:
+                        # Probably just Company \n Street \n Zip City
+                        if not company_name:
+                            company_name = lines[0].replace("Arbeitgeber:", "").strip()
+                        address = ", ".join(lines[1:])
+                elif len(lines) == 2:
+                    if not company_name:
+                        company_name = lines[0].replace("Arbeitgeber:", "").strip()
+                    address = lines[1]
+                elif len(lines) == 1:
+                    address = lines[0]
+                    
+            # Fallback to simple address if still empty
+            if not address:
+                address_el = await detail_page.query_selector(".jp-title__address")
+                address = await address_el.inner_text() if address_el else ""
+                if address:
+                    address = address.replace("📍", "").strip()
                 
+            # Extract phone number
+            phone = ""
+            phone_el = await detail_page.query_selector("#detail-bewerbung-telefon-Telefon")
+            if not phone_el:
+                phone_el = await detail_page.query_selector('a[href^="tel:"]')
+            
+            if phone_el:
+                phone_href = await phone_el.get_attribute("href")
+                if phone_href:
+                    phone = phone_href.replace("tel:", "").strip()
+                else:
+                    phone = await phone_el.inner_text()
+                    phone = phone.strip()
+
+            # Extract specific city/postal code from the address
+            extracted_city = ""
+            postal_code = ""
+            if address:
+                # Look for "12345 City" pattern
+                import re
+                city_pc_match = re.search(r'(\d{5})\s+([^,]+)', address)
+                if city_pc_match:
+                    postal_code = city_pc_match.group(1)
+                    extracted_city = city_pc_match.group(2).strip()
+            
+            # Use extracted city if available, fallback to config if not generic "Ort"
+            city = self.config.city
+            if extracted_city and (not city or city.lower() == "ort"):
+                city = extracted_city
+
+            # Extract apprenticeship start date (Ausbildungsbeginn) if available
+            start_date = ""
+            try:
+                page_text = await detail_page.inner_text("body")
+                # Look for format: 01.09.2026 or 01092026
+                # Many Ausbildung listings show a Beginn date
+                date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})|(\d{8})', page_text)
+                if date_match:
+                    start_date = date_match.group(0)
+            except:
+                pass
+
             email = ""
             mailto_links = await detail_page.query_selector_all('a[href^="mailto:"]')
             for a in mailto_links:
                 href = await a.get_attribute("href")
                 if href and "@" in href:
                     email = href.replace("mailto:", "").split("?")[0].strip()
+                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Found email: {email}", level="INFO")
                     break
                     
         except Exception as e:
@@ -227,12 +309,16 @@ class AusbildungScraper:
                 source_type=SourceType.AUSBILDUNG_DE,
                 source_url=url,
                 search_query=self.config.job_title,
-                city=self.config.city,
+                city=city,
+                postal_code=postal_code,
                 company_name=company_name,
                 address=address,
+                phone=phone,
                 email=email,
+                contact_person=contact_person,
                 job_title=self.config.job_title,
-            )
+                publication_date=start_date,
+            ).normalize()
             
             # As requested in the content script, skip if no email AND user wants emails
             if not email and self.config.scrape_emails:

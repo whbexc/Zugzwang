@@ -29,6 +29,7 @@ class UpdateDialog(QDialog):
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self._drag_pos = None
         
         self._build_ui()
         
@@ -191,6 +192,6 @@ class UpdateDialog(QDialog):
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPos() - self._drag_pos)
             event.accept()

@@ -33,7 +33,7 @@ class EventBridge(QObject):
 
     # Bridge/HITL
     captcha_challenge = Signal(str, bytes) # job_id, image_bytes
-    solver_requested = Signal(str, str, list) # job_id, url, cookies
+    solver_requested = Signal(str, str, list, str) # job_id, url, cookies, user_agent
 
     _instance = None
 
@@ -106,8 +106,8 @@ class EventBridge(QObject):
     def _on_captcha_challenge(self, job_id: str, image: bytes, **k):
         self.captcha_challenge.emit(job_id, image)
 
-    def _on_solver_requested(self, job_id: str, url: str, cookies: list, **k):
-        self.solver_requested.emit(job_id, url, cookies)
+    def _on_solver_requested(self, job_id: str, url: str, cookies: list, user_agent: str = "", **k):
+        self.solver_requested.emit(job_id, url, cookies, user_agent)
 
     def _on_trial_limit_reached(self, job_id: str, **k):
         self.trial_limit_reached.emit(job_id)

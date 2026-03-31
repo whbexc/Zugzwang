@@ -208,6 +208,16 @@ class ScrapingOrchestrator:
                 record.id = record.stable_id()
                 with self._memory_lock:
                     if record.id in self._known_record_ids or record.id in current_job_ids:
+                        logger.info(
+                            f"Job {job.id}: skipped duplicate record "
+                            f"'{record.company_name or record.email}' (already captured in a previous run)"
+                        )
+                        event_bus.emit(
+                            event_bus.JOB_LOG,
+                            job_id=job.id,
+                            message=f"⏭ Skipped (already captured): {record.company_name or record.email}",
+                            level="INFO",
+                        )
                         continue
                     current_job_ids.add(record.id)
                     self._known_record_ids.add(record.id)

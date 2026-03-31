@@ -54,6 +54,7 @@ class EmailSenderPage(QWidget):
         self._active_server = None
         self._signals = _SendSignals()
         self._isPreview = False
+        self._error_vault: dict[str, str] = {} # recipient -> full error
         
         self._signals.log.connect(self._on_log)
         self._signals.progress.connect(self._on_progress)
@@ -115,7 +116,8 @@ class EmailSenderPage(QWidget):
         self._recipients_text.setMinimumHeight(100)
         self._recipients_text.setPlaceholderText("recipients@example.com (one per line)")
         
-        self._status_log = QTextEdit()
+        self._status_log = QTextBrowser()
+        self._status_log.setOpenExternalLinks(False)
         self._status_log.setReadOnly(True)
         self._status_log.setText("Awaiting manual broadcast...")
         
@@ -139,6 +141,8 @@ class EmailSenderPage(QWidget):
         self._search_input.setPlaceholderText("Search email...")
         self._search_input.setClearButtonEnabled(True)
         self._search_input.setFixedWidth(150)
+        
+        self._btn_continue = TransparentPushButton(FluentIcon.SYNC, "")
         
         # Simple Delete Button (Neutral Square)
         self._btn_delete_menu = TransparentPushButton(FluentIcon.DELETE.icon(color=QColor("#8E8E93")), "")
@@ -466,6 +470,7 @@ class EmailSenderPage(QWidget):
             }
         """)
         self._search_input.textChanged.connect(self._on_search_recipients)
+        self._status_log.anchorClicked.connect(self._on_error_anchor_clicked)
         lbl_rec_row.addWidget(self._search_input, 0, Qt.AlignVCenter)
         
         # Add Delete Button (Simple Square Balanced)
@@ -484,12 +489,26 @@ class EmailSenderPage(QWidget):
         # Right: Log Stack
         log_stack = QVBoxLayout()
         log_stack.setSpacing(6)
+        
+        log_header = QHBoxLayout()
+        log_header.setSpacing(12)
         lbl_log = self._field_label("BROADCAST ACTIVITY LOG")
         lbl_log.setFixedHeight(32) # Perfectly vertically aligned with left side
-        log_stack.addWidget(lbl_log)
+        log_header.addWidget(lbl_log)
+
+        # Resumption Button (Continue) - Balanced same as delete button
+        self._btn_continue.setFixedSize(32, 32)
+        self._btn_continue.setIconSize(QSize(16, 16))
+        self._btn_continue.setToolTip("Continue / Resume Broadcast")
+        self._btn_continue.setCursor(Qt.PointingHandCursor)
+        self._btn_continue.setStyleSheet(self._btn_delete_menu.styleSheet())
+        log_header.addWidget(self._btn_continue, 0, Qt.AlignVCenter)
+        
+        log_header.addStretch(1)
+        log_stack.addLayout(log_header)
         
         self._status_log.setStyleSheet("""
-            QTextEdit {
+            QTextBrowser, QTextEdit {
                 background: #1A1A1A;
                 border: 1px solid #3A3A3C;
                 border-radius: 10px;
@@ -630,6 +649,7 @@ class EmailSenderPage(QWidget):
         self._btn_stop.clicked.connect(self._on_stop)
         self._btn_purge_sent.clicked.connect(self._on_purge_sent)
         self._btn_export.clicked.connect(self._on_export)
+        self._btn_continue.clicked.connect(self._on_continue)
         self._recipients_text.textChanged.connect(self._on_recipients_changed)
         
         # Persistence hooks for all fields
@@ -669,6 +689,15 @@ class EmailSenderPage(QWidget):
 
     def _on_error(self, message: str):
         self._on_log(message, "ERROR")
+
+    def _on_error_anchor_clicked(self, url):
+        recipient = url.toString().split(":")[-1]
+        error_msg = self._error_vault.get(recipient, "No detailed error captured.")
+        
+        from qfluentwidgets import MessageBox
+        box = MessageBox("Transmission Error Detail", f"Recipient: {recipient}\n\n{error_msg}", self)
+        box.cancelButton.hide()
+        box.exec()
 
     def _toggle_preview(self):
         self._isPreview = not self._isPreview
@@ -831,12 +860,14 @@ class EmailSenderPage(QWidget):
         self._btn_send_all.setEnabled(not sending)
         self._btn_send_one.setEnabled(not sending)
         self._btn_stop.setEnabled(sending)
+        self._btn_continue.setEnabled(not sending)
         self._status_badge.setText("SENDING" if sending else "READY")
 
     def _log(self, text: str, level: str = "INFO"):
         self._signals.log.emit(text, level)
 
     def _worker_send(self, recipients: list[str]):
+        self._error_vault.clear()
         sent = 0; failed = 0; total = len(recipients)
         try: interval = max(1, int(self._interval_input.text().strip()))
         except: interval = 5
@@ -881,7 +912,10 @@ class EmailSenderPage(QWidget):
             except Exception as e:
                 if self._stop_requested: break
                 failed += 1
-                self._log(f"Error for {rec}: {e}", "ERROR")
+                self._error_vault[rec] = str(e)
+                # Shorten error for log
+                err_short = str(e).splitlines()[0][:60] + "..." if len(str(e)) > 60 else str(e)
+                self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
             
             self._signals.progress.emit(i+1, total)
             if i < total - 1 and not self._stop_requested:
@@ -893,6 +927,24 @@ class EmailSenderPage(QWidget):
         except: pass
         self._active_server = None
         self._signals.finished.emit(sent, failed, self._stop_requested)
+
+    def _on_continue(self):
+        if self._sending:
+            self._on_log("Broadcast already in progress.", "WARNING")
+            return
+            
+        all_recs = [e.strip() for e in self._recipients_text.toPlainText().splitlines() if e.strip()]
+        # Filter out those already successfully sent
+        remaining = [e for e in all_recs if e not in self._successful_emails]
+        
+        if not remaining:
+            self._on_log("No unsent emails remaining in queue.", "SUCCESS")
+            return
+            
+        msg = f"Resuming broadcast. Skipping {len(all_recs) - len(remaining)} sent. {len(remaining)} pending."
+        self._on_log(msg, "INFO")
+        self._set_sending_state(True)
+        threading.Thread(target=self._worker_send, args=(remaining,), daemon=True).start()
 
     def _build_message(self, recipient: str) -> MIMEMultipart:
         msg = MIMEMultipart()
