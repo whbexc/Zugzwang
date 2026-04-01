@@ -7,8 +7,8 @@ from __future__ import annotations
 import re
 import asyncio
 
-from PySide6.QtCore import Qt, QSize, QTimer, QRectF, Signal, QEvent
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QBrush, QFont
+from PySide6.QtCore import Qt, QSize, QTimer, QRectF, Signal, QEvent, QUrl
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QBrush, QFont, QDesktopServices
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QFrame,
     QPushButton, QSizePolicy, QLabel, QMessageBox, QApplication,
@@ -359,6 +359,13 @@ class MainWindow(FramelessWindow):
         self._whats_new_btn.clicked.connect(self._show_whats_new)
         self._nav_layout.addWidget(self._whats_new_btn)
 
+        # ── Option 2: The Sponsor Navigation Card (Button) ────────────────
+        self._support_btn = _HeaderButton("💖")
+        self._support_btn.setToolTip("Support the Developer")
+        self._support_btn.setStyleSheet(btn.styleSheet() + "font-size: 14px; color: #FF453A;")
+        self._support_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://wa.me/212663007212?text=slm%20khoya%20khdmt%20b%20app%20dylk%20w%20bghit%20n%20supportik,")))
+        self._nav_layout.addWidget(self._support_btn)
+
         self._switch(0)
         # Defer DB load until after the splash screen / main loop
         QTimer.singleShot(500, self._restore_saved_results)
@@ -434,6 +441,15 @@ class MainWindow(FramelessWindow):
                 self._toast_manager.show(
                     f"↓ {self._result_count} leads found",
                     source, toast_type="info", duration=2500
+                )
+            
+            # Milestone Celebration Toasts
+            milestones = [20, 50, 100, 200, 300, 500, 1000, 2000, 5000, 10000]
+            if self._result_count in milestones:
+                self._toast_manager.show(
+                    f"🎉 {self._result_count} LEADS EXTRACTED! 🎉",
+                    "If ZUGZWANG is supercharging your business, grab the developer a coffee from the Dashboard!",
+                    toast_type="success", duration=6000
                 )
 
         def _on_completed(job_id=None, total_found=0, total_emails=0, **kw):

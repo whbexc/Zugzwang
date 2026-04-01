@@ -36,6 +36,7 @@ class UpdateWorker(QThread):
             self.error.emit(str(e))
 
     def _check_for_updates(self):
+        from ..core.config import APP_VERSION
         s = config_manager.settings
         repo_url = s.git_repo_url
         if not repo_url or "github.com/" not in repo_url:
@@ -58,23 +59,32 @@ class UpdateWorker(QThread):
                 return
                 
             data = response.json()
-            latest_version = data.get("tag_name", "").replace("v", "")
-            current_version = s.app_version.replace("v", "")
+            latest_version = data.get("tag_name", "").lstrip("vV").strip()
+            current_version = APP_VERSION.lstrip("vV").strip()
+
+            # Only notify when GitHub has a version strictly newer than what is installed.
+            # Same version or dev-superior → silent, no popup.
+            if not latest_version:
+                self.check_finished.emit(False, "", "")
+                return
+
+            if version.parse(latest_version) <= version.parse(current_version):
+                self.check_finished.emit(False, "", "")
+                return
+
+            # Find the .exe or installer asset
+            assets = data.get("assets", [])
+            download_url = ""
+            for asset in assets:
+                if asset["name"].endswith(".exe") or asset["name"].endswith(".msi"):
+                    download_url = asset["browser_download_url"]
+                    break
             
-            if version.parse(latest_version) > version.parse(current_version):
-                # Find the .exe or installer asset
-                assets = data.get("assets", [])
-                download_url = ""
-                for asset in assets:
-                    if asset["name"].endswith(".exe") or asset["name"].endswith(".msi"):
-                        download_url = asset["browser_download_url"]
-                        break
-                
-                if download_url:
-                    self.check_finished.emit(True, latest_version, download_url)
-                    return
-            
-            self.check_finished.emit(False, "", "")
+            if download_url:
+                self.check_finished.emit(True, latest_version, download_url)
+                return
+        
+        self.check_finished.emit(False, "", "")
 
     def _download_update(self):
         target_dir = os.path.join(os.getenv("APPDATA"), "ZUGZWANG", "temp")

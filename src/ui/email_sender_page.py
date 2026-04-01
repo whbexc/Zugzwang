@@ -11,6 +11,7 @@ import smtplib
 import ssl
 import time
 import threading
+import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -125,27 +126,57 @@ class RecipientListWidget(QListWidget):
 
     def _show_context_menu(self, pos):
         item = self.itemAt(pos)
-        if not item: return
+        selected = self.selectedItems()
+        
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu { background: #2C2C2E; color: white; border: 1px solid #3A3A3C; border-radius: 8px; font-family: 'PT Root UI'; font-size: 13px; padding: 4px; }
             QMenu::item { padding: 6px 24px 6px 12px; border-radius: 4px; }
             QMenu::item:selected { background: #0A84FF; }
+            QMenu::separator { height: 1px; background: #3A3A3C; margin: 4px 0; }
         """)
-        copy_act = menu.addAction("Copy Email")
-        move_top_act = menu.addAction("Move to Top")
-        del_act = menu.addAction("Remove")
-        
+
+        # Item-specific actions
+        if item:
+            copy_this = menu.addAction("Copy This Email")
+            move_top_act = menu.addAction("Move to Top")
+            menu.addSeparator()
+
+        # Selection actions
+        if len(selected) > 1:
+            copy_sel = menu.addAction(f"Copy Selected ({len(selected)})")
+        else:
+            copy_sel = None
+
+        copy_all = menu.addAction("Copy All Queue")
+        menu.addSeparator()
+
+        # Multi-delete if selected
+        if len(selected) > 0:
+            del_act = menu.addAction(f"Remove {'Selection' if len(selected) > 1 else 'Email'}")
+        else:
+            del_act = None
+
         action = menu.exec(self.mapToGlobal(pos))
-        if action == copy_act:
-            QGuiApplication.clipboard().setText(item.email)
+        
+        from PySide6.QtGui import QGuiApplication
+        clipboard = QGuiApplication.clipboard()
+
+        if item and action == copy_this:
+            clipboard.setText(item.email)
+        elif copy_sel and action == copy_sel:
+            text = "\n".join(it.email for it in selected)
+            clipboard.setText(text)
+        elif action == copy_all:
+            text = "\n".join(self.item(i).email for i in range(self.count()))
+            clipboard.setText(text)
         elif action == move_top_act:
             row = self.row(item)
             if row > 0:
                 self.takeItem(row)
                 self.insertItem(0, item)
-        elif action == del_act:
-            for it in self.selectedItems():
+        elif del_act and action == del_act:
+            for it in selected:
                 self.takeItem(self.row(it))
 
 
@@ -231,7 +262,8 @@ class EmailSenderPage(QWidget):
         self._status_log.setReadOnly(True)
         self._status_log.setText(tr("send.log.initial", self._language))
         
-        self._interval_input = LineEdit(); self._interval_input.setText("15")
+        self._interval_input = LineEdit(); self._interval_input.setText("30")
+        self._interval_input.setPlaceholderText("Rec: 30")
         self._interval_input.setFixedWidth(70)
         
         self._batch_size = LineEdit(); self._batch_size.setText("100")
@@ -341,8 +373,8 @@ class EmailSenderPage(QWidget):
         self._card2 = self._step_card("2", tr("send.step2.title", self._language), self._build_payload_section())
         self._card3 = self._step_card("3", tr("send.step3.title", self._language), self._build_monitor_section())
         
-        workflow_h.addWidget(self._card2, 55)
-        workflow_h.addWidget(self._card3, 45)
+        workflow_h.addWidget(self._card2, 65)
+        workflow_h.addWidget(self._card3, 35)
         body.addLayout(workflow_h, 1)
 
 
@@ -514,7 +546,7 @@ class EmailSenderPage(QWidget):
         self._interval_input.setFixedHeight(34)
         self._interval_input.setFixedWidth(52)
         
-        iv_lbl = self._field_label(tr("send.field.interval", self._language))
+        iv_lbl = self._field_label(tr("send.field.interval", self._language) + " (MIN: 15S | REC: 30S)")
         rec_h.addWidget(iv_lbl, 0, Qt.AlignVCenter)
         rec_h.addWidget(self._interval_input, 0, Qt.AlignVCenter)
         
@@ -539,7 +571,7 @@ class EmailSenderPage(QWidget):
         rec_h.addWidget(self._btn_purge_sent, 0, Qt.AlignVCenter)
         
         self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;")
-        rec_h.addWidget(self._rec_count, 0, Qt.AlignVCenter)
+        # rec_h.addWidget(self._rec_count, 0, Qt.AlignVCenter) # Moved down
         layout.addWidget(rec_widget)
 
         # Side-by-Side Monitor Area (Grid for perfect 50/50 split)
@@ -557,6 +589,7 @@ class EmailSenderPage(QWidget):
         lbl_rec = self._field_label("RECIPIENT QUEUE")
         lbl_rec.setFixedHeight(32)
         lbl_rec_row.addWidget(lbl_rec)
+        lbl_rec_row.addWidget(self._rec_count) # New position
         lbl_rec_row.addStretch(1)
         
         # Add Search Input
@@ -584,14 +617,14 @@ class EmailSenderPage(QWidget):
         
         self._setup_delete_menu()
         
-        # Load From Leads Icon Button (Next to Delete)
+        # Import Button (shows a popup menu with all import sources)
         self._btn_load_leads = TransparentPushButton(FluentIcon.ADD.icon(color=QColor("#8E8E93")), "")
         self._btn_load_leads.setFixedSize(32, 32)
         self._btn_load_leads.setIconSize(QSize(16, 16))
-        self._btn_load_leads.setToolTip("Load from Leads Database")
+        self._btn_load_leads.setToolTip("Import recipients…")
         self._btn_load_leads.setCursor(Qt.PointingHandCursor)
         self._btn_load_leads.setStyleSheet(self._btn_delete_menu.styleSheet())
-        self._btn_load_leads.clicked.connect(self._load_from_leads)
+        self._btn_load_leads.clicked.connect(self._show_import_menu)
         
         lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
         lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
@@ -937,6 +970,16 @@ class EmailSenderPage(QWidget):
 
     def _on_search_recipients(self, text: str):
         text = text.strip().lower()
+        
+        # ── Option 4: The Easter Egg ──
+        if text == "/coffee":
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl("https://wa.me/212663007212?text=slm%20khoya%20khdmt%20b%20app%20dylk%20w%20bghit%20n%20supportik,"))
+            self._search_input.clear()
+            self._on_log("☕ You found the secret coffee machine! Thanks for the support!", "SUCCESS")
+            return
+            
         if not text:
             for i in range(self._recipient_list.count()):
                 self._recipient_list.item(i).setHidden(False)
@@ -955,6 +998,164 @@ class EmailSenderPage(QWidget):
             with open(path, "w") as f: f.write("\n".join(self._successful_emails))
             self._on_log(f"Exported to {Path(path).name}", "SUCCESS")
 
+    def _show_import_menu(self):
+        """Show a popup menu with all import source options."""
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QCursor
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #2C2C2E;
+                color: #FFFFFF;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 20px 8px 12px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected { background: #0A84FF; }
+            QMenu::separator { height: 1px; background: #3A3A3C; margin: 4px 0; }
+        """)
+        from qfluentwidgets import FluentIcon
+        act_leads   = menu.addAction("  Load from Leads DB")
+        menu.addSeparator()
+        act_pdf     = menu.addAction("  Import from PDF")
+        act_docx    = menu.addAction("  Import from Word (.docx)")
+        act_excel   = menu.addAction("  Import from Excel (.xlsx)")
+        menu.addSeparator()
+        act_clip    = menu.addAction("  Paste from Clipboard")
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen == act_leads:
+            self._load_from_leads()
+        elif chosen == act_pdf:
+            self._import_from_pdf()
+        elif chosen == act_docx:
+            self._import_from_docx()
+        elif chosen == act_excel:
+            self._import_from_excel()
+        elif chosen == act_clip:
+            self._import_from_clipboard()
+
+    def _extract_emails_from_text(self, text: str) -> list[str]:
+        """Extract unique valid email addresses from a block of text."""
+        import re
+        pattern = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+        found = re.findall(pattern, text)
+        return list(dict.fromkeys(e.lower().strip() for e in found))
+
+    def _import_from_pdf(self):
+        """Open a PDF file and extract email addresses from its text content."""
+        path, _ = QFileDialog.getOpenFileName(self, "Import from PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        try:
+            import importlib.util
+            if importlib.util.find_spec("pypdf") is not None:
+                from pypdf import PdfReader
+                reader = PdfReader(path)
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            elif importlib.util.find_spec("pdfplumber") is not None:
+                import pdfplumber
+                with pdfplumber.open(path) as pdf:
+                    text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+            else:
+                self._on_log("PDF import requires 'pypdf' or 'pdfplumber'. Install via pip.", "ERROR")
+                return
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"PDF import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"PDF import error: {e}", "ERROR")
+
+    def _import_from_docx(self):
+        """Open a .docx file and extract email addresses."""
+        path, _ = QFileDialog.getOpenFileName(self, "Import from Word Document", "", "Word Documents (*.docx)")
+        if not path:
+            return
+        try:
+            import importlib.util
+            if importlib.util.find_spec("docx") is None:
+                self._on_log("DOCX import requires 'python-docx'. Install via pip.", "ERROR")
+                return
+            from docx import Document
+            doc = Document(path)
+            text = "\n".join(para.text for para in doc.paragraphs)
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"DOCX import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"DOCX import error: {e}", "ERROR")
+
+    def _import_from_excel(self):
+        """Open a .xlsx/.xls/.csv file and extract email addresses."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import from Spreadsheet", "",
+            "Spreadsheet Files (*.xlsx *.xls *.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            suffix = Path(path).suffix.lower()
+            text = ""
+            if suffix == ".csv":
+                import csv
+                with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                    text = "\n".join(",".join(row) for row in csv.reader(f))
+            else:
+                import importlib.util
+                if importlib.util.find_spec("openpyxl") is not None:
+                    import openpyxl
+                    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                    rows = []
+                    for ws in wb.worksheets:
+                        for row in ws.iter_rows(values_only=True):
+                            rows.append(" ".join(str(c) for c in row if c is not None))
+                    text = "\n".join(rows)
+                elif importlib.util.find_spec("xlrd") is not None:
+                    import xlrd
+                    wb = xlrd.open_workbook(path)
+                    rows = []
+                    for sheet in wb.sheets():
+                        for rx in range(sheet.nrows):
+                            rows.append(" ".join(str(sheet.cell(rx, cx).value) for cx in range(sheet.ncols)))
+                    text = "\n".join(rows)
+                else:
+                    self._on_log("Excel import requires 'openpyxl'. Install via pip.", "ERROR")
+                    return
+            emails = self._extract_emails_from_text(text)
+            if emails:
+                self.import_emails(emails)
+                self._on_log(f"Excel import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+            else:
+                self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
+        except Exception as e:
+            self._on_log(f"Excel import error: {e}", "ERROR")
+
+    def _import_from_clipboard(self):
+        """Extract email addresses from the current clipboard text."""
+        from PySide6.QtGui import QGuiApplication
+        text = QGuiApplication.clipboard().text()
+        if not text.strip():
+            self._on_log("Clipboard is empty.", "WARNING")
+            return
+        emails = self._extract_emails_from_text(text)
+        if emails:
+            self.import_emails(emails)
+            self._on_log(f"Clipboard import: found {len(emails)} email(s).", "SUCCESS")
+        else:
+            self._on_log("No email addresses found in clipboard.", "WARNING")
+
     def _load_from_leads(self):
         from .load_leads_dialog import LoadLeadsDialog
         from .event_bridge import event_bus
@@ -963,7 +1164,8 @@ class EmailSenderPage(QWidget):
             emails = dialog.selected_emails
             if emails:
                 self.import_emails(emails)
-                event_bus.emit("toast.show",
+                event_bus.emit(
+                    "toast.show",
                     title="Leads Loaded",
                     subtitle=f"Imported {len(emails)} emails into the broadcast queue.",
                     type="success"
@@ -1009,8 +1211,13 @@ class EmailSenderPage(QWidget):
     def _worker_send(self, recipients: list[str]):
         self._error_vault.clear()
         sent = 0; failed = 0; total = len(recipients)
-        try: interval = max(1, int(self._interval_input.text().strip()))
-        except: interval = 5
+        try: 
+            raw_val = int(self._interval_input.text().strip())
+            interval = max(15, raw_val)
+            if raw_val < 15:
+                self._log(f"Enforcing minimum interval of 15 seconds (was {raw_val}s).", "WARNING")
+        except: 
+            interval = 30
 
         try:
             self._log("Initializing SMTP Handshake...")
@@ -1157,18 +1364,47 @@ class EmailSenderPage(QWidget):
             port = int(port_txt)
         except ValueError:
             raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
-        if self._ssl_switch.isChecked():
-            server = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=15)
-            server.ehlo()
-        else:
-            server = smtplib.SMTP(host, port, timeout=15)
-            server.ehlo()
-            if self._tls_switch.isChecked():
-                server.starttls(context=ssl.create_default_context())
+            
+        timeout = 30
+        try:
+            if self._ssl_switch.isChecked():
+                self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
+                # Port 465 usually
+                server = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=timeout)
                 server.ehlo()
-        if self._auth_switch.isChecked():
-            server.login(self._smtp_user.text().strip(), self._smtp_pass.text().strip())
-        return server
+            else:
+                self._signals.log.emit(f"Connecting to {host}:{port}...", "INFO")
+                server = smtplib.SMTP(host, port, timeout=timeout)
+                server.ehlo()
+                if self._tls_switch.isChecked():
+                    self._signals.log.emit("Upgrading to STARTTLS...", "INFO")
+                    # Port 587/25 usually
+                    server.starttls(context=ssl.create_default_context())
+                    server.ehlo()
+                    
+            if self._auth_switch.isChecked():
+                user = self._smtp_user.text().strip()
+                self._signals.log.emit(f"Authenticating as {user}...", "INFO")
+                server.login(user, self._smtp_pass.text().strip())
+                
+            return server
+            
+        except socket.timeout:
+            raise Exception("Connection timed out. Check your host/port and firewall settings.")
+        except ssl.SSLError as e:
+            raise Exception(f"SSL/TLS Handshake failed: {e}. Ensure you are using the correct port for the selected security protocol.")
+        except ConnectionRefusedError:
+            raise Exception(f"Connection refused. Ensure the SMTP server is reachable and the port is open.")
+        except smtplib.SMTPConnectError as e:
+            raise Exception(f"Failed to connect to SMTP server: {e}")
+        except smtplib.SMTPAuthenticationError as e:
+            raise Exception(f"Authentication failed: {e}")
+        except Exception as e:
+            # Fallback for other errors like 'Connection unexpectedly closed'
+            err_msg = str(e)
+            if not err_msg:
+                err_msg = type(e).__name__
+            raise Exception(f"{err_msg}")
 
     def _ensure_smtp_connection(self):
         if not self._active_server:
