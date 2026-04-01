@@ -22,6 +22,8 @@ from qfluentwidgets import (
 )
 
 from ..core.logger import register_ui_log_sink
+from ..core.i18n import get_language, tr
+from ..core.config import config_manager
 from .theme import Theme
 
 
@@ -61,6 +63,7 @@ class LogViewerPage(QWidget):
         self._all_logs: list = []  # tuples: (dt, timestamp, level, name, message)
         self._pending_logs: queue.Queue = queue.Queue()
         self._session_start: datetime = datetime.now()  # for LAST SESSION filter
+        self._language = get_language(config_manager.settings.app_language)
         self._build_ui()
         self._load_initial_logs() # Load from file first
         register_ui_log_sink(self._receive_log)
@@ -80,7 +83,7 @@ class LogViewerPage(QWidget):
         # ── 1. Page title ────────────────────────────────────────────────────
         title_box = QWidget()
         tl = QVBoxLayout(title_box); tl.setContentsMargins(0, 0, 0, 14)
-        title = QLabel("Activity Logs")
+        title = QLabel(tr("logs.title", self._language))
         title.setStyleSheet(
             "color: white;"
             "font-family: 'PT Root UI', sans-serif;"
@@ -93,7 +96,7 @@ class LogViewerPage(QWidget):
         ctrl_row = QHBoxLayout(); ctrl_row.setSpacing(8); ctrl_row.setContentsMargins(0, 0, 0, 12)
 
         self._search_input = SearchLineEdit()
-        self._search_input.setPlaceholderText("Search logs…")
+        self._search_input.setPlaceholderText(tr("logs.placeholder.search", self._language))
         self._search_input.setFixedWidth(320)
         self._search_input.setFixedHeight(36)
         self._search_input.textChanged.connect(self._apply_filter)
@@ -112,7 +115,10 @@ class LogViewerPage(QWidget):
         ctrl_row.addWidget(self._search_input)
 
         self._level_filter = ComboBox()
-        self._level_filter.addItems(["ALL LEVELS", "DEBUG", "INFO", "WARNING", "ERROR"])
+        self._level_filter.addItems([
+            tr("logs.filter.all_levels", self._language), 
+            "DEBUG", "INFO", "WARNING", "ERROR"
+        ])
         self._level_filter.currentIndexChanged.connect(self._apply_filter)
         self._level_filter.setFixedHeight(36)
         self._level_filter.setFixedWidth(148)
@@ -131,7 +137,14 @@ class LogViewerPage(QWidget):
         ctrl_row.addWidget(self._level_filter)
 
         self._time_filter = ComboBox()
-        self._time_filter.addItems(["ALL TIME", "LAST HOUR", "TODAY", "LAST 7 DAYS", "LAST 30 DAYS", "LAST SESSION"])
+        self._time_filter.addItems([
+            tr("logs.filter.all_time", self._language),
+            tr("logs.filter.last_hour", self._language),
+            tr("logs.filter.today", self._language),
+            tr("logs.filter.last_7_days", self._language),
+            tr("logs.filter.last_30_days", self._language),
+            tr("logs.filter.last_session", self._language)
+        ])
         self._time_filter.currentIndexChanged.connect(self._apply_filter)
         self._time_filter.setFixedHeight(36)
         self._time_filter.setFixedWidth(170)  # Wider to fit 'LAST SESSION'
@@ -150,11 +163,11 @@ class LogViewerPage(QWidget):
         ctrl_row.addWidget(self._time_filter)
         ctrl_row.addStretch()
 
-        for label, handler, danger in [
-            ("EXPORT",    self._export_logs, False),
-            ("CLEAR ALL", self._clear,       True),
+        for label, key, handler, danger in [
+            ("EXPORT",    "logs.button.export", self._export_logs, False),
+            ("CLEAR ALL", "logs.button.clear",  self._clear,       True),
         ]:
-            btn = PushButton(label)
+            btn = PushButton(tr(key, self._language))
             btn.setFixedHeight(36)
             if danger:
                 btn.setStyleSheet(Theme.zugzwang_danger_button())
@@ -196,7 +209,7 @@ class LogViewerPage(QWidget):
         # Tab strip + entry count + live dot
         tab_row = QHBoxLayout(); tab_row.setSpacing(8); tab_row.setContentsMargins(4, 4, 4, 0)
 
-        pill = QLabel("LIVE STREAM")
+        pill = QLabel(tr("logs.section.live", self._language))
         pill.setStyleSheet("""
             color: #1C1C1E;
             background: white;
@@ -207,7 +220,7 @@ class LogViewerPage(QWidget):
         """)
         tab_row.addWidget(pill)
 
-        self._entries_label = QLabel("0 ENTRIES")
+        self._entries_label = QLabel(tr("logs.badge.entries", self._language).format(count=0))
         self._entries_label.setMinimumWidth(90)  # Prevent truncation
         self._entries_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._entries_label.setStyleSheet("""
@@ -229,7 +242,7 @@ class LogViewerPage(QWidget):
         self._live_dot.setStyleSheet("color: #30D158; font-size: 10px; background: transparent;")
         tab_row.addWidget(self._live_dot)
 
-        live_label = QLabel("LIVE")
+        live_label = QLabel(tr("logs.status.live", self._language))
         live_label.setStyleSheet(
             "color: #30D158; font-size: 10px; font-weight: 600;"
             "font-family: 'PT Root UI', monospace; background: transparent;"
@@ -300,17 +313,17 @@ class LogViewerPage(QWidget):
     def _time_cutoff(self):
         """Return cutoff datetime or None for ALL TIME."""
         from datetime import timedelta
-        sel = self._time_filter.currentText()
+        idx = self._time_filter.currentIndex()
         now = datetime.now()
-        if sel == "LAST HOUR":
+        if idx == 1: # LAST HOUR
             return now - timedelta(hours=1)
-        elif sel == "TODAY":
+        elif idx == 2: # TODAY
             return now.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif sel == "LAST 7 DAYS":
+        elif idx == 3: # LAST 7 DAYS
             return now - timedelta(days=7)
-        elif sel == "LAST 30 DAYS":
+        elif idx == 4: # LAST 30 DAYS
             return now - timedelta(days=30)
-        elif sel == "LAST SESSION":
+        elif idx == 5: # LAST SESSION
             return self._session_start
         return None  # ALL TIME
 
@@ -352,7 +365,7 @@ class LogViewerPage(QWidget):
 
         if not self._all_logs:
             self._log_view.setHtml(self._empty_state_html())
-            self._entries_label.setText("0 ENTRIES")
+            self._entries_label.setText(tr("logs.badge.entries", self._language).format(count=0))
             return
 
         html_blocks = []
@@ -376,12 +389,13 @@ class LogViewerPage(QWidget):
                 'font-size: 12px; line-height: 1.7;">'
                 + "".join(html_blocks) + "</div>"
             )
-        self._entries_label.setText(f"{visible_count:,} ENTRIES")
+        self._entries_label.setText(tr("logs.badge.entries", self._language).format(count=visible_count))
         self._scroll_to_bottom()
 
     def _selected_level(self) -> str:
-        text = self._level_filter.currentText()
-        return "" if text.upper() == "ALL LEVELS" else text.strip().upper()
+        idx = self._level_filter.currentIndex()
+        if idx == 0: return ""
+        return self._level_filter.currentText().strip().upper()
 
     def _format_entry(self, timestamp: str, level: str, name: str, message: str) -> str:
         cfg = _LEVEL_CFG.get(level.upper(), {"color": "#D1D1D6", "bg": "rgba(255,255,255,0.05)"})
@@ -408,11 +422,11 @@ class LogViewerPage(QWidget):
                     padding-top: 60px;">
             <div style="font-size:32px; color:#3A3A3C; margin-bottom:10px;">⌘</div>
             <div style="color:#48484A; font-family:'PT Root UI',sans-serif; font-size:13px;">
-                No log entries
+                {tr("logs.empty.title", self._language)}
             </div>
             <div style="color:#3A3A3C; font-family:'PT Root UI',sans-serif; font-size:11px;
                         margin-top:4px;">
-                Logs will appear here during runtime
+                {tr("logs.empty.subtitle", self._language)}
             </div>
         </div>
         """
@@ -420,7 +434,7 @@ class LogViewerPage(QWidget):
     def _clear(self):
         self._all_logs.clear()
         self._log_view.setHtml(self._empty_state_html())
-        self._entries_label.setText("0 ENTRIES")
+        self._entries_label.setText(tr("logs.badge.entries", self._language).format(count=0))
 
     def _export_logs(self):
         if not self._all_logs:

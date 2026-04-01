@@ -31,6 +31,8 @@ from qfluentwidgets import (
 )
 
 from ..core.events import event_bus
+from ..core.i18n import get_language, tr
+from ..core.config import config_manager
 from ..core.models import ScrapingJob
 from ..core.security import LicenseManager
 from .theme import Theme
@@ -44,7 +46,7 @@ class DashboardMetricCard(QFrame):
     def __init__(self, icon: FluentIcon, title: str, value: str = "0", meta: str = "", color: str = "#0A84FF", parent=None):
         super().__init__(parent)
         self._accent = color
-        self.setFixedSize(220, 124)
+        self.setFixedSize(220, 124) # Match SearchSourceCard exactly
         self.setObjectName("DashboardMetricCard")
         
         # ZUGZWANG Styling: Zinc bg, 12px radii, no border
@@ -60,13 +62,7 @@ class DashboardMetricCard(QFrame):
         self.main_layout.setContentsMargins(16, 16, 16, 16)
         self.main_layout.setSpacing(6)
 
-        # ZUGZWANG Elevation Effect
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setBlurRadius(12)
-        self._shadow.setXOffset(0)
-        self._shadow.setYOffset(2)
-        self._shadow.setColor(QColor(0, 0, 0, 102)) # 0.4 opacity
-        self.setGraphicsEffect(self._shadow)
+        # Removed ZUGZWANG Elevation Effect to fix severe UI lag
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
@@ -94,7 +90,7 @@ class DashboardMetricCard(QFrame):
         self.main_layout.addStretch(1)
 
         self.valueLabel = QLabel(value)
-        self.valueLabel.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 40px; font-weight: 700; background: transparent; border: none;")
+        self.valueLabel.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 32px; font-weight: 700; background: transparent; border: none;")
         self.main_layout.addWidget(self.valueLabel)
 
         self.titleLabel = QLabel(title.upper())
@@ -102,30 +98,11 @@ class DashboardMetricCard(QFrame):
         self.main_layout.addWidget(self.titleLabel)
 
     def enterEvent(self, event):
-        # Lift shadow by 4px
-        self._anim = QPropertyAnimation(self._shadow, b"yOffset")
-        self._anim.setDuration(120)
-        self._anim.setEndValue(6)
-        
-        self._anim_blur = QPropertyAnimation(self._shadow, b"blurRadius")
-        self._anim_blur.setDuration(120)
-        self._anim_blur.setEndValue(16)
-        
-        self._anim.start()
-        self._anim_blur.start()
+        # Removed shadow lift animation to improve performance
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._anim = QPropertyAnimation(self._shadow, b"yOffset")
-        self._anim.setDuration(120)
-        self._anim.setEndValue(2)
-        
-        self._anim_blur = QPropertyAnimation(self._shadow, b"blurRadius")
-        self._anim_blur.setDuration(120)
-        self._anim_blur.setEndValue(12)
-        
-        self._anim.start()
-        self._anim_blur.start()
+        # Removed shadow drop animation to improve performance
         super().leaveEvent(event)
 
     def set_value(self, value: str):
@@ -134,14 +111,18 @@ class DashboardMetricCard(QFrame):
     def set_meta(self, text: str):
         self.metaLabel.setText(str(text).upper())
 
+    def set_title(self, text: str):
+        self.titleLabel.setText(str(text).upper())
+
 class TrialStatusCard(DashboardMetricCard):
     """Special card for free trial users, Obsidian Core style."""
-    def __init__(self, parent=None):
+    def __init__(self, language: str, parent=None):
+        self._language = language
         super().__init__(
-            FluentIcon.HISTORY, "TRIAL SCRAPS", "0", "0 / 20", 
+            FluentIcon.HISTORY, tr("dashboard.metric.trial", self._language), "0", "0 / 20",
             color="#FF453A", parent=parent
         )
-        self.setToolTip("Daily limit resets at midnight")
+        self.setToolTip(tr("dashboard.metric.trial.tip", self._language))
         self._refresh()
         
     def _refresh(self):
@@ -157,62 +138,146 @@ class TrialStatusCard(DashboardMetricCard):
 
 class JobTableRow(QFrame):
     """Compact job summary row, Obsidian Core style."""
+    rerun_requested = Signal(object)  # SearchConfig
 
-    def __init__(self, job: ScrapingJob, parent=None):
+    def __init__(self, job: ScrapingJob, language: str, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(72)
+        self._language = language
+        self._job = job
+        self.setFixedHeight(70)
         self.setObjectName("DashboardJobRow")
         self.setStyleSheet(
             f"QFrame#DashboardJobRow {{ "
-            f"background: transparent; "
-            f"border: none; "
-            f"border-bottom: 1px solid {Theme.BORDER_SUBTLE}; "
-            f"border-radius: 0; "
+            f"background: rgba(44, 44, 46, 0.4); "
+            f"border: 1px solid rgba(255, 255, 255, 0.05); "
+            f"border-radius: 12px; "
+            f"margin: 0; "
+            f"}} "
+            f"QFrame#DashboardJobRow:hover {{ "
+            f"background: rgba(58, 58, 60, 0.6); "
+            f"border: 1px solid rgba(255, 255, 255, 0.12); "
             f"}}"
         )
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(16)
 
-        dot = QFrame()
-        dot.setObjectName("JobDot")
-        dot.setFixedSize(8, 8)
-        dot.setStyleSheet(f"QFrame#JobDot {{ background: {Theme.ACCENT_PRIMARY}; border-radius: 4px; border: none; }}")
-        layout.addWidget(dot, 0, Qt.AlignVCenter)
+        # Source-specific icon
+        source = getattr(job.config, "source_type", None)
+        source_val = getattr(source, "value", "unknown") if source else "unknown"
+        
+        icon_type = FluentIcon.SEARCH
+        icon_color = Theme.ACCENT_PRIMARY
+        
+        if "google" in source_val.lower():
+            icon_type = FluentIcon.GLOBE
+            icon_color = "#4285F4"
+        elif "ausbildung" in source_val.lower():
+            icon_type = FluentIcon.EDUCATION
+            icon_color = "#30D158"
+        elif "aubi" in source_val.lower():
+            icon_type = FluentIcon.GAME
+            icon_color = "#FF9F0A"
+
+        icon_widget = IconWidget(icon_type)
+        icon_widget.setFixedSize(20, 20)
+        icon_widget.setStyleSheet(f"color: {icon_color}; background: transparent; border: none;")
+        layout.addWidget(icon_widget, 0, Qt.AlignVCenter)
 
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 14, 0, 14)
-        text_col.setSpacing(4)
+        text_col.setSpacing(1)
+        text_col.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        title = QLabel(job.config.job_title or job.query_label)
-        title.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {Theme.TEXT_PRIMARY}; border: none;")
+        title = QLabel(job.config.job_title or job.query_label or "Untitled Search")
+        title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: #FFFFFF; background: transparent; border: none;")
+        title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_col.addWidget(title)
 
-        started = str(getattr(job, "started_at", "") or "Just now")
-        meta = QLabel(f"{job.total_found:,} records identified | {started[:16]}")
-        meta.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 12px; border: none;")
+        started = str(getattr(job, "started_at", "") or tr("dashboard.job.time.now", self._language))
+        meta_txt = tr("dashboard.job.records", self._language).format(count=job.total_found, started=started[:16])
+        if source_val != "unknown":
+            meta_txt = f"{source_val.replace('_', ' ').title()}  •  {meta_txt}"
+            
+        meta = QLabel(meta_txt)
+        meta.setStyleSheet(f"color: #8E8E93; font-size: 11px; background: transparent; border: none;")
+        meta.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_col.addWidget(meta)
         layout.addLayout(text_col, 1)
 
         status = str(job.status.value).upper()
         badge_label = QLabel(status)
-        if status in {"RUNNING", "PAUSED", "PENDING"}:
-            badge_label.setObjectName("BadgeInfo")
-        elif status == "COMPLETED":
-            badge_label.setObjectName("BadgeSuccess")
-        else:
-            badge_label.setObjectName("BadgeWarning")
         
+        b_bg = "rgba(142, 142, 147, 0.1)"
+        b_clr = "#8E8E93"
+        b_border = "rgba(142, 142, 147, 0.2)"
+        
+        if status in {"RUNNING", "PAUSED", "PENDING"}:
+            b_bg = "rgba(10, 132, 255, 0.1)"
+            b_clr = "#0A84FF"
+            b_border = "rgba(10, 132, 255, 0.3)"
+        elif status == "COMPLETED":
+            b_bg = "rgba(48, 209, 88, 0.1)"
+            b_clr = "#30D158"
+            b_border = "rgba(48, 209, 88, 0.3)"
+        elif status == "FAILED":
+            b_bg = "rgba(255, 69, 58, 0.1)"
+            b_clr = "#FF453A"
+            b_border = "rgba(255, 69, 58, 0.3)"
+
+        badge_label.setStyleSheet(f"""
+            QLabel {{
+                background: {b_bg};
+                color: {b_clr};
+                border: 1px solid {b_border};
+                border-radius: 6px;
+                font-family: 'SF Mono', monospace;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 4px 8px;
+            }}
+        """)
         layout.addWidget(badge_label, 0, Qt.AlignVCenter)
+
+        # RE-RUN button
+        from PySide6.QtWidgets import QPushButton as _QPB2
+        rerun_btn = _QPB2(" RE-RUN")
+        rerun_btn.setFixedSize(88, 30)
+        rerun_btn.setCursor(Qt.PointingHandCursor)
+        
+        # Add Refresh icon
+        btn_layout = QHBoxLayout(rerun_btn)
+        btn_layout.setContentsMargins(8, 0, 8, 0)
+        btn_layout.setSpacing(4)
+        r_icon = IconWidget(FluentIcon.HISTORY, rerun_btn)
+        r_icon.setFixedSize(12, 12)
+        r_icon.setStyleSheet("background: transparent; border: none; color: #8E8E93;")
+        btn_layout.addWidget(r_icon, 0, Qt.AlignVCenter)
+        btn_layout.addStretch()
+
+        rerun_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px; color: #8E8E93;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 11px; font-weight: 600;
+                text-align: right; padding-right: 10px;
+            }
+            QPushButton:hover { background: rgba(255, 255, 255, 0.1); color: #FFFFFF; border-color: rgba(255, 255, 255, 0.2); }
+        """)
+        rerun_btn.clicked.connect(lambda: self.rerun_requested.emit(self._job.config))
+        layout.addWidget(rerun_btn, 0, Qt.AlignVCenter)
 
 
 class DashboardPage(QWidget):
     navigate_to_search = Signal()
     navigate_to_results = Signal()
+    rerun_requested = Signal(object)  # SearchConfig
 
     def __init__(self):
         super().__init__()
+        self._language = get_language(config_manager.settings.app_language)
         self._jobs: list[ScrapingJob] = []
         self._saved_summary = (0, 0, 0)
         self._activity_items: deque[str] = deque(maxlen=8)
@@ -279,11 +344,17 @@ class DashboardPage(QWidget):
         self.setObjectName("dashboardPage")
         self.setStyleSheet(f"QWidget#dashboardPage {{ background: {Theme.BG_OBSIDIAN}; }}")
 
+        # ZUGZWANG 5.0 - Static Dashboard (No scrolling allowed)
         self.scrollArea = ScrollArea(self)
         self.scrollArea.setWidgetResizable(True)
         self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scrollArea.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.scrollArea.verticalScrollBar().setFixedWidth(0)
+        # Fix: qfluentwidgets.ScrollArea might not have setWheelByMouse depending on version.
+        # We override the wheelEvent directly to ensure no scrolling is possible.
+        self.scrollArea.wheelEvent = lambda event: event.ignore()
+        self.scrollArea.setFocusPolicy(Qt.NoFocus) # Prevent keyboard scrolling
+        self.scrollArea.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar { width: 0px; height: 0px; }")
         root.addWidget(self.scrollArea)
 
         content = QWidget()
@@ -300,11 +371,11 @@ class DashboardPage(QWidget):
         title_wrap = QVBoxLayout()
         title_wrap.setSpacing(4)
         
-        self.heroTitle = QLabel("Dashboard")
+        self.heroTitle = QLabel(tr("dashboard.title", self._language))
         self.heroTitle.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
         title_wrap.addWidget(self.heroTitle)
 
-        self.heroSubtitle = QLabel("Ready for your next lead generation session.")
+        self.heroSubtitle = QLabel(tr("dashboard.subtitle.ready", self._language))
         self.heroSubtitle.setStyleSheet(f"color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 13px; background: transparent; border: none;")
         title_wrap.addWidget(self.heroSubtitle)
         
@@ -312,7 +383,7 @@ class DashboardPage(QWidget):
         header.addStretch(1)
 
         from PySide6.QtWidgets import QPushButton as _QPB
-        self.exportBtn = _QPB("EXPORT REPORT")
+        self.exportBtn = _QPB(tr("dashboard.button.export", self._language))
         self.exportBtn.setFixedSize(160, 36)
         self.exportBtn.setCursor(Qt.PointingHandCursor)
         self.exportBtn.setStyleSheet("""
@@ -333,7 +404,7 @@ class DashboardPage(QWidget):
         """)
         header.addWidget(self.exportBtn, 0, Qt.AlignVCenter)
 
-        self.newSearchBtn = _QPB("NEW SCRAPER")
+        self.newSearchBtn = _QPB(tr("dashboard.button.new", self._language))
         self.newSearchBtn.setFixedSize(160, 36)
         self.newSearchBtn.setCursor(Qt.PointingHandCursor)
         self.newSearchBtn.setStyleSheet("""
@@ -354,7 +425,7 @@ class DashboardPage(QWidget):
         """)
         header.addWidget(self.newSearchBtn, 0, Qt.AlignVCenter)
 
-        self.loveBtn = _QPB("SUPPORT US")
+        self.loveBtn = _QPB(tr("dashboard.button.support", self._language))
         self.loveBtn.setFixedSize(140, 36)
         self.loveBtn.setCursor(Qt.PointingHandCursor)
         self.loveBtn.setStyleSheet("""
@@ -382,11 +453,11 @@ class DashboardPage(QWidget):
         metrics = QHBoxLayout()
         metrics.setSpacing(16)
         metrics.addStretch(1)
-        self.metric_leads = DashboardMetricCard(FluentIcon.PEOPLE, "AVAILABLE LEADS", "0", "NO DATA", color="#0A84FF")
-        self.metric_websites = DashboardMetricCard(FluentIcon.GLOBE, "SITES INDEXED", "0", "LIVE", color="#5E5CE6")
-        self.metric_emails = DashboardMetricCard(FluentIcon.MAIL, "EMAIL ADDRESSES", "0", "0% VALID", color="#30D158")
-        self.metric_active = DashboardMetricCard(FluentIcon.DEVELOPER_TOOLS, "ACTIVE JOBS", "0", "IDLE", color="#FF9F0A")
-        self.metric_trial = TrialStatusCard()
+        self.metric_leads = DashboardMetricCard(FluentIcon.PEOPLE, tr("dashboard.metric.leads", self._language), "0", tr("dashboard.meta.no_data", self._language), color="#0A84FF")
+        self.metric_websites = DashboardMetricCard(FluentIcon.GLOBE, tr("dashboard.metric.websites", self._language), "0", tr("dashboard.meta.live", self._language), color="#5E5CE6")
+        self.metric_emails = DashboardMetricCard(FluentIcon.MAIL, tr("dashboard.metric.emails", self._language), "0", tr("dashboard.meta.valid", self._language).format(ratio=0), color="#30D158")
+        self.metric_active = DashboardMetricCard(FluentIcon.DEVELOPER_TOOLS, tr("dashboard.metric.active", self._language), "0", tr("dashboard.meta.idle", self._language), color="#FF9F0A")
+        self.metric_trial = TrialStatusCard(self._language)
         metrics.addWidget(self.metric_leads)
         metrics.addWidget(self.metric_websites)
         metrics.addWidget(self.metric_emails)
@@ -404,35 +475,25 @@ class DashboardPage(QWidget):
         left_col.setSpacing(12)
 
         jobs_hdr = QHBoxLayout()
-        jobs_lbl = QLabel("RECENT JOBS")
+        jobs_lbl = QLabel(tr("dashboard.section.jobs", self._language))
         jobs_lbl.setObjectName("SectionLabel")
         jobs_hdr.addWidget(jobs_lbl)
         jobs_hdr.addStretch(1)
-        self.viewAllBtn = TransparentPushButton("VIEW ALL")
-        self.viewAllBtn.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 800; letter-spacing: 0.6px;")
-        jobs_hdr.addWidget(self.viewAllBtn)
         left_col.addLayout(jobs_hdr)
 
         self.jobsHost = QFrame()
         self.jobsHost.setObjectName("DashboardTableCard")
         self.jobsHost.setStyleSheet(
             f"QFrame#DashboardTableCard {{ "
-            f"background: #2C2C2E; "
+            f"background: transparent; "
             f"border: none; "
             f"border-radius: 12px; "
             f"}}"
         )
-        self._jobs_shadow = QGraphicsDropShadowEffect(self.jobsHost)
-        self._jobs_shadow.setBlurRadius(12)
-        self._jobs_shadow.setXOffset(0)
-        self._jobs_shadow.setYOffset(2)
-        self._jobs_shadow.setColor(QColor(0, 0, 0, 102))
-        self.jobsHost.setGraphicsEffect(self._jobs_shadow)
         jobs_host_layout = QVBoxLayout(self.jobsHost)
-        jobs_host_layout.setContentsMargins(0, 0, 0, 0)
-        jobs_host_layout.setSpacing(0)
+        jobs_host_layout.setSpacing(8)
         self.jobsFrame = QVBoxLayout()
-        self.jobsFrame.setSpacing(0)
+        self.jobsFrame.setSpacing(10)
         jobs_host_layout.addLayout(self.jobsFrame)
         left_col.addWidget(self.jobsHost, 1)
         lower_split.addLayout(left_col, 2)
@@ -441,7 +502,7 @@ class DashboardPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(12)
 
-        activity_lbl = QLabel("ACTIVITY LOG")
+        activity_lbl = QLabel(tr("dashboard.section.activity", self._language))
         activity_lbl.setObjectName("SectionLabel")
         right_col.addWidget(activity_lbl)
 
@@ -449,25 +510,21 @@ class DashboardPage(QWidget):
         self.activityCard.setObjectName("DashboardSideCard")
         self.activityCard.setStyleSheet(
             f"QFrame#DashboardSideCard {{ "
-            f"background: #2C2C2E; "
-            f"border: 1px solid {Theme.BORDER_SUBTLE}; "
+            f"background: transparent; "
+            f"border: none; "
             f"border-radius: 12px; "
             f"}}"
         )
-        self._activity_shadow = QGraphicsDropShadowEffect(self.activityCard)
-        self._activity_shadow.setBlurRadius(12)
-        self._activity_shadow.setXOffset(0)
-        self._activity_shadow.setYOffset(2)
-        self._activity_shadow.setColor(QColor(0, 0, 0, 102))
-        self.activityCard.setGraphicsEffect(self._activity_shadow)
         activity_layout = QVBoxLayout(self.activityCard)
-        activity_layout.setContentsMargins(20, 20, 20, 20)
-        activity_layout.setSpacing(16)
-        activity_layout.setAlignment(Qt.AlignTop)
+        activity_layout.setContentsMargins(0, 0, 0, 0)
+        activity_layout.setSpacing(8)
+        activity_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.activityLayout = activity_layout
         right_col.addWidget(self.activityCard, 1)
         
         lower_split.addLayout(right_col, 1)
+        lower_split.setStretch(0, 2)
+        lower_split.setStretch(1, 1)
         body.addLayout(lower_split, 1)
 
         self._refresh_job_list()
@@ -491,7 +548,6 @@ class DashboardPage(QWidget):
         event_bridge.job_result.connect(self._on_live_result)
 
         self.newSearchBtn.clicked.connect(self.navigate_to_search.emit)
-        self.viewAllBtn.clicked.connect(self.navigate_to_results.emit)
         self.exportBtn.clicked.connect(self.navigate_to_results.emit)
 
     def _record_activity(self, text: str):
@@ -504,7 +560,7 @@ class DashboardPage(QWidget):
     def _on_job_started(self, job_id: str, config=None):
         label = getattr(config, "job_title", "") if config else ""
         source = getattr(getattr(config, "source_type", None), "value", "")
-        summary = label or "New scraping job started"
+        summary = label or tr("dashboard.activity.job_started", self._language)
         if source:
             summary = f"{summary} | {source.title()}"
         self._record_activity(summary)
@@ -513,9 +569,9 @@ class DashboardPage(QWidget):
     def _on_job_update(self, job_id: str, *args):
         error = args[0] if args and isinstance(args[0], str) else ""
         if error:
-            self._record_activity(f"Job {job_id[:8]} failed: {error[:60]}")
+            self._record_activity(tr("dashboard.activity.job_failed", self._language).format(job=job_id[:8], error=error[:60]))
         elif job_id:
-            self._record_activity(f"Job {job_id[:8]} updated")
+            self._record_activity(tr("dashboard.activity.job_updated", self._language).format(job=job_id[:8]))
         QTimer.singleShot(0, self._refresh_stats)
         QTimer.singleShot(0, self._refresh_job_list)
 
@@ -528,17 +584,17 @@ class DashboardPage(QWidget):
     def _on_live_result(self, record):
         """Adds a live finding note to the activity log."""
         if hasattr(record, "name") and record.name:
-            self._record_activity(f"FOUND: {record.name[:40]}")
+            self._record_activity(tr("dashboard.activity.found", self._language).format(name=record.name[:40]))
 
     def _on_export_event(self, **kwargs):
         fmt = str(kwargs.get("format", "")).upper()
         count = kwargs.get("count")
         error = kwargs.get("error", "")
         if error:
-            self._record_activity(f"EXPORT FAILED | {fmt}")
+            self._record_activity(tr("dashboard.activity.export_failed", self._language).format(fmt=fmt))
         else:
             suffix = f" | {count} records" if count is not None else ""
-            self._record_activity(f"EXPORT DONE | {fmt}{suffix}")
+            self._record_activity(tr("dashboard.activity.export_done", self._language).format(fmt=fmt, suffix=suffix))
 
     def refresh(self, jobs: list[ScrapingJob] = None):
         """Unified refresh: update with new jobs list OR just refresh stats/trial."""
@@ -588,27 +644,31 @@ class DashboardPage(QWidget):
         total_leads, total_emails, total_websites, active_jobs, completed_jobs, failed_jobs, total_jobs = self._totals()
 
         self.metric_leads.set_value(f"{total_leads:,}")
-        self.metric_leads.set_meta("NO DATA" if total_leads == 0 else "READY")
+        self.metric_leads.set_title(tr("dashboard.metric.leads", self._language))
+        self.metric_leads.set_meta(tr("dashboard.meta.no_data", self._language) if total_leads == 0 else tr("dashboard.meta.ready", self._language))
 
         self.metric_websites.set_value(f"{total_websites:,}")
-        self.metric_websites.set_meta("LIVE" if total_websites else "QUEUED")
+        self.metric_websites.set_title(tr("dashboard.metric.websites", self._language))
+        self.metric_websites.set_meta(tr("dashboard.meta.live", self._language) if total_websites else tr("dashboard.meta.queued", self._language))
 
         email_ratio = int((total_emails / total_leads) * 100) if total_leads else 0
         self.metric_emails.set_value(f"{total_emails:,}")
-        self.metric_emails.set_meta(f"{email_ratio}% VALID")
+        self.metric_emails.set_title(tr("dashboard.metric.emails", self._language))
+        self.metric_emails.set_meta(tr("dashboard.meta.valid", self._language).format(ratio=email_ratio))
 
         self.metric_active.set_value(f"{active_jobs}")
-        self.metric_active.set_meta("RUNNING" if active_jobs else "IDLE")
+        self.metric_active.set_title(tr("dashboard.metric.active", self._language))
+        self.metric_active.set_meta(tr("dashboard.meta.running", self._language) if active_jobs else tr("dashboard.meta.idle", self._language))
 
         if hasattr(self, 'metric_trial'):
             self.metric_trial._refresh()
 
         if active_jobs:
-            self.heroSubtitle.setText(f"Welcome back. {active_jobs} scraping job(s) in progress.")
+            self.heroSubtitle.setText(tr("dashboard.subtitle.running", self._language).format(count=active_jobs))
         elif total_jobs:
-            self.heroSubtitle.setText(f"Your workspace contains {total_jobs} executed jobs.")
+            self.heroSubtitle.setText(tr("dashboard.subtitle.workspace", self._language).format(count=total_jobs))
         else:
-            self.heroSubtitle.setText("Welcome to ZUGZWANG. Start a new scraper to begin.")
+            self.heroSubtitle.setText(tr("dashboard.subtitle.welcome", self._language))
 
     def _refresh_job_list(self):
         while self.jobsFrame.count():
@@ -617,27 +677,23 @@ class DashboardPage(QWidget):
                 item.widget().deleteLater()
 
         if not self._jobs:
-            empty = QWidget()
-            empty_layout = QVBoxLayout(empty)
-            empty_layout.setContentsMargins(0, 48, 0, 48)
-            empty_layout.setSpacing(12)
-            empty_layout.setAlignment(Qt.AlignCenter)
-
-            icon = IconWidget(FluentIcon.SEARCH)
-            icon.setFixedSize(24, 24)
-            icon.setStyleSheet(f"color: #3A3A3C; border: none;")
-            empty_layout.addWidget(icon, 0, Qt.AlignHCenter)
-
-            title = QLabel("NO RECENT JOBS")
-            title.setStyleSheet(f"color: #636366; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; border: none;")
-            empty_layout.addWidget(title, 0, Qt.AlignHCenter)
-
+            from .components import EmptyStateWidget
+            empty = EmptyStateWidget(
+                FluentIcon.SEARCH,
+                title=tr("dashboard.empty.jobs", self._language),
+                description="No scraping jobs run yet. Start a new search to see history here.",
+                button_text="New Search",
+                button_callback=self.navigate_to_search.emit
+            )
             self.jobsFrame.addWidget(empty)
             return
 
         recent = list(reversed(self._jobs[-4:])) # Showing up to 4 recent jobs
         for job in recent:
-            self.jobsFrame.addWidget(JobTableRow(job))
+            row = JobTableRow(job, self._language)
+            row.rerun_requested.connect(self.rerun_requested.emit)
+            self.jobsFrame.addWidget(row)
+
 
     def _refresh_activity(self):
         if not self._activity_items:
@@ -648,8 +704,8 @@ class DashboardPage(QWidget):
                     item = self.activityLayout.takeAt(0)
                     if item.widget(): item.widget().deleteLater()
                 
-                # Center alignment for empty state
-                self.activityLayout.setAlignment(Qt.AlignCenter)
+                # Left alignment for empty state
+                self.activityLayout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
                 
                 placeholder_container = QWidget()
                 placeholder_container.setStyleSheet("background: transparent; border: none;")
@@ -662,11 +718,11 @@ class DashboardPage(QWidget):
                 icon.setStyleSheet(f"color: #444446; border: none;") # Muted icon
                 pv.addWidget(icon, 0, Qt.AlignHCenter)
 
-                empty = QLabel("NO RECENT ACTIVITY")
+                empty = QLabel(tr("dashboard.empty.activity", self._language))
                 empty.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1px; border: none;")
                 pv.addWidget(empty, 0, Qt.AlignHCenter)
 
-                desc = QLabel("System logs and scraping signals will stream here in real-time.")
+                desc = QLabel(tr("dashboard.empty.activity.body", self._language))
                 desc.setWordWrap(True)
                 desc.setAlignment(Qt.AlignCenter)
                 desc.setStyleSheet(f"color: {Theme.TEXT_TERTIARY}; font-size: 12px; border: none;")
@@ -684,7 +740,8 @@ class DashboardPage(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
             
-            self.activityLayout.setAlignment(Qt.AlignTop)
+            self.activityLayout.setContentsMargins(0, 0, 0, 0)
+            self.activityLayout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
             
             # Pre-create 8 rows maximum
             for _ in range(8):
@@ -700,12 +757,16 @@ class DashboardPage(QWidget):
                 dot.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
                 label = QLabel("")
-                label.setWordWrap(True)
-                label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                label.setWordWrap(False)
+                label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 label.setStyleSheet(f"color: #8E8E93; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; background: transparent; border: none;")
+                label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
                 row_layout.addWidget(dot, 0, Qt.AlignTop)
                 row_layout.addWidget(label, 1, Qt.AlignTop)
+                
+                # Polish the row appearance: no padding, tight spacing
+                row_layout.setContentsMargins(0, 0, 0, 0)
                 
                 self._activity_labels.append(label)
                 self.activityLayout.addWidget(row)

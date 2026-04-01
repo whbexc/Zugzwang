@@ -21,6 +21,7 @@ from qfluentwidgets import (
 )
 
 from ..core.config import config_manager
+from ..core.i18n import SUPPORTED_LANGUAGES, get_language, tr
 from ..services.orchestrator import orchestrator
 from ..core.security import LicenseManager
 from .theme import Theme
@@ -40,6 +41,7 @@ class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
         self._dirty = False
+        self._language = get_language(config_manager.settings.app_language)
         self._build_ui()
         self._load_values()
         self._connect_change_tracking()
@@ -105,10 +107,10 @@ class SettingsPage(QWidget):
         bl.addWidget(bn)
         hdr.addWidget(badge)
 
-        tl = QLabel(title.upper())
+        tl = QLabel(str(title).upper() if title else f"SECTION {num}")
         tl.setStyleSheet(
-            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; "
-            "letter-spacing: 1.6px; background: transparent; border: none;"
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 800; "
+            "letter-spacing: 1.5px; background: transparent; border: none;"
         )
         hdr.addWidget(tl); hdr.addStretch()
         vl.addLayout(hdr)
@@ -144,23 +146,23 @@ class SettingsPage(QWidget):
         # Header Title
         title_box = QWidget()
         tl = QVBoxLayout(title_box); tl.setContentsMargins(0, 0, 0, 12)
-        title = QLabel("Settings")
-        title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600;")
-        tl.addWidget(title)
+        self._title_label = QLabel(tr("settings.title", self._language))
+        self._title_label.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600;")
+        tl.addWidget(self._title_label)
         root.addWidget(title_box, 0)
 
         # Top Row (3 columns)
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
-        top_row.addWidget(self._card("1", "Scraping Engine",    self._build_scraping()))
-        top_row.addWidget(self._card("2", "Email Discovery",   self._build_email()))
-        top_row.addWidget(self._card("3", "Protection & Sync", self._build_protection()))
+        top_row.addWidget(self._card("1", tr("settings.scraping.title", self._language),    self._build_scraping()))
+        top_row.addWidget(self._card("2", tr("settings.email.title", self._language),   self._build_email()))
+        top_row.addWidget(self._card("3", tr("settings.protection.title", self._language), self._build_protection()))
 
         # Bottom Row (2 columns, 50/50 split)
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(12)
-        bottom_row.addWidget(self._card("4", "Network & Identity",self._build_network()))
-        bottom_row.addWidget(self._card("5", "System Core",       self._build_system()))
+        bottom_row.addWidget(self._card("4", tr("settings.network.title", self._language),self._build_network()))
+        bottom_row.addWidget(self._card("5", tr("settings.system", self._language), self._build_system()))
 
         # Grid Container (100vh behavior via flex: 1)
         grid_container = QWidget()
@@ -183,13 +185,13 @@ class SettingsPage(QWidget):
 
         self._chk_headless = self._sw()
         self._chk_robots   = self._sw()
-        vl.addWidget(self._row("Headless Browser Mode", self._chk_headless))
-        vl.addWidget(self._row("Respect Robots.txt",    self._chk_robots))
+        vl.addWidget(self._row(tr("settings.headless.title", self._language), self._chk_headless))
+        vl.addWidget(self._row(tr("settings.robots.title", self._language),    self._chk_robots))
 
         # Inputs (LineEdits = 0 Arrows)
-        self._delay_min   = LineEdit(); self._delay_min.setFixedSize(84, 40)
-        self._delay_max   = LineEdit(); self._delay_max.setFixedSize(84, 40)
-        self._max_results = LineEdit(); self._max_results.setFixedSize(84, 40)
+        self._delay_min   = LineEdit(); self._delay_min.setFixedHeight(40); self._delay_min.setMinimumWidth(84)
+        self._delay_max   = LineEdit(); self._delay_max.setFixedHeight(40); self._delay_max.setMinimumWidth(84)
+        self._max_results = LineEdit(); self._max_results.setFixedHeight(40); self._max_results.setMinimumWidth(84)
         
         dv = QDoubleValidator(0.5, 60.0, 1, self); dv.setNotation(QDoubleValidator.StandardNotation)
         iv = QDoubleValidator(5, 10000, 0, self); iv.setNotation(QDoubleValidator.StandardNotation)
@@ -211,9 +213,13 @@ class SettingsPage(QWidget):
         spin_frame = QFrame()
         spin_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
         spin_hl = QHBoxLayout(spin_frame); spin_hl.setContentsMargins(12, 11, 12, 11); spin_hl.setSpacing(16)
-        for label, widget in [("MIN (S)", self._delay_min), ("MAX (S)", self._delay_max), ("LIMIT", self._max_results)]:
+        for label_key, widget in [
+            ("settings.delay.min", self._delay_min), 
+            ("settings.delay.max", self._delay_max), 
+            ("settings.limit.title", self._max_results)
+        ]:
             col = QVBoxLayout(); col.setSpacing(4)
-            l = QLabel(label); l.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700; background: transparent;")
+            l = QLabel(tr(label_key, self._language)); l.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700; background: transparent;")
             col.addWidget(l); col.addWidget(widget)
             spin_hl.addLayout(col)
         spin_hl.addStretch()
@@ -227,10 +233,10 @@ class SettingsPage(QWidget):
 
         self._chk_scrape_emails       = self._sw()
         self._chk_debug_screenshots   = self._sw()
-        vl.addWidget(self._row("Deep Scan",    self._chk_scrape_emails))
-        vl.addWidget(self._row("Debug Output", self._chk_debug_screenshots))
+        vl.addWidget(self._row(tr("settings.deep_scan.title", self._language),    self._chk_scrape_emails))
+        vl.addWidget(self._row(tr("settings.debug.title", self._language), self._chk_debug_screenshots))
 
-        vl.addWidget(self._section_label("Discovery Paths"))
+        vl.addWidget(self._section_label(tr("settings.discovery.title", self._language)))
         self._discovery_paths = TextEdit()
         # FIX 5: flex scroll behavior
         self._discovery_paths.setMinimumHeight(0) 
@@ -259,7 +265,7 @@ class SettingsPage(QWidget):
 
         self._chk_proxy = self._sw()
         self._chk_proxy.checkedChanged.connect(self._on_proxy_toggled)
-        vl.addWidget(self._row("Custom Proxy Routing", self._chk_proxy))
+        vl.addWidget(self._row(tr("settings.proxy.title", self._language), self._chk_proxy))
 
         proxy_frame = QFrame()
         proxy_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
@@ -270,7 +276,7 @@ class SettingsPage(QWidget):
         ph.addWidget(self._proxy_url, 1); ph.addWidget(self._proxy_port)
         vl.addWidget(proxy_frame)
 
-        vl.addWidget(self._section_label("User Agents Pool"))
+        vl.addWidget(self._section_label(tr("settings.user_agents.title", self._language)))
         self._user_agents = TextEdit()
         # FIX 4: flex scroll behavior
         self._user_agents.setMinimumHeight(0)
@@ -335,21 +341,20 @@ class SettingsPage(QWidget):
             row_hl.addLayout(txt_vl, 1); row_hl.addWidget(widget)
             return row
 
-        # Logging Row
-        self._log_level = ComboBox(); self._log_level.setFixedHeight(30); self._log_level.setFixedWidth(110)
-        self._log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
-        self._log_level.setStyleSheet("ComboBox { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; padding: 0 8px; font-size: 12px; } ComboBox:hover { background: #3A3A3C; }")
-        conf_vl.addWidget(_setting_row(FluentIcon.HISTORY, "Logging Level", "Control log verbosity.", self._log_level))
-        
-        # Divider
-        div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
-        conf_vl.addWidget(div)
-
         # Timeout Row
         self._request_timeout = LineEdit(); self._request_timeout.setFixedSize(70, 30)
         self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
         self._request_timeout.setStyleSheet("LineEdit { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; font-family: 'PT Root UI', monospace; font-size: 12px; padding: 0 8px; } LineEdit:focus { border-color: #0A84FF; }")
-        conf_vl.addWidget(_setting_row(FluentIcon.SETTING, "Timeout (s)", "Max request duration.", self._request_timeout))
+        conf_vl.addWidget(_setting_row(FluentIcon.SETTING, tr("settings.timeout.title", self._language), tr("settings.timeout.desc", self._language), self._request_timeout))
+
+        div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
+        conf_vl.addWidget(div)
+
+        self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
+        self._language_combo.setStyleSheet("ComboBox { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; padding: 0 8px; font-size: 12px; } ComboBox:hover { background: #3A3A3C; }")
+        for code, label in SUPPORTED_LANGUAGES.items():
+            self._language_combo.addItem(label, userData=code)
+        conf_vl.addWidget(_setting_row(FluentIcon.LANGUAGE, tr("settings.language.title", self._language), tr("settings.language.desc", self._language), self._language_combo))
         
         top_split.addWidget(conf_group, 3)
 
@@ -359,7 +364,7 @@ class SettingsPage(QWidget):
         from PySide6.QtWidgets import QPushButton
         class _Btn(QPushButton): pass
 
-        self._save_btn = _Btn("SAVE CONFIGURATIONS")
+        self._save_btn = _Btn(tr("settings.button.save", self._language))
         self._save_btn.setFixedHeight(36)
         self._save_btn.setMinimumWidth(200)
         self._save_btn.setCursor(Qt.PointingHandCursor)
@@ -376,7 +381,7 @@ class SettingsPage(QWidget):
         self._save_btn.clicked.connect(self._save)
         action_vl.addWidget(self._save_btn)
 
-        self._reset_btn = _Btn("RESET DEFAULTS")
+        self._reset_btn = _Btn(tr("settings.button.reset", self._language))
         self._reset_btn.setFixedHeight(36)
         self._reset_btn.setMinimumWidth(200)
         self._reset_btn.setCursor(Qt.PointingHandCursor)
@@ -413,7 +418,7 @@ class SettingsPage(QWidget):
         dtxt.addWidget(dh); dtxt.addWidget(db)
         danger_hl.addLayout(dtxt, 1)
 
-        self._clear_btn = _Btn("WIPE DATA")
+        self._clear_btn = _Btn(tr("settings.button.wipe", self._language))
         self._clear_btn.setFixedSize(140, 40)
         self._clear_btn.setCursor(Qt.PointingHandCursor)
         self._clear_btn.setStyleSheet("""
@@ -451,7 +456,8 @@ class SettingsPage(QWidget):
         # PIN controls merged for density
         pin_ctrls = QWidget()
         ph = QHBoxLayout(pin_ctrls); ph.setContentsMargins(0,0,0,0); ph.setSpacing(8)
-        self._btn_set_pin = PushButton("CHANGE PIN"); self._btn_set_pin.setStyleSheet(Theme.secondary_button())
+        self._btn_set_pin = PushButton(tr("settings.button.change_license", self._language).replace("LICENSE", "PIN")) # Reuse or new key? Let's use a dynamic replace or add a new key if needed. Actually I'll use a direct key for clarity.
+        self._btn_set_pin.setStyleSheet(Theme.secondary_button())
         self._btn_set_pin.setFixedHeight(36)
         self._chk_security_enabled = self._sw()
         ph.addWidget(self._btn_set_pin); ph.addWidget(self._chk_security_enabled)
@@ -459,14 +465,14 @@ class SettingsPage(QWidget):
 
         # Auto Update
         self._chk_auto_update = self._sw()
-        vl.addWidget(self._row("Auto Update", self._chk_auto_update, "GitHub core sync."))
+        vl.addWidget(self._row(tr("settings.auto_update.title", self._language), self._chk_auto_update, tr("settings.auto_update.desc", self._language)))
 
         # Core Repo URL
         url_frame = QFrame()
         url_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         uh = QHBoxLayout(url_frame); uh.setContentsMargins(12, 0, 12, 0); uh.setSpacing(10)
         self._git_repo_url = LineEdit(); self._git_repo_url.setFixedHeight(34)
-        self._git_repo_url.setPlaceholderText("Core Repo URL")
+        self._git_repo_url.setPlaceholderText(tr("settings.repo.placeholder", self._language))
         self._git_repo_url.setStyleSheet("""
             LineEdit {
                 background: #1C1C1E;
@@ -485,13 +491,13 @@ class SettingsPage(QWidget):
         lic_frame = QFrame()
         lh = QHBoxLayout(lic_frame); lh.setContentsMargins(12, 8, 12, 0); lh.setSpacing(10)
         lt = QVBoxLayout(); lt.setSpacing(2)
-        lbl = QLabel("Product License"); lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600;")
-        self._lic_desc = QLabel("Activating..."); self._lic_desc.setStyleSheet("background: transparent; border: none;")
+        lbl = QLabel(tr("settings.license.title", self._language)); lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600;")
+        self._lic_desc = QLabel(tr("settings.license.activating", self._language)); self._lic_desc.setStyleSheet("background: transparent; border: none;")
         lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
         
-        self._btn_activate = PushButton("ACTIVATE"); self._btn_activate.setStyleSheet(Theme.primary_button())
+        self._btn_activate = PushButton(tr("settings.button.activate", self._language)); self._btn_activate.setStyleSheet(Theme.primary_button())
         self._btn_activate.setFixedHeight(36)
-        self._btn_deactivate = PushButton("RESET TO TRIAL"); self._btn_deactivate.setStyleSheet(Theme.secondary_button())
+        self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language)); self._btn_deactivate.setStyleSheet(Theme.secondary_button())
         self._btn_deactivate.setFixedHeight(36)
         self._btn_deactivate.clicked.connect(self._reset_to_trial)
         
@@ -659,18 +665,19 @@ class SettingsPage(QWidget):
         is_active = LicenseManager.is_active()
         
         if is_active:
-            status = '● Activated (PRO)'
+            status = tr('settings.license.status.activated', self._language)
             color = "#30D158"
-            btn_text = "CHANGE LICENSE"
+            btn_text = tr("settings.button.change_license", self._language)
         else:
-            status = '○ Trial / Unactivated'
+            status = tr('settings.license.status.trial', self._language)
             color = "#8E8E93"
-            btn_text = "ACTIVATE"
+            btn_text = tr("settings.button.activate", self._language)
             
+        mid_label = tr("settings.license.machine_id", self._language)
         self._lic_desc.setText(
             f'<span style="color: {color}; font-family: \'SF Mono\'; font-size: 11px;">{status}</span>'
             f' <span style="color: #3A3A3C; font-family: \'SF Mono\'; font-size: 11px;">|</span>'
-            f' <span style="color: #636366; font-family: \'SF Mono\'; font-size: 11px;">Machine ID: {mid}</span>'
+            f' <span style="color: #636366; font-family: \'SF Mono\'; font-size: 11px;">{mid_label}: {mid}</span>'
         )
         self._btn_activate.setText(btn_text)
         self._btn_activate.setVisible(not is_active)
@@ -693,16 +700,16 @@ class SettingsPage(QWidget):
         self._proxy_url.textChanged.connect(self._mark_dirty)
         self._proxy_port.textChanged.connect(self._mark_dirty)
         self._git_repo_url.textChanged.connect(self._mark_dirty)
-        self._log_level.currentIndexChanged.connect(self._mark_dirty)
+        self._language_combo.currentIndexChanged.connect(self._mark_dirty)
 
     def _mark_dirty(self):
         if not self._dirty:
             self._dirty = True
-            self._save_btn.setText("SAVE CONFIGURATIONS *")
+            self._save_btn.setText(tr("settings.button.save", self._language) + " *")
 
     def _mark_clean(self):
         self._dirty = False
-        self._save_btn.setText("SAVE CONFIGURATIONS")
+        self._save_btn.setText(tr("settings.button.save", self._language))
 
     def _on_proxy_toggled(self, enabled: bool):
         self._proxy_url.setEnabled(enabled)
@@ -727,13 +734,15 @@ class SettingsPage(QWidget):
         self._proxy_port.setText(self._extract_proxy_port(main_proxy))
         self._proxy_port.setEnabled(s.proxy_enabled)
         self._user_agents.setPlainText("\n".join(s.user_agents))
-        idx = self._log_level.findText(s.log_level)
-        if idx >= 0:
-            self._log_level.setCurrentIndex(idx)
         self._chk_security_enabled.setChecked(s.security_enabled)
         self._btn_set_pin.setVisible(s.security_enabled)
         self._git_repo_url.setText(s.git_repo_url)
         self._chk_auto_update.setChecked(s.auto_update_enabled)
+        target_language = get_language(getattr(s, "app_language", "en"))
+        for idx in range(self._language_combo.count()):
+            if self._language_combo.itemData(idx) == target_language:
+                self._language_combo.setCurrentIndex(idx)
+                break
         self._update_license_display()
         self._mark_clean()
 
@@ -771,6 +780,9 @@ class SettingsPage(QWidget):
         paths = [p.strip() for p in self._discovery_paths.toPlainText().splitlines() if p.strip()]
         user_agents = [ua.strip() for ua in self._user_agents.toPlainText().splitlines() if ua.strip()]
         
+        previous_language = get_language(config_manager.settings.app_language)
+        selected_language = get_language(self._language_combo.currentData() or "en")
+
         config_manager.update(
             default_delay_min=float(self._delay_min.text()),
             default_delay_max=float(self._delay_max.text()),
@@ -786,19 +798,24 @@ class SettingsPage(QWidget):
             proxy_enabled=self._chk_proxy.isChecked(),
             proxies=[self._proxy_url.text().strip()] if self._proxy_url.text().strip() else [],
             user_agents=user_agents or config_manager.settings.user_agents,
-            log_level=self._log_level.currentText(),
+            log_level=config_manager.settings.log_level,
+            app_language=selected_language,
             security_enabled=self._chk_security_enabled.isChecked(),
             git_repo_url=self._git_repo_url.text().strip(),
             auto_update_enabled=self._chk_auto_update.isChecked()
         )
+        self._language = selected_language
+        self._title_label.setText(tr("settings.title", self._language))
         self._mark_clean()
-        InfoBar.success("Saved", "Settings Configuration Saved", duration=2000, parent=self.window())
+        InfoBar.success(tr("settings.saved", self._language), tr("settings.saved.body", self._language), duration=2000, parent=self.window())
+        if selected_language != previous_language:
+            InfoBar.info(tr("settings.title", self._language), tr("settings.language.restart", self._language), duration=3000, parent=self.window())
 
     def _reset(self):
         from .components import ZugzwangDialog
         msg = ZugzwangDialog(
-            "Restore Defaults",
-            "Reset all settings to factory defaults? This will overwrite your current configuration.",
+            tr("settings.dialog.reset.title", self._language),
+            tr("settings.dialog.reset.body", self._language),
             self.window()
         )
         if msg.exec():
@@ -813,13 +830,13 @@ class SettingsPage(QWidget):
 
     def _clear_saved_leads(self):
         if orchestrator.is_running:
-            InfoBar.warning("Job Running", "Stop the current scraping job before clearing saved leads.", parent=self.window())
+            InfoBar.warning(tr("monitor.status.running", self._language), "Stop current job first.", parent=self.window())
             return
         
         from .components import ZugzwangDialog
         msg = ZugzwangDialog(
-            "Wipe Local DB",
-            "Delete all saved leads from the app memory? This permanently clears the restored library.",
+            tr("settings.dialog.wipe.title", self._language),
+            tr("settings.dialog.wipe.body", self._language),
             self.window(),
             destructive=True
         )

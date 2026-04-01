@@ -29,21 +29,28 @@ from qfluentwidgets import (
 from .icons import load_icon
 from ..core.config import config_manager, get_exports_dir, get_projects_dir
 from ..core.events import event_bus
+from ..core.i18n import get_language, tr
 from ..core.models import LeadRecord
 from .theme import Theme
 from ..services.export_service import ExportService
 
 
-TABLE_COLUMNS = [
-    ("company_name", "Company", 200),
-    ("job_title", "Job / Category", 160),
-    ("email", "Email", 190),
-    ("phone", "Phone", 130),
-    ("city", "City", 100),
-    ("source_type", "Source", 90),
-    ("linkedin", "LinkedIn", 120),
-    ("status", "Status", 100),
-]
+def _table_columns(language: str):
+    return [
+        ("company_name", tr("results.column.company", language), 200),
+        ("job_title", tr("results.column.job", language), 160),
+        ("email", tr("results.column.email", language), 190),
+        ("publication_date", tr("results.column.published", language), 110),
+        ("phone", tr("results.column.phone", language), 130),
+        ("city", tr("results.column.city", language), 100),
+        ("source_type", tr("results.column.source", language), 90),
+        ("linkedin", tr("results.column.linkedin", language), 120),
+        ("status", tr("results.column.status", language), 100),
+        ("scraped_at", "SCRAPED AT", 0), # Hidden sort key
+    ]
+
+
+TABLE_COLUMNS = _table_columns(get_language(config_manager.settings.app_language))
 
 
 class RowSelectionDelegate(QStyledItemDelegate):
@@ -71,7 +78,9 @@ class RowSelectionDelegate(QStyledItemDelegate):
         # Manual Text Rendering
         text = str(index.data() or "")
         
-        if index.column() == 2: # Email
+        field = TABLE_COLUMNS[index.column()][0] if 0 <= index.column() < len(TABLE_COLUMNS) else ""
+
+        if field == "email":
             font = QFont("PT Root UI", 9)
             painter.setFont(font)
             if text and text != "—":
@@ -82,7 +91,7 @@ class RowSelectionDelegate(QStyledItemDelegate):
             elided_text = fm.elidedText(text, Qt.ElideRight, rect.width() - 28)
             painter.drawText(rect.adjusted(14, 0, -14, 0), Qt.AlignVCenter | Qt.AlignLeft, elided_text)
             
-        elif index.column() == 5: # Source
+        elif field == "source_type":
             if text and text != "—":
                 font = QFont("PT Root UI", 9)
                 font.setWeight(QFont.Bold)
@@ -110,7 +119,7 @@ class RowSelectionDelegate(QStyledItemDelegate):
             painter.setFont(font)
             if text == "—":
                 painter.setPen(QColor("#48484A"))
-            elif index.column() in (1, 4, 6): # Secondary columns
+            elif field in ("job_title", "city", "linkedin", "publication_date"): # Secondary columns
                 painter.setPen(QColor("#8E8E93"))
             else:
                 painter.setPen(QColor("#FFFFFF"))
@@ -123,6 +132,7 @@ class RowSelectionDelegate(QStyledItemDelegate):
 
 class ResultsTableModel(QStandardItemModel):
     def __init__(self):
+        self._language = get_language(config_manager.settings.app_language)
         super().__init__(0, len(TABLE_COLUMNS))
         self.setHorizontalHeaderLabels([column[1] for column in TABLE_COLUMNS])
         self._records: list[LeadRecord] = []
@@ -170,17 +180,18 @@ class ResultsTableModel(QStandardItemModel):
             try:
                 if field == "source_type":
                     st = str(record.source_type).lower() if record.source_type else ""
-                    if "maps" in st: value = "Maps"
-                    elif "ausbildung" in st: value = "Ausbildung.de"
-                    elif "aubiplus" in st: value = "Aubi-Plus"
-                    else: value = "Jobsuche"
+                    if "maps" in st: value = tr("results.source.maps", self._language)
+                    elif "ausbildung" in st: value = tr("results.source.ausbildung", self._language)
+                    elif "aubiplus" in st: value = tr("results.source.aubiplus", self._language)
+                    elif "azubiyo" in st: value = "AZUBIYO.DE"
+                    else: value = tr("results.source.jobsuche", self._language)
                 elif field == "status":
                     if record.email:
-                        value = "VERIFIED"
+                        value = tr("results.status.verified", self._language)
                     elif record.website:
-                        value = "PARTIAL"
+                        value = tr("results.status.partial", self._language)
                     else:
-                        value = "COLD"
+                        value = tr("results.status.cold", self._language)
                 elif field == "job_title":
                     value = getattr(record, "job_title", "") or getattr(record, "category", "") or "—"
                 else:
@@ -312,6 +323,77 @@ class FilterMenu(QFrame):
             self.close()
         super().keyPressEvent(event)
 
+
+class ColumnVisibilityPanel(QFrame):
+    """Dropdown for toggling column visibility — matches FilterMenu style."""
+    visibilityChanged = Signal(int, bool)
+    closed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setObjectName("ColumnVisibilityPanel")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(220)
+
+        self.container = QFrame(self)
+        self.container.setObjectName("MenuContainer")
+        self.container.setStyleSheet("""
+            QFrame#MenuContainer {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+            }
+        """)
+        
+        main_l = QVBoxLayout(self)
+        main_l.setContentsMargins(0, 0, 0, 0)
+        main_l.addWidget(self.container)
+
+        self.content = QVBoxLayout(self.container)
+        self.content.setContentsMargins(0, 6, 0, 6)
+        self.content.setSpacing(0)
+
+        # Shadow
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 12)
+        self.container.setGraphicsEffect(shadow)
+
+        self._checkboxes = {}
+
+    def add_column(self, title: str, col_idx: int, is_visible: bool):
+        from .components import MacSwitch
+        row = QFrame()
+        row.setObjectName("ColumnRow")
+        row.setFixedHeight(40)
+        row.setStyleSheet("""
+            QFrame#ColumnRow { background: transparent; border: none; }
+            QFrame#ColumnRow:hover { background: #3A3A3C; }
+        """)
+        
+        row_l = QHBoxLayout(row)
+        row_l.setContentsMargins(16, 0, 16, 0)
+        row_l.setSpacing(12)
+        
+        lbl = QLabel(title)
+        lbl.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI'; font-size: 13px; font-weight: 500; background: transparent; border: none;")
+        
+        switch = MacSwitch()
+        switch.setFixedSize(34, 20)
+        switch.setChecked(is_visible)
+        switch.toggled.connect(lambda v, c=col_idx: self.visibilityChanged.emit(c, v))
+        self._checkboxes[col_idx] = switch
+        
+        row_l.addWidget(lbl, 1)
+        row_l.addWidget(switch, 0, Qt.AlignVCenter)
+        self.content.addWidget(row)
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+
 class FilterChip(QPushButton):
     """
     Premium macOS-style filter button with rotating chevron.
@@ -376,9 +458,10 @@ class FilterChip(QPushButton):
 class LeadFilterProxy(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._language = get_language(config_manager.settings.app_language)
         self._source_filter = 0
         self._status_filter = 0
-        self._city_filter = "All Cities"
+        self._city_filter = tr("results.filter.all_cities", self._language)
         self._postal_code_filter = "" # Prefix filter
         self._date_filter = 0  
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
@@ -446,7 +529,7 @@ class LeadFilterProxy(QSortFilterProxyModel):
             if self._status_filter == 3 and (has_email or has_website): # Cold
                 return False
 
-        if self._city_filter != "All Cities":
+        if self._city_filter != tr("results.filter.all_cities", self._language):
             if (record.city or "").lower() != self._city_filter.lower():
                 return False
 
@@ -519,6 +602,7 @@ class DetailPanel(QFrame):
         self.setObjectName("DetailPanel")
         self.setStyleSheet("QFrame#DetailPanel { background: #1C1C1E; border: none; }")
         self._current_record: Optional[LeadRecord] = None
+        self._current_website: Optional[str] = None
         self._build_ui()
 
     def _build_ui(self):
@@ -624,7 +708,8 @@ class DetailPanel(QFrame):
         hero_l.addSpacing(12)
 
         # Source badge — pill style
-        self._source_badge = QLabel("JOBSUCHE")
+        self._language = get_language(config_manager.settings.app_language)
+        self._source_badge = QLabel(tr("results.source.jobsuche", self._language))
         self._source_badge.setAlignment(Qt.AlignCenter)
         self._source_badge.setFixedHeight(22)
         self._source_badge.setStyleSheet(
@@ -648,7 +733,7 @@ class DetailPanel(QFrame):
         act_l.setContentsMargins(16, 14, 16, 4)
         act_l.setSpacing(8)
 
-        self._btn_site = QPushButton("  VISIT WEBSITE")
+        self._btn_site = QPushButton(f"  {tr('results.detail.visit_website', self._language)}")
         self._btn_site.setIcon(FluentIcon.GLOBE.qicon())
         self._btn_site.setIconSize(QSize(13, 13))
         self._btn_site.setFixedHeight(38)
@@ -673,6 +758,7 @@ class DetailPanel(QFrame):
                 color: #3A3A3C;
             }}
         """)
+        self._btn_site.clicked.connect(self._on_site_clicked)
         act_l.addWidget(self._btn_site)
         layout.addWidget(self._action_strip)
 
@@ -689,7 +775,7 @@ class DetailPanel(QFrame):
         sc_l.setSpacing(8)
 
         # Section label
-        contacts_lbl = QLabel("CONTACT INFO")
+        contacts_lbl = QLabel(tr("results.detail.contact_info", self._language))
         contacts_lbl.setStyleSheet(
             f"color: #48484A; font-family: {self._FONT_TEXT}; font-size: 9px; font-weight: 700; "
             "letter-spacing: 1.8px; background: transparent; border: none; padding: 4px 2px 6px 2px;"
@@ -745,9 +831,9 @@ class DetailPanel(QFrame):
         social_l.setContentsMargins(0, 0, 0, 0)
         social_l.setSpacing(0)
 
-        self.linkedin_row  = self._create_row("LINKEDIN",  FluentIcon.LINK, is_last=False)
-        self.twitter_row   = self._create_row("TWITTER",   FluentIcon.LINK, is_last=False)
-        self.instagram_row = self._create_row("INSTAGRAM", FluentIcon.LINK, is_last=True)
+        self.linkedin_row  = self._create_row(tr("results.detail.linkedin", self._language),  FluentIcon.LINK, is_last=False)
+        self.twitter_row   = self._create_row(tr("results.detail.twitter", self._language),   FluentIcon.LINK, is_last=False)
+        self.instagram_row = self._create_row(tr("results.detail.instagram", self._language), FluentIcon.LINK, is_last=True)
         for row in [self.linkedin_row, self.twitter_row, self.instagram_row]:
             social_l.addWidget(row)
 
@@ -759,27 +845,12 @@ class DetailPanel(QFrame):
         layout.addWidget(self._scroll, 1)
 
         # ── Placeholder ──────────────────────────────────────────────────────
-        self._placeholder = QWidget()
-        self._placeholder.setStyleSheet("QWidget { background: #1C1C1E; }")
-        ph_l = QVBoxLayout(self._placeholder)
-        ph_l.setAlignment(Qt.AlignCenter)
-        ph_l.setSpacing(10)
-        ph_icon = IconWidget(FluentIcon.PEOPLE)
-        ph_icon.setFixedSize(40, 40)
-        ph_icon.setStyleSheet("color: #2C2C2E;")
-        ph_l.addWidget(ph_icon, 0, Qt.AlignCenter)
-        ph_txt = QLabel("Select a lead")
-        ph_txt.setStyleSheet(
-            f"color: #48484A; font-family: {self._FONT_DISPLAY}; font-size: 13px; "
-            "font-weight: 600; background: transparent; border: none;"
+        from .components import EmptyStateWidget
+        self._placeholder = EmptyStateWidget(
+            FluentIcon.PEOPLE,
+            title=tr("results.detail.placeholder.title", self._language),
+            description=tr("results.detail.placeholder.body", self._language)
         )
-        ph_l.addWidget(ph_txt, 0, Qt.AlignCenter)
-        ph_sub = QLabel("Details will appear here")
-        ph_sub.setStyleSheet(
-            f"color: #3A3A3C; font-family: {self._FONT_TEXT}; font-size: 11px; "
-            "font-weight: 400; background: transparent; border: none;"
-        )
-        ph_l.addWidget(ph_sub, 0, Qt.AlignCenter)
         layout.addWidget(self._placeholder)
 
     def _create_row(self, label_text: str, icon, is_last: bool = False):
@@ -868,20 +939,17 @@ class DetailPanel(QFrame):
         if "maps" in src:
             self._source_badge.setText("GOOGLE MAPS")
         elif "ausbildung" in src:
-            self._source_badge.setText("AUSBILDUNG")
+            self._source_badge.setText("AUSBILDUNG.DE")
         elif "aubiplus" in src:
-            self._source_badge.setText("AUBI-PLUS")
+            self._source_badge.setText("AUBI-PLUS.DE")
+        elif "azubiyo" in src:
+            self._source_badge.setText("AZUBIYO.DE")
         else:
-            self._source_badge.setText("JOBSUCHE")
+            self._source_badge.setText(tr("results.source.jobsuche", self._language))
 
         # Website button
-        try: self._btn_site.clicked.disconnect()
-        except: pass
-        if record.website:
-            self._btn_site.setEnabled(True)
-            self._btn_site.clicked.connect(lambda: self._open_url(record.website or ""))
-        else:
-            self._btn_site.setEnabled(False)
+        self._current_website = record.website
+        self._btn_site.setEnabled(bool(self._current_website))
 
         # Contact rows — white text for real values, #48484A for em-dash
         def _set(row, value):
@@ -913,6 +981,10 @@ class DetailPanel(QFrame):
         self._social_label.setVisible(has_social)
 
 
+    def _on_site_clicked(self):
+        if self._current_website:
+            self._open_url(self._current_website)
+
     def _open_url(self, url):
         from PySide6.QtGui import QDesktopServices
         from PySide6.QtCore import QUrl
@@ -924,6 +996,7 @@ class ResultsPage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._language = get_language(config_manager.settings.app_language)
         self._export = ExportService()
         self._record_queue: queue.Queue = queue.Queue()
         self._ui_event_queue: queue.Queue = queue.Queue()
@@ -955,7 +1028,7 @@ class ResultsPage(QWidget):
         
         # Search field
         self._search_box = SearchLineEdit()
-        self._search_box.setPlaceholderText("SEARCH...")
+        self._search_box.setPlaceholderText(tr("results.search.placeholder", self._language))
         self._search_box.textChanged.connect(self._apply_text_filter)
         self._search_box.setFixedWidth(180)
         self._search_box.setFixedHeight(34)
@@ -967,36 +1040,36 @@ class ResultsPage(QWidget):
         self._source_chip.clicked.connect(self._show_source_menu)
         topRow.addWidget(self._source_chip)
 
-        self._status_chip = FilterChip("ALL STATUSES")
+        self._status_chip = FilterChip(tr("results.filter.all_statuses", self._language).upper())
         self._status_chip.clicked.connect(self._show_status_menu)
         topRow.addWidget(self._status_chip)
 
-        self._city_chip = FilterChip("ALL CITIES")
+        self._city_chip = FilterChip(tr("results.filter.all_cities", self._language).upper())
         self._city_chip.clicked.connect(self._show_city_menu)
         topRow.addWidget(self._city_chip)
 
-        self._postal_chip = FilterChip("ANY PLZ")
-        self._postal_chip.clicked.connect(self._show_postal_menu)
-        topRow.addWidget(self._postal_chip)
-
-        self._date_chip = FilterChip("ALL TIME")
+        self._date_chip = FilterChip(tr("results.filter.all_time", self._language).upper())
         self._date_chip.clicked.connect(self._show_date_menu)
         topRow.addWidget(self._date_chip)
+
+        self._columns_chip = FilterChip("COLUMNS")
+        self._columns_chip.clicked.connect(self._show_columns_menu)
+        topRow.addWidget(self._columns_chip)
 
         topRow.addStretch(1)
 
         # Action buttons
-        self._btn_export = QPushButton("EXPORT")
+        self._btn_export = QPushButton(tr("results.button.export", self._language))
         self._btn_export.setFixedHeight(36)
         self._btn_export.setStyleSheet(Theme.zugzwang_primary_button())
         self._btn_export.clicked.connect(self._show_export_menu)
 
-        self._btn_send_emails = QPushButton("SEND MESSAGES")
+        self._btn_send_emails = QPushButton(tr("results.button.send", self._language))
         self._btn_send_emails.setFixedHeight(36)
         self._btn_send_emails.setStyleSheet(Theme.zugzwang_success_button())
         self._btn_send_emails.clicked.connect(self._push_emails_to_sender)
 
-        self._btn_clear_all = QPushButton("CLEAR")
+        self._btn_clear_all = QPushButton(tr("results.button.clear", self._language))
         self._btn_clear_all.setFixedHeight(36)
         self._btn_clear_all.setStyleSheet(Theme.zugzwang_danger_button())
         self._btn_clear_all.clicked.connect(self._confirm_clear_list)
@@ -1039,12 +1112,16 @@ class ResultsPage(QWidget):
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._table.setSortingEnabled(False)
+        self._table.setSortingEnabled(True)
         self._table.verticalHeader().hide()
-        self._table.verticalHeader().setDefaultSectionSize(28)
+        self._table.verticalHeader().setDefaultSectionSize(24)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.horizontalHeader().setMinimumHeight(32)
+
+        # Set default sort: Newest First (scraped_at is the last column)
+        self._proxy.sort(len(TABLE_COLUMNS) - 1, Qt.DescendingOrder)
+        self._table.setColumnHidden(len(TABLE_COLUMNS) - 1, True)
         self._table.setWordWrap(False)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setFrameShape(QFrame.NoFrame)
@@ -1123,6 +1200,29 @@ class ResultsPage(QWidget):
         
         self.mainLayout.addWidget(self._splitter, 1)
 
+        # ── Improvement 5: Columns Menu Setup ────────────────────────────────
+        import json
+        saved_cols_str = config_manager.settings.column_visibility
+        self._column_visibility = {}
+        if saved_cols_str:
+            try:
+                self._column_visibility = json.loads(saved_cols_str)
+            except: pass
+            
+        if self._column_visibility:
+            for col_idx_str, is_visible in self._column_visibility.items():
+                try:
+                    self._table.setColumnHidden(int(col_idx_str), not is_visible)
+                except: pass
+
+        self._columns_menu = ColumnVisibilityPanel(self)
+        self._columns_menu.closed.connect(lambda: self._columns_chip.set_open(False))
+        self._columns_menu.visibilityChanged.connect(self._on_column_visibility_changed)
+        
+        for idx, (field, title, width) in enumerate(TABLE_COLUMNS):
+            is_visible = not self._table.isColumnHidden(idx)
+            self._columns_menu.add_column(title, idx, is_visible)
+
 
 
     def _show_source_menu(self):
@@ -1130,9 +1230,9 @@ class ResultsPage(QWidget):
         menu.add_item("All Sources", 0, self._proxy._source_filter == 0)
         menu.add_divider()
         menu.add_item("Google Maps", 1, self._proxy._source_filter == 1)
-        menu.add_item("Jobsuche", 2, self._proxy._source_filter == 2)
-        menu.add_item("Ausbildung.de", 3, self._proxy._source_filter == 3)
-        menu.add_item("Aubi-Plus", 4, self._proxy._source_filter == 4)
+        menu.add_item(tr("results.source.jobsuche", self._language), 2, self._proxy._source_filter == 2)
+        menu.add_item(tr("results.source.ausbildung", self._language), 3, self._proxy._source_filter == 3)
+        menu.add_item(tr("results.source.aubiplus", self._language), 4, self._proxy._source_filter == 4)
         
         menu.itemSelected.connect(lambda t, i: self._apply_source_filter(i, t))
         self._source_chip.set_open(True)
@@ -1144,11 +1244,11 @@ class ResultsPage(QWidget):
 
     def _show_status_menu(self):
         menu = FilterMenu(self)
-        menu.add_item("All Statuses", 0, self._proxy._status_filter == 0)
+        menu.add_item(tr("results.filter.all_statuses", self._language), 0, self._proxy._status_filter == 0)
         menu.add_divider()
-        menu.add_item("Verified (Has Email)", 1, self._proxy._status_filter == 1)
-        menu.add_item("Partial (Website Only)", 2, self._proxy._status_filter == 2)
-        menu.add_item("Cold (No Contact Info)", 3, self._proxy._status_filter == 3)
+        menu.add_item(tr("results.filter.verified", self._language), 1, self._proxy._status_filter == 1)
+        menu.add_item(tr("results.filter.partial", self._language), 2, self._proxy._status_filter == 2)
+        menu.add_item(tr("results.filter.cold", self._language), 3, self._proxy._status_filter == 3)
         
         menu.itemSelected.connect(lambda t, i: self._apply_status_filter(i, t))
         self._status_chip.set_open(True)
@@ -1157,10 +1257,30 @@ class ResultsPage(QWidget):
         pos = self._status_chip.mapToGlobal(QPoint(0, self._status_chip.height() + 6))
         menu.move(pos)
         menu.show()
+            
+    def _on_column_visibility_changed(self, col_idx: int, is_visible: bool):
+        self._table.setColumnHidden(col_idx, not is_visible)
+        self._column_visibility[str(col_idx)] = is_visible
+        import json
+        config_manager.settings.column_visibility = json.dumps(self._column_visibility)
+        config_manager.save()
+
+    def _show_columns_menu(self):
+        self._columns_chip.set_open(True)
+        pos = self._columns_chip.mapToGlobal(QPoint(0, self._columns_chip.height() + 4))
+        self._columns_menu.move(pos)
+        self._columns_menu.show()
+
+    def _setup_filter_menus(self):
+        menu = FilterMenu(self)
+        all_cities = tr("results.filter.all_cities", self._language)
+        menu.add_item(all_cities, 0, self._proxy._city_filter == all_cities)
+        menu.add_divider()
 
     def _show_city_menu(self):
         menu = FilterMenu(self)
-        menu.add_item("All Cities", 0, self._proxy._city_filter == "All Cities")
+        all_cities = tr("results.filter.all_cities", self._language)
+        menu.add_item(all_cities, 0, self._proxy._city_filter == all_cities)
         menu.add_divider()
         
         cities = set()
@@ -1168,7 +1288,7 @@ class ResultsPage(QWidget):
             if record.city: cities.add(record.city.strip())
         
         if not cities:
-            menu.add_placeholder("No cities found")
+            menu.add_placeholder(tr("results.menu.no_cities", self._language))
         else:
             for idx, city in enumerate(sorted(list(cities)), 1):
                 menu.add_item(city, idx, self._proxy._city_filter == city)
@@ -1181,56 +1301,20 @@ class ResultsPage(QWidget):
         menu.move(pos)
         menu.show()
 
-    def _show_postal_menu(self):
-        menu = FilterMenu(self)
-        menu.add_item("All Postal Codes", -1, not self._proxy._postal_code_filter)
-        menu.add_divider()
-        
-        codes = sorted(list(set(r.postal_code[:2] for r in self._model.get_all_records() if r.postal_code and len(r.postal_code) >= 2)))
-        
-        if not codes:
-            menu.add_placeholder("No postal codes found")
-        else:
-            for idx, code in enumerate(codes):
-                display = f"PLZ {code}XXX"
-                menu.add_item(display, idx, self._proxy._postal_code_filter == code)
-        
-        menu.itemSelected.connect(lambda t, i: self._apply_postal_filter(t if i >= 0 else ""))
-        self._postal_chip.set_open(True)
-        menu.closed.connect(lambda: self._postal_chip.set_open(False))
-        
-        pos = self._postal_chip.mapToGlobal(QPoint(0, self._postal_chip.height() + 6))
-        menu.move(pos)
-        menu.show()
-
-    def _apply_postal_filter(self, display_text: str):
-        # text is like "PLZ 12XXX" or "All Postal Codes"
-        code = ""
-        if "PLZ " in display_text:
-            code = display_text.replace("PLZ ", "").replace("XXX", "")
-            self._postal_chip.setText(display_text.upper())
-            self._postal_chip.set_active(True)
-        else:
-            self._postal_chip.setText("ANY PLZ")
-            self._postal_chip.set_active(False)
-            
-        self._proxy.set_postal_code_filter(code)
-        self._update_count_label()
-
     def _show_date_menu(self):
         menu = FilterMenu(self)
-        menu.add_item("All Time", 0, self._proxy._date_filter == 0)
+        menu.add_item(tr("results.filter.all_time", self._language), 0, self._proxy._date_filter == 0)
         menu.add_divider()
-        menu.add_item("Last Minute", 1, self._proxy._date_filter == 1)
-        menu.add_item("Last Hour", 2, self._proxy._date_filter == 2)
-        menu.add_item("Last 3 Hours", 3, self._proxy._date_filter == 3)
-        menu.add_item("Last 6 Hours", 4, self._proxy._date_filter == 4)
-        menu.add_item("Last 12 Hours", 5, self._proxy._date_filter == 5)
+        menu.add_item(tr("results.filter.last_minute", self._language), 1, self._proxy._date_filter == 1)
+        menu.add_item(tr("results.filter.last_hour", self._language), 2, self._proxy._date_filter == 2)
+        menu.add_item(tr("results.filter.last_3_hours", self._language), 3, self._proxy._date_filter == 3)
+        menu.add_item(tr("results.filter.last_6_hours", self._language), 4, self._proxy._date_filter == 4)
+        menu.add_item(tr("results.filter.last_12_hours", self._language), 5, self._proxy._date_filter == 5)
         menu.add_divider()
-        menu.add_item("Today", 6, self._proxy._date_filter == 6)
-        menu.add_item("Yesterday", 7, self._proxy._date_filter == 7)
-        menu.add_item("Last 7 Days", 8, self._proxy._date_filter == 8)
-        menu.add_item("Last 30 Days", 9, self._proxy._date_filter == 9)
+        menu.add_item(tr("results.filter.today", self._language), 6, self._proxy._date_filter == 6)
+        menu.add_item(tr("results.filter.yesterday", self._language), 7, self._proxy._date_filter == 7)
+        menu.add_item(tr("results.filter.last_7_days", self._language), 8, self._proxy._date_filter == 8)
+        menu.add_item(tr("results.filter.last_30_days", self._language), 9, self._proxy._date_filter == 9)
         
         menu.itemSelected.connect(lambda t, i: self._apply_date_filter(i, t))
         self._date_chip.set_open(True)
@@ -1248,11 +1332,11 @@ class ResultsPage(QWidget):
 
     def _show_export_menu(self):
         menu = RoundMenu(parent=self._btn_export)
-        menu.addAction(Action(FluentIcon.DOCUMENT, "Export to Excel (.xlsx)", triggered=lambda: self._export_results("xlsx")))
-        menu.addAction(Action(FluentIcon.DOCUMENT, "Export to Word (.docx)", triggered=lambda: self._export_results("docx")))
-        menu.addAction(Action(FluentIcon.SAVE, "Save Project DB (.db)", triggered=lambda: self._export_results("sqlite")))
+        menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.excel", self._language), triggered=lambda: self._export_results("xlsx")))
+        menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.word", self._language), triggered=lambda: self._export_results("docx")))
+        menu.addAction(Action(FluentIcon.SAVE, tr("results.export.db", self._language), triggered=lambda: self._export_results("sqlite")))
         menu.addSeparator()
-        menu.addAction(Action(FluentIcon.SEARCH, "Export No-Email Sites (.xlsx)", triggered=self._export_no_email_sites))
+        menu.addAction(Action(FluentIcon.SEARCH, tr("results.export.no_email", self._language), triggered=self._export_no_email_sites))
         
         # Calculate position
         pos = self._btn_export.mapToGlobal(self._btn_export.rect().bottomLeft())
@@ -1330,7 +1414,7 @@ class ResultsPage(QWidget):
         elif event_name == "export_done":
             fmt, path, count = payload
             from qfluentwidgets import InfoBar, InfoBarPosition
-            InfoBar.success("Export Complete", f"Exported {count:,} records", duration=4000, parent=self)
+            InfoBar.success(tr("results.export.complete", self._language), tr("results.export.complete.body", self._language).format(count=count), duration=4000, parent=self)
 
     def _apply_text_filter(self, text: str):
         self._proxy.setFilterFixedString(text.strip())
@@ -1351,7 +1435,7 @@ class ResultsPage(QWidget):
     def _apply_city_filter(self, city: str):
         self._proxy.set_city_filter(city)
         self._city_chip.setText(city.upper())
-        self._city_chip.set_active(city != "ALL CITIES")
+        self._city_chip.set_active(city != tr("results.filter.all_cities", self._language).upper())
         self._update_count_label()
 
     def _apply_date_filter(self, index: int, name: str):
@@ -1386,14 +1470,14 @@ class ResultsPage(QWidget):
         
         # Copy Email
         if record.email:
-            copy_action = Action(FluentIcon.COPY, "Copy Email", self)
+            copy_action = Action(FluentIcon.COPY, tr("results.menu.copy_email", self._language), self)
             copy_action.triggered.connect(lambda: QGuiApplication.clipboard().setText(record.email))
             menu.addAction(copy_action)
             
         # Visit Website
         if record.website or record.source_url:
             target_url = record.website or record.source_url
-            visit_action = Action(FluentIcon.GLOBE, "Visit Website", self)
+            visit_action = Action(FluentIcon.GLOBE, tr("results.menu.visit_website", self._language), self)
             from PySide6.QtGui import QDesktopServices, QUrl
             visit_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
             menu.addAction(visit_action)
@@ -1401,7 +1485,7 @@ class ResultsPage(QWidget):
         menu.addSeparator()
         
         # Copy All Emails in View
-        copy_all_action = Action(FluentIcon.MAIL, "Copy All Search Results (Emails)", self)
+        copy_all_action = Action(FluentIcon.MAIL, tr("results.menu.copy_all_emails", self._language), self)
         copy_all_action.triggered.connect(self._copy_all_emails_in_view)
         menu.addAction(copy_all_action)
         
@@ -1413,7 +1497,7 @@ class ResultsPage(QWidget):
         if emails:
             QGuiApplication.clipboard().setText("\n".join(emails))
             from qfluentwidgets import InfoBar
-            InfoBar.success("Copied", f"{len(emails)} emails have been copied to clipboard.", duration=3000, parent=self)
+            InfoBar.success(tr("results.copied", self._language), tr("results.copied.body", self._language).format(count=len(emails)), duration=3000, parent=self)
 
     def _on_job_started(self, *args, **kw):
         self._ui_event_queue.put(("job_started", ()))
@@ -1445,7 +1529,7 @@ class ResultsPage(QWidget):
                 break
         self._progress_strip.show()
         self._update_badge("RUNNING", "#38BDF8", "#0EA5E9")
-        self._progress_label.setText("Searching...")
+        self._progress_label.setText(tr("results.progress.searching", self._language))
         self._progress_bar.setValue(0)
         self._update_count_label()
 
@@ -1453,9 +1537,7 @@ class ResultsPage(QWidget):
         elapsed = time.monotonic() - self._job_start_time
         elapsed_str = self._format_elapsed(elapsed)
         self._progress_bar.setValue(pct)
-        self._progress_label.setText(
-            f"Found {found:,} leads | {emails:,} emails  |  {elapsed_str}"
-        )
+        self._progress_label.setText(tr("results.progress.found", self._language).format(found=found, emails=emails, elapsed=elapsed_str))
 
     def _ui_job_completed(self):
         elapsed = time.monotonic() - self._job_start_time
@@ -1466,18 +1548,18 @@ class ResultsPage(QWidget):
         email_count = job.total_emails if job else sum(1 for r in self._model.get_all_records() if r.email)
         
         self._update_badge("COMPLETED", "#10B981", "#059669")
-        self._progress_label.setText(f"{total:,} leads | {email_count:,} emails  |  {elapsed_str}")
+        self._progress_label.setText(tr("results.progress.completed", self._language).format(total=total, emails=email_count, elapsed=elapsed_str))
         self._progress_bar.setValue(100)
         self._update_count_label()
 
     def _ui_job_failed(self):
         self._update_badge("FAILED", "#EF4444", "#B91C1C")
-        self._progress_label.setText("Scraping failed - check the log")
+        self._progress_label.setText(tr("results.progress.failed", self._language))
 
     def _ui_job_cancelled(self):
         self._update_badge("STOPPED", "#F59E0B", "#D97706")
         elapsed = time.monotonic() - self._job_start_time
-        self._progress_label.setText(f"Scraping cancelled after {self._format_elapsed(elapsed)}")
+        self._progress_label.setText(tr("results.progress.cancelled", self._language).format(elapsed=self._format_elapsed(elapsed)))
 
     def _update_badge(self, text, color, bg):
         self._badge.setText(text)
@@ -1499,21 +1581,21 @@ class ResultsPage(QWidget):
         records = [r for r in self._get_visible_records() if not r.email and r.website]
         if not records:
             from qfluentwidgets import InfoBar
-            InfoBar.warning("No Targets", "No websites found without emails in the current list.", duration=3000, parent=self)
+            InfoBar.warning(tr("results.export.no_targets", self._language), tr("results.export.no_targets.body", self._language), duration=3000, parent=self)
             return
         self._perform_export(records, "xlsx", prefix="Manual_Check")
 
     def _perform_export(self, records: list[LeadRecord], fmt: str, prefix: str = ""):
         if not records:
             from qfluentwidgets import InfoBar
-            InfoBar.warning("No Data", "No results to export.", duration=2000, parent=self)
+            InfoBar.warning(tr("results.export.no_data", self._language), tr("results.export.no_data.body", self._language), duration=2000, parent=self)
             return
 
         ext_map = {"xlsx": "Excel Files (*.xlsx)", "docx": "Word Files (*.docx)", "sqlite": "SQLite Database (*.db)"}
         ext_ext = {"xlsx": ".xlsx", "docx": ".docx", "sqlite": ".db"}
         export_dir = get_projects_dir() if fmt == "sqlite" else get_exports_dir()
         suggested = self._suggested_export_path(fmt, export_dir, ext_ext[fmt], records, prefix)
-        path, _ = QFileDialog.getSaveFileName(self, f"Export as {fmt.upper()}", suggested, ext_map[fmt])
+        path, _ = QFileDialog.getSaveFileName(self, tr("results.export.as", self._language).format(fmt=fmt.upper()), suggested, ext_map[fmt])
         if not path:
             return
 
@@ -1608,8 +1690,8 @@ class ResultsPage(QWidget):
     def _confirm_clear_list(self):
         from .components import ZugzwangDialog
         msg = ZugzwangDialog(
-            "Clear Library", 
-            "Are you sure you want to permanently delete all found leads from the library?", 
+            tr("results.clear.title", self._language),
+            tr("results.clear.body", self._language),
             self,
             destructive=True
         )

@@ -45,6 +45,18 @@ QMainWindow {
     background: #0E0D0F;
 }
 
+#dashboardPage QScrollBar:vertical, 
+#dashboardPage QScrollBar:horizontal {
+    width: 0px;
+    height: 0px;
+    background: transparent;
+}
+
+#dashboardPage QScrollBar::handle:vertical, 
+#dashboardPage QScrollBar::handle:horizontal {
+    background: transparent;
+}
+
 QWidget {
     background: transparent;
 }
@@ -923,9 +935,9 @@ QLabel#StepBadgeLabel {
 }
 
 QLabel#BadgeInfo {
-    background: rgba(10, 132, 255, 0.12);
+    background: transparent;
     color: #40A4FF;
-    border: 1px solid rgba(10, 132, 255, 0.18);
+    border: 1px solid #40A4FF;
     padding: 3px 14px;
     border-radius: 11px;
     font-size: 10px;
@@ -934,9 +946,9 @@ QLabel#BadgeInfo {
 }
 
 QLabel#BadgeSuccess {
-    background: rgba(48, 209, 88, 0.12);
+    background: transparent;
     color: #32D74B;
-    border: 1px solid rgba(48, 209, 88, 0.18);
+    border: 1px solid #32D74B;
     padding: 3px 14px;
     border-radius: 11px;
     font-size: 10px;
@@ -944,9 +956,9 @@ QLabel#BadgeSuccess {
 }
 
 QLabel#BadgeWarning {
-    background: rgba(255, 159, 10, 0.12);
+    background: transparent;
     color: #FF9F0A;
-    border: 1px solid rgba(255, 159, 10, 0.18);
+    border: 1px solid #FF9F0A;
     padding: 3px 14px;
     border-radius: 11px;
     font-size: 10px;

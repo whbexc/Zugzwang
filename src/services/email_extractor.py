@@ -239,13 +239,54 @@ def normalize_phone(phone: str) -> str:
     if not phone:
         return phone
     cleaned = phone.strip()
-    # German international prefix: 0049 → +49
+    cleaned = cleaned.replace("\xa0", " ")
+    # German international prefix: 0049 -> +49
     cleaned = re.sub(r"^0049\s*", "+49 ", cleaned)
-    # Remove cosmetic (0) in area codes: +49 (0)89 → +49 89
+    # Remove cosmetic (0) in area codes: +49 (0)89 -> +49 89
     cleaned = re.sub(r"\(0\)\s*", "", cleaned)
-    # Strip everything except digits, +, (, ), -, space
-    cleaned = re.sub(r"[^\d+\(\)\-\s]", "", cleaned)
-    return re.sub(r"\s{2,}", " ", cleaned).strip()
+    # Strip everything except digits, +, parentheses, slash, dash, space
+    cleaned = re.sub(r"[^\d+\(\)\-/\s]", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+    digits = re.sub(r"\D", "", cleaned)
+    if len(digits) < 10:
+        return ""
+    if re.fullmatch(r"\d{8}", digits):
+        return ""
+
+    def _looks_suspicious(national: str) -> bool:
+        return (
+            not national
+            or len(national) < 9
+            or len(national) > 12
+            or national.startswith("00")
+            or re.fullmatch(r"0+\d+", national) is not None
+        )
+
+    if cleaned.startswith("+49"):
+        national = digits[2:]
+        if _looks_suspicious(national):
+            return ""
+        suffix = cleaned[3:].strip()
+        suffix = re.sub(r"^0+\b", "", suffix).strip()
+        suffix = re.sub(r"\s{2,}", " ", suffix)
+        return f"+49 {suffix}".strip()
+
+    if digits.startswith("49"):
+        national = digits[2:]
+        if _looks_suspicious(national):
+            return ""
+        return f"+49 {national}"
+
+    if digits.startswith("0"):
+        national = digits[1:]
+        if _looks_suspicious(national):
+            return ""
+        suffix = cleaned[1:].strip()
+        suffix = re.sub(r"\s{2,}", " ", suffix)
+        return f"+49 {suffix}".strip()
+
+    return ""
 
 
 def normalize_website(url: str) -> str:

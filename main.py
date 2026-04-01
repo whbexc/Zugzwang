@@ -219,7 +219,7 @@ def main():
             sys.exit(0)
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
 
     # If the app exits event loop cleanly, exit process cleanly
     sys.exit(app.exec())

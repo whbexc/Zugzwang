@@ -21,6 +21,7 @@ from qfluentwidgets import (
 from .components import StatCard, SectionCard, MacSwitch
 
 from ..core.config import config_manager
+from ..core.i18n import get_language, tr
 from ..core.models import SearchConfig, SourceType
 from .theme import Theme
 
@@ -28,7 +29,7 @@ from .theme import Theme
 class SearchSourceCard(QFrame):
     activated = Signal(str)
 
-    def __init__(self, key: str, icon_name: FluentIcon, title: str, body: str, parent=None):
+    def __init__(self, key: str, icon_name: FluentIcon, title: str, body: str, selected_label: str, parent=None):
         super().__init__(parent)
         self._key = key
         self._active = False
@@ -55,7 +56,7 @@ class SearchSourceCard(QFrame):
         badge_layout = QHBoxLayout(self._status_badge)
         badge_layout.setContentsMargins(8, 0, 8, 0)
         badge_layout.setSpacing(0)
-        self._status_label = QLabel("SELECTED")
+        self._status_label = QLabel(selected_label)
         self._status_label.setStyleSheet("color: #0A84FF; font-family: 'SF Mono', 'Menlo', monospace; font-size: 9px; font-weight: 700; background: transparent; border: none;")
         self._status_label.setAlignment(Qt.AlignCenter)
         badge_layout.addWidget(self._status_label)
@@ -111,6 +112,9 @@ class SearchSourceCard(QFrame):
         """)
 
     def enterEvent(self, event):
+        if not self.isEnabled():
+            super().enterEvent(event)
+            return
         self._anim = QPropertyAnimation(self._shadow, b"yOffset")
         self._anim.setDuration(120)
         self._anim.setEndValue(6)
@@ -123,6 +127,9 @@ class SearchSourceCard(QFrame):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        if not self.isEnabled():
+            super().leaveEvent(event)
+            return
         self._anim = QPropertyAnimation(self._shadow, b"yOffset")
         self._anim.setDuration(120)
         self._anim.setEndValue(2)
@@ -152,6 +159,166 @@ class SearchSourceCard(QFrame):
 
 
 
+class SearchHistoryDropdown(QFrame):
+    """Floating history dropdown anchored to the job title input."""
+    item_selected = Signal(dict)  # dict with job_title, city, source, offer_type
+    closed = Signal()
+
+    # Internal key strings for source cards
+    _SOURCE_KEYS = ("maps", "jobsuche", "ausbildung", "aubiplus") #, "azubiyo" - Staged for v1.1.0
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setObjectName("HistoryDropdown")
+        self._entries: list = []  # (id, job_title, city, source, offer_type, is_saved)
+
+        self.setStyleSheet("""
+            QFrame#HistoryDropdown {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+            }
+        """)
+
+        from PySide6.QtWidgets import QScrollArea
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 6, 0, 6)
+        outer.setSpacing(0)
+
+        self._list_layout = QVBoxLayout()
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+        outer.addLayout(self._list_layout)
+
+        # Divider + Clear button
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet("background: #3A3A3C; border: none;")
+        outer.addWidget(div)
+
+        self._clear_btn = QPushButton("  Clear History")
+        self._clear_btn.setFixedHeight(32)
+        self._clear_btn.setCursor(Qt.PointingHandCursor)
+        self._clear_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; border: none;
+                color: #FF453A; font-family: 'PT Root UI', sans-serif;
+                font-size: 12px; font-weight: 500;
+                text-align: left; padding-left: 14px;
+            }
+            QPushButton:hover { background: rgba(255,69,58,0.08); }
+        """)
+        self._clear_btn.clicked.connect(self._clear_history)
+        outer.addWidget(self._clear_btn)
+
+    def refresh(self) -> None:
+        """Reload from DB and rebuild rows."""
+        self._entries = config_manager.get_search_history()
+        # clear old rows
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self._entries:
+            no_lbl = QLabel("  No recent searches")
+            no_lbl.setFixedHeight(32)
+            no_lbl.setStyleSheet("color: #636366; font-size: 12px; font-family: 'PT Root UI', sans-serif; background: transparent; border: none;")
+            self._list_layout.addWidget(no_lbl)
+            self._clear_btn.hide()
+            return
+
+        self._clear_btn.show()
+        for row in self._entries:
+            self._list_layout.addWidget(self._make_row(row))
+
+    def _make_row(self, row) -> QWidget:
+        """Build a single history row widget."""
+        rid, job_title, city, source, offer_type, is_saved = row
+        item = QFrame()
+        item.setFixedHeight(36)
+        item.setStyleSheet("QFrame { background: transparent; border: none; }")
+        item.setCursor(Qt.PointingHandCursor)
+        hl = QHBoxLayout(item)
+        hl.setContentsMargins(14, 0, 10, 0)
+        hl.setSpacing(8)
+
+        # Star button
+        star = QPushButton("★" if is_saved else "☆")
+        star.setFixedSize(20, 20)
+        star.setCursor(Qt.PointingHandCursor)
+        star_color = "#FF9F0A" if is_saved else "#636366"
+        star.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                color: {star_color}; font-size: 14px;
+            }}
+            QPushButton:hover {{ color: #FF9F0A; }}
+        """)
+        star.setProperty("_hid", rid)
+        star.setProperty("_saved", bool(is_saved))
+        star.clicked.connect(lambda _, s=star, r=row: self._toggle_star(s, r))
+        hl.addWidget(star, 0, Qt.AlignVCenter)
+
+        # Label
+        label_text = job_title or ""
+        if city:
+            label_text += f"  ·  {city}"
+        if source:
+            label_text += f"  ·  {source}"
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet("color: #AEAEB2; font-family: 'PT Root UI', sans-serif; font-size: 13px; background: transparent; border: none;")
+        hl.addWidget(lbl, 1)
+
+        # Hover effect (event filter)
+        item.mousePressEvent = lambda e, r=row: self._on_select(r)
+        item.enterEvent = lambda e, i=item: i.setStyleSheet("QFrame { background: #3A3A3C; border-radius: 6px; }")
+        item.leaveEvent = lambda e, i=item: i.setStyleSheet("QFrame { background: transparent; border: none; }")
+        return item
+
+    def _toggle_star(self, star_btn: QPushButton, row) -> None:
+        rid = row[0]
+        new_saved = config_manager.toggle_saved(rid)
+        star_btn.setText("★" if new_saved else "☆")
+        color = "#FF9F0A" if new_saved else "#636366"
+        star_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                color: {color}; font-size: 14px;
+            }}
+            QPushButton:hover {{ color: #FF9F0A; }}
+        """)
+
+    def _on_select(self, row) -> None:
+        _, job_title, city, source, offer_type, _ = row
+        self.item_selected.emit({
+            "job_title": job_title or "",
+            "city": city or "",
+            "source": source or "maps",
+            "offer_type": offer_type or "",
+        })
+        self.hide()
+        self.closed.emit()
+
+    def _clear_history(self) -> None:
+        config_manager.clear_unsaved_history()
+        self.refresh()
+
+    def show_below(self, anchor_widget: QWidget) -> None:
+        """Position the dropdown below anchor_widget and show."""
+        self.refresh()
+        pos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
+        self.setFixedWidth(max(anchor_widget.width(), 360))
+        self.adjustSize()
+        self.move(pos)
+        self.show()
+        self.raise_()
+
+
+from PySide6.QtWidgets import QPushButton as QPushButton
+
+
 class SearchToggleTile(QWidget):
     def __init__(self, title: str, switch: MacSwitch):
         super().__init__()
@@ -172,6 +339,7 @@ class SearchPage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._language = get_language(config_manager.settings.app_language)
         self._source = "maps"
         self._interactive_widgets: list[QWidget] = []
         self._build_ui()
@@ -195,12 +363,12 @@ class SearchPage(QWidget):
         body.setSpacing(14)
 
         header = QHBoxLayout()
-        self._page_title = QLabel("Target Generation")
+        self._page_title = QLabel(tr("search.title", self._language))
         self._page_title.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; background: transparent; border: none;")
         header.addWidget(self._page_title)
         header.addStretch(1)
 
-        self._clear_btn = PushButton("CLEAR")
+        self._clear_btn = PushButton(tr("search.clear", self._language))
         self._clear_btn.setFixedSize(80, 40)
         self._clear_btn.setStyleSheet(Theme.danger_button())
         self._clear_btn.clicked.connect(self._clear_form)
@@ -209,14 +377,14 @@ class SearchPage(QWidget):
         body.addLayout(header)
 
         # Step 1: Intelligence Source
-        body.addWidget(self._step_card("1", "Intelligence Source", self._build_source_section(), compact=True))
+        body.addWidget(self._step_card("1", tr("search.step.source", self._language), self._build_source_section(), compact=True))
 
         # Main Area: Parameters and Advanced Controls side-by-side
         main_layout = QHBoxLayout()
         main_layout.setSpacing(24)
         
-        self._target_card = self._step_card("2", "Target Blueprint", self._build_target_section())
-        self._advanced_card = self._step_card("3", "Advanced Controls", self._build_advanced_section())
+        self._target_card = self._step_card("2", tr("search.step.target", self._language), self._build_target_section())
+        self._advanced_card = self._step_card("3", tr("search.step.advanced", self._language), self._build_advanced_section())
         
         main_layout.addWidget(self._target_card, 55)
         main_layout.addWidget(self._advanced_card, 45)
@@ -224,7 +392,7 @@ class SearchPage(QWidget):
 
         # Launch Button
         from PySide6.QtWidgets import QPushButton as _QPB
-        self._launch_btn = _QPB("START SCRAPING JOB")
+        self._launch_btn = _QPB(tr("search.launch", self._language))
         self._launch_btn.setFixedSize(320, 42)
         self._launch_btn.setCursor(Qt.PointingHandCursor)
         self._launch_btn.setStyleSheet(Theme.zugzwang_primary_button())
@@ -299,37 +467,57 @@ class SearchPage(QWidget):
         self._card_maps = SearchSourceCard(
             "maps",
             FluentIcon.GLOBE,
-            "Google Maps",
-            "Extract business details, contact info, and ratings worldwide.",
+            tr("search.source.maps.title", self._language),
+            tr("search.source.maps.body", self._language),
+            tr("search.selected", self._language),
         )
         self._card_jobsuche = SearchSourceCard(
             "jobsuche",
             FluentIcon.SEARCH,
-            "Jobsuche (BA)",
-            "Monitor federal job listings and corporate hiring signals.",
+            tr("search.source.jobsuche.title", self._language),
+            tr("search.source.jobsuche.body", self._language),
+            tr("search.selected", self._language),
         )
         self._card_ausbildung = SearchSourceCard(
             "ausbildung",
             FluentIcon.EDUCATION,
-            "Ausbildung.de",
-            "Hunt for apprenticeship and training positions.",
+            tr("search.source.ausbildung.title", self._language),
+            tr("search.source.ausbildung.body", self._language),
+            tr("search.selected", self._language),
         )
         self._card_aubiplus = SearchSourceCard(
             "aubiplus",
             FluentIcon.CERTIFICATE,
-            "Aubi-Plus",
-            "Premium apprenticeships and dual study programs.",
+            tr("search.source.aubiplus.title", self._language),
+            tr("search.source.aubiplus.body", self._language),
+            tr("search.selected", self._language),
         )
+        # Azubiyo visible as disabled sneak-peek
+        self._card_azubiyo = SearchSourceCard(
+            "azubiyo",
+            FluentIcon.PEOPLE,
+            "AZUBIYO.DE",
+            "Coming in v1.1.0",
+            tr("search.selected", self._language),
+        )
+        self._card_azubiyo.setEnabled(False)
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        op = QGraphicsOpacityEffect(self._card_azubiyo)
+        op.setOpacity(0.4)
+        self._card_azubiyo.setGraphicsEffect(op)
+
         self._card_maps.activated.connect(self._select_source)
         self._card_jobsuche.activated.connect(self._select_source)
         self._card_ausbildung.activated.connect(self._select_source)
         self._card_aubiplus.activated.connect(self._select_source)
+        
         self._interactive_widgets.extend([self._card_maps, self._card_jobsuche, self._card_ausbildung, self._card_aubiplus])
 
         layout.addWidget(self._card_maps)
         layout.addWidget(self._card_jobsuche)
         layout.addWidget(self._card_ausbildung)
         layout.addWidget(self._card_aubiplus)
+        layout.addWidget(self._card_azubiyo)
         layout.addStretch(1)
         return container
 
@@ -343,15 +531,24 @@ class SearchPage(QWidget):
         # Job Title
         self._job_title = LineEdit()
         self._job_title.setFixedHeight(40)
-        self._job_title.setPlaceholderText("e.g. Software Engineer, Pflegefachmann")
+        self._job_title.setPlaceholderText(tr("search.placeholder.job", self._language))
         self._job_title.textChanged.connect(self._clear_validation_error)
         self._style_input(self._job_title)
 
-        self._title_error = QLabel("This field is required")
+        self._title_error = QLabel(tr("search.error.required", self._language))
         self._title_error.setStyleSheet(f"color: {Theme.DANGER}; font-size: 11px; font-weight: 700; background: transparent; border: none;")
         self._title_error.setVisible(False)
 
-        layout.addLayout(self._make_field("Industry or Job Title", self._job_title, self._title_error))
+        layout.addLayout(self._make_field(tr("search.field.job_title", self._language), self._job_title, self._title_error))
+
+        # ── Search History Dropdown ───────────────────────────────────────────
+        self._history_dropdown = SearchHistoryDropdown()
+        self._history_dropdown.item_selected.connect(self._apply_history)
+
+        def _on_title_focus(event, orig=self._job_title.focusInEvent):
+            orig(event)
+            self._history_dropdown.show_below(self._job_title)
+        self._job_title.focusInEvent = _on_title_focus
 
         # Location Row
         loc_row = QHBoxLayout()
@@ -361,13 +558,13 @@ class SearchPage(QWidget):
         self._country.setFixedHeight(40)
         self._country.addItems(["Germany", "United States", "United Kingdom", "France", "Netherlands", "Switzerland", "Austria"])
         self._style_combo(self._country)
-        loc_row.addLayout(self._make_field("Target Country", self._country), 1)
+        loc_row.addLayout(self._make_field(tr("search.field.country", self._language), self._country), 1)
 
         self._city = LineEdit()
         self._city.setFixedHeight(40)
-        self._city.setPlaceholderText("e.g. Berlin")
+        self._city.setPlaceholderText(tr("search.placeholder.city", self._language))
         self._style_input(self._city)
-        loc_row.addLayout(self._make_field("City / Region", self._city), 1)
+        loc_row.addLayout(self._make_field(tr("search.field.city", self._language), self._city), 1)
         
         layout.addLayout(loc_row)
 
@@ -381,11 +578,13 @@ class SearchPage(QWidget):
         self._offer_type = ComboBox()
         self._offer_type.setFixedHeight(40)
         self._offer_type.addItems([
-            "Arbeit", "Ausbildung/Duales Studium",
-            "Praktikum/Trainee/Werkstudent", "Selbstständigkeit"
+            tr("search.offer.arbeit", self._language),
+            tr("search.offer.ausbildung", self._language),
+            tr("search.offer.praktikum", self._language),
+            tr("search.offer.selbststaendigkeit", self._language)
         ])
         self._style_combo(self._offer_type)
-        offer_vbox.addLayout(self._make_field("Offer Type", self._offer_type))
+        offer_vbox.addLayout(self._make_field(tr("search.field.offer_type", self._language), self._offer_type))
         
         layout.addWidget(self._offer_type_container)
         return container
@@ -412,7 +611,7 @@ class SearchPage(QWidget):
 
         max_col = QVBoxLayout()
         max_col.setSpacing(6)
-        max_col.addWidget(self._field_label("Max Depth Limit"))
+        max_col.addWidget(self._field_label(tr("search.field.max_depth", self._language)))
         self._max_results_input = LineEdit()
         self._max_results_input.setValidator(QIntValidator(10, 10000, self))
         self._max_results_input.setText("100")
@@ -426,7 +625,7 @@ class SearchPage(QWidget):
 
         min_col = QVBoxLayout()
         min_col.setSpacing(6)
-        min_col.addWidget(self._field_label("Min Delay (s)"))
+        min_col.addWidget(self._field_label(tr("search.field.min_delay", self._language)))
         self._delay_min = LineEdit()
         self._delay_min.setValidator(delay_validator)
         self._delay_min.setText("0.5")
@@ -437,7 +636,7 @@ class SearchPage(QWidget):
 
         max_delay_col = QVBoxLayout()
         max_delay_col.setSpacing(6)
-        max_delay_col.addWidget(self._field_label("Max Delay (s)"))
+        max_delay_col.addWidget(self._field_label(tr("search.field.max_delay", self._language)))
         self._delay_max = LineEdit()
         self._delay_max.setValidator(delay_validator)
         self._delay_max.setText("0.5")
@@ -469,12 +668,12 @@ class SearchPage(QWidget):
         for switch in [self._chk_emails, self._chk_headless, self._chk_latest, self._chk_robots, self._chk_refresh, self._chk_social]:
             self._interactive_widgets.append(switch)
 
-        toggles.addWidget(SearchToggleTile("Engage Email Resolution", self._chk_emails), 0, 0)
-        toggles.addWidget(SearchToggleTile("Execute Headless", self._chk_headless), 0, 1)
-        toggles.addWidget(SearchToggleTile("Latest Offers Only", self._chk_latest), 1, 0)
-        toggles.addWidget(SearchToggleTile("Honor Robots Protocol", self._chk_robots), 1, 1)
-        toggles.addWidget(SearchToggleTile("Bypass Local Cache", self._chk_refresh), 2, 0)
-        toggles.addWidget(SearchToggleTile("Extract Social Profiles", self._chk_social), 2, 1)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.emails", self._language), self._chk_emails), 0, 0)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.headless", self._language), self._chk_headless), 0, 1)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.latest", self._language), self._chk_latest), 1, 0)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.robots", self._language), self._chk_robots), 1, 1)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.refresh", self._language), self._chk_refresh), 2, 0)
+        toggles.addWidget(SearchToggleTile(tr("search.toggle.social", self._language), self._chk_social), 2, 1)
         
         layout.addLayout(toggles)
         return container
@@ -544,9 +743,8 @@ class SearchPage(QWidget):
             if max_results > 20:
                 from .components import ZugzwangDialog
                 res = ZugzwangDialog(
-                    "Trial Limit", 
-                    "Free trial search is limited to 20 records per session to keep the server stable. "
-                    "Would you like to activate the full version for unlimited depth?", 
+                    tr("search.dialog.trial.title", self._language),
+                    tr("search.dialog.trial.body", self._language),
                     self
                 ).exec()
                 if res:
@@ -567,14 +765,25 @@ class SearchPage(QWidget):
             "jobsuche": SourceType.JOBSUCHE,
             "ausbildung": SourceType.AUSBILDUNG_DE,
             "aubiplus": SourceType.AUBIPLUS_DE,
+            "azubiyo": SourceType.AZUBIYO,
         }
+
+        # Offer type mapping for backend (Jobsuche BA expects specific German strings)
+        offer_map = {
+            tr("search.offer.arbeit", self._language): "Arbeit",
+            tr("search.offer.ausbildung", self._language): "Ausbildung/Duales Studium",
+            tr("search.offer.praktikum", self._language): "Praktikum/Trainee/Werkstudent",
+            tr("search.offer.selbststaendigkeit", self._language): "Selbstständigkeit",
+        }
+        selected_offer = self._offer_type.currentText()
+        backend_offer = offer_map.get(selected_offer, "Arbeit")
 
         config = SearchConfig(
             job_title=job_title,
             country=self._country.text().strip() or "Germany",
             city=self._city.text().strip(),
             source_type=source_map.get(self._source, SourceType.GOOGLE_MAPS),
-            offer_type=self._offer_type.currentText(),
+            offer_type=backend_offer,
             max_results=self._int_value(self._max_results_input, 100),
             scrape_emails=self._chk_emails.isChecked(),
             latest_offers_only=self._chk_latest.isChecked(),
@@ -586,13 +795,21 @@ class SearchPage(QWidget):
             extract_social_profiles=self._chk_social.isChecked(),
         )
         self._save_last_search()
+        # Also save to search history db
+        config_manager.save_search(
+            job_title=self._job_title.text().strip(),
+            city=self._city.text().strip(),
+            source=self._source,
+            offer_type=backend_offer,
+        )
         self.job_requested.emit(config)
 
     def _clear_form(self) -> None:
         settings = config_manager.settings
         self._job_title.clear()
         self._city.clear()
-        self._country.setText("Germany")
+        self._country.setText("Germany") # Keep as internal value or translate? 
+        # Actually, for consistency, let's keep internal 
         self._offer_type.setCurrentIndex(0)
         self._clear_validation_error()
 
@@ -619,7 +836,16 @@ class SearchPage(QWidget):
 
         self._country.setText(settings.last_search_country or "Germany")
 
-        offer_index = self._offer_type.findText(settings.last_search_offer_type or "Arbeit")
+        # Map back from backend value to localized index
+        backend_val = settings.last_search_offer_type or "Arbeit"
+        rev_map = {
+            "Arbeit": tr("search.offer.arbeit", self._language),
+            "Ausbildung/Duales Studium": tr("search.offer.ausbildung", self._language),
+            "Praktikum/Trainee/Werkstudent": tr("search.offer.praktikum", self._language),
+            "Selbstständigkeit": tr("search.offer.selbststaendigkeit", self._language),
+        }
+        localized_val = rev_map.get(backend_val, tr("search.offer.arbeit", self._language))
+        offer_index = self._offer_type.findText(localized_val)
         self._offer_type.setCurrentIndex(max(offer_index, 0))
 
         from ..core.security import LicenseManager
@@ -659,13 +885,41 @@ class SearchPage(QWidget):
             last_search_social_profiles=self._chk_social.isChecked(),
         )
 
+    def _apply_history(self, item: dict) -> None:
+        """Populate all form fields from a history item dict."""
+        self._job_title.setText(item.get("job_title", ""))
+        self._city.setText(item.get("city", ""))
+        source = item.get("source", "maps")
+        if source in ("maps", "jobsuche", "ausbildung", "aubiplus"):
+            self._select_source(source, preserve_values=True)
+        # Try to find the offer_type in localized combo
+        offer = item.get("offer_type", "")
+        if offer:
+            idx = self._offer_type.findText(offer)
+            if idx >= 0:
+                self._offer_type.setCurrentIndex(idx)
+            else:
+                # Try localized reverse mapping
+                rev_map = {
+                    "Arbeit": tr("search.offer.arbeit", self._language),
+                    "Ausbildung/Duales Studium": tr("search.offer.ausbildung", self._language),
+                    "Praktikum/Trainee/Werkstudent": tr("search.offer.praktikum", self._language),
+                    "Selbstständigkeit": tr("search.offer.selbststaendigkeit", self._language),
+                }
+                localized = rev_map.get(offer, "")
+                if localized:
+                    idx2 = self._offer_type.findText(localized)
+                    if idx2 >= 0:
+                        self._offer_type.setCurrentIndex(idx2)
+        self._clear_validation_error()
+
     def lock(self) -> None:
         for widget in self._interactive_widgets:
             widget.setEnabled(False)
-        self._launch_btn.setText("Booting Protocol...")
+        self._launch_btn.setText(tr("search.launch.loading", self._language))
 
     def unlock(self) -> None:
         for widget in self._interactive_widgets:
             widget.setEnabled(True)
-        self._launch_btn.setText("Start Scraping Job")
+        self._launch_btn.setText(tr("search.launch", self._language))
         self._select_source(self._source, preserve_values=True)

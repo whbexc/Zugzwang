@@ -235,17 +235,45 @@ class ExportService:
             leads_rows = conn.execute(f"SELECT {','.join(EXPORT_COLUMNS)} FROM leads").fetchall()
             records = []
             seen_ids: set[str] = set()
+            cleaned_rows: list[dict] = []
+            dirty = False
             for row in leads_rows:
                 d = dict(zip(EXPORT_COLUMNS, row))
                 try:
-                    record = LeadRecord.from_dict(d)
+                    record = LeadRecord.from_dict(d).normalize()
                     record.id = record.stable_id()
+                    cleaned = record.to_dict()
+                    cleaned_rows.append(cleaned)
+                    comparable_original = {col: (d.get(col) if d.get(col) is not None else "") for col in EXPORT_COLUMNS}
+                    comparable_cleaned = {col: (cleaned.get(col) if cleaned.get(col) is not None else "") for col in EXPORT_COLUMNS}
+                    if comparable_original != comparable_cleaned:
+                        dirty = True
                     if record.id in seen_ids:
+                        dirty = True
                         continue
                     seen_ids.add(record.id)
                     records.append(record)
                 except Exception as e:
                     logger.warning(f"Could not parse lead record: {e}")
+
+            if dirty:
+                try:
+                    conn.execute("DELETE FROM leads")
+                    persisted_ids: set[str] = set()
+                    for record in records:
+                        prepared = self._prepare_record(record)
+                        if prepared.id in persisted_ids:
+                            continue
+                        persisted_ids.add(prepared.id)
+                        row = prepared.to_dict()
+                        conn.execute(
+                            f"INSERT OR REPLACE INTO leads ({','.join(EXPORT_COLUMNS)}) VALUES ({','.join(['?']*len(EXPORT_COLUMNS))})",
+                            [row.get(c, "") for c in EXPORT_COLUMNS],
+                        )
+                    conn.commit()
+                    logger.info(f"Normalized and cleaned persisted project data at: {path}")
+                except Exception as e:
+                    logger.warning(f"Could not persist cleaned project data for {path}: {e}")
             return job_meta, records
         finally:
             conn.close()
@@ -276,7 +304,7 @@ class ExportService:
         return f"{prefix}_{timestamp}.{extension}"
 
     def _prepare_record(self, record: LeadRecord) -> LeadRecord:
-        prepared = replace(record)
+        prepared = replace(record).normalize()
         prepared.id = prepared.stable_id()
         return prepared
 

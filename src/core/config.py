@@ -125,6 +125,90 @@ class ConfigManager:
                 setattr(self._settings, k, v)
         self.save()
 
+    # ── Search History ────────────────────────────────────────────────────────
+
+    def _get_db(self):
+        """Return a sqlite3 connection to app_memory.db."""
+        import sqlite3
+        conn = sqlite3.connect(str(get_memory_db_path()))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS search_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_title TEXT,
+                city TEXT,
+                source TEXT,
+                offer_type TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_saved INTEGER DEFAULT 0
+            )
+        """)
+        conn.commit()
+        return conn
+
+    def save_search(self, job_title: str, city: str, source: str, offer_type: str) -> None:
+        """Save a search entry to history, keeping at most 10 unsaved entries."""
+        try:
+            conn = self._get_db()
+            with conn:
+                # Insert new entry
+                conn.execute(
+                    "INSERT INTO search_history (job_title, city, source, offer_type) VALUES (?, ?, ?, ?)",
+                    (job_title, city, source, offer_type)
+                )
+                # Prune: keep only 10 most recent unsaved entries
+                conn.execute("""
+                    DELETE FROM search_history WHERE is_saved = 0 AND id NOT IN (
+                        SELECT id FROM search_history WHERE is_saved = 0
+                        ORDER BY timestamp DESC LIMIT 10
+                    )
+                """)
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to save search history: {e}")
+
+    def get_search_history(self) -> list:
+        """Return search history rows ordered by saved first, then timestamp desc."""
+        try:
+            conn = self._get_db()
+            cursor = conn.execute(
+                "SELECT id, job_title, city, source, offer_type, is_saved FROM search_history "
+                "ORDER BY is_saved DESC, timestamp DESC LIMIT 20"
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.warning(f"Failed to load search history: {e}")
+            return []
+
+    def toggle_saved(self, history_id: int) -> bool:
+        """Toggle is_saved for given history id. Returns new saved state."""
+        try:
+            conn = self._get_db()
+            cursor = conn.execute("SELECT is_saved FROM search_history WHERE id = ?", (history_id,))
+            row = cursor.fetchone()
+            if row is None:
+                conn.close()
+                return False
+            new_val = 0 if row[0] else 1
+            with conn:
+                conn.execute("UPDATE search_history SET is_saved = ? WHERE id = ?", (new_val, history_id))
+            conn.close()
+            return bool(new_val)
+        except Exception as e:
+            logger.warning(f"Failed to toggle saved: {e}")
+            return False
+
+    def clear_unsaved_history(self) -> None:
+        """Delete all unsaved search history entries."""
+        try:
+            conn = self._get_db()
+            with conn:
+                conn.execute("DELETE FROM search_history WHERE is_saved = 0")
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to clear history: {e}")
+
     def reset(self) -> None:
         """Resets configurations to factory defaults, preserving trial usage tracking."""
         # Backup trial data

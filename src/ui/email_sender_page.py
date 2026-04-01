@@ -35,6 +35,7 @@ from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
 from ..core.events import event_bus
 from .theme import Theme
 from ..core.config import config_manager
+from ..core.i18n import get_language, tr
 
 
 class _SendSignals(QObject):
@@ -42,6 +43,111 @@ class _SendSignals(QObject):
     progress = Signal(int, int)   # current, total
     finished = Signal(int, int, bool) # sent, failed, was_aborted
     error = Signal(str)           # global error
+
+
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QAbstractItemView, QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
+from PySide6.QtGui import QPainter, QCursor, QGuiApplication
+import re
+
+class RecipientItem(QListWidgetItem):
+    def __init__(self, email: str, parent=None):
+        super().__init__(parent)
+        self.email = email
+        self.status = "pending" # pending, sending, success, failed
+        self.setText(email)
+        self.setSizeHint(QSize(0, 24))
+
+
+class RecipientDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        rect = option.rect
+        
+        # Hover / Selected bg
+        if option.state & QStyle.State_Selected:
+            painter.setBrush(QColor(10, 132, 255, 40))
+        elif option.state & QStyle.State_MouseOver:
+            painter.setBrush(QColor(255, 255, 255, 10))
+        else:
+            painter.setBrush(Qt.NoBrush)
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect, 6, 6)
+
+        email = index.data(Qt.DisplayRole)
+        # Use user role for status if needed, or query from the custom item
+        item = index.model().itemData(index) # This is a bit tricky, better to just let the list view handle it or retrieve item from listWidget
+        
+        # Text
+        painter.setPen(QColor("#FFFFFF"))
+        font = option.font
+        font.setFamily("SF Mono")
+        font.setPointSize(8.5)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(36, 0, -80, 0), Qt.AlignLeft | Qt.AlignVCenter, email)
+        
+        # Drag Handle (Left)
+        painter.setPen(QColor("#636366"))
+        font.setPointSize(10)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(12, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, "≡")
+
+        painter.restore()
+
+
+class RecipientListWidget(QListWidget):
+    items_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QListWidget {
+                background: #1A1A1A;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                padding: 6px;
+                outline: none;
+            }
+            QListWidget::item { border-bottom: 1px solid #2C2C2E; }
+        """)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setItemDelegate(RecipientDelegate(self))
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
+        # Track drag changes
+        self.model().rowsMoved.connect(lambda: self.items_changed.emit())
+        self.model().rowsInserted.connect(lambda: self.items_changed.emit())
+        self.model().rowsRemoved.connect(lambda: self.items_changed.emit())
+
+    def _show_context_menu(self, pos):
+        item = self.itemAt(pos)
+        if not item: return
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background: #2C2C2E; color: white; border: 1px solid #3A3A3C; border-radius: 8px; font-family: 'PT Root UI'; font-size: 13px; padding: 4px; }
+            QMenu::item { padding: 6px 24px 6px 12px; border-radius: 4px; }
+            QMenu::item:selected { background: #0A84FF; }
+        """)
+        copy_act = menu.addAction("Copy Email")
+        move_top_act = menu.addAction("Move to Top")
+        del_act = menu.addAction("Remove")
+        
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == copy_act:
+            QGuiApplication.clipboard().setText(item.email)
+        elif action == move_top_act:
+            row = self.row(item)
+            if row > 0:
+                self.takeItem(row)
+                self.insertItem(0, item)
+        elif action == del_act:
+            for it in self.selectedItems():
+                self.takeItem(self.row(it))
+
 
 
 class EmailSenderPage(QWidget):
@@ -55,16 +161,19 @@ class EmailSenderPage(QWidget):
         self._signals = _SendSignals()
         self._isPreview = False
         self._error_vault: dict[str, str] = {} # recipient -> full error
+        self._language = get_language(config_manager.settings.app_language)
         
         self._signals.log.connect(self._on_log)
         self._signals.progress.connect(self._on_progress)
         self._signals.finished.connect(self._on_finished)
         self._signals.error.connect(self._on_error)
         
+        self._is_restoring = True
         self._init_widgets()
         self._build_ui()
         self._restore_fields()
         self._connect_buttons()
+        self._is_restoring = False
 
     def import_emails(self, emails: list[str]):
         """Populates the recipient list from external sources (e.g., Results library)."""
@@ -78,10 +187,10 @@ class EmailSenderPage(QWidget):
 
     def _init_widgets(self):
         # Step 1 Widgets
-        self._smtp_host = LineEdit(); self._smtp_host.setPlaceholderText("smtp.gmail.com")
+        self._smtp_host = LineEdit(); self._smtp_host.setPlaceholderText(tr("send.placeholder.smtp", self._language))
         self._smtp_port = LineEdit(); self._smtp_port.setText("587"); self._smtp_port.setFixedWidth(70)
-        self._smtp_user = LineEdit(); self._smtp_user.setPlaceholderText("user@domain.com")
-        self._smtp_pass = LineEdit(); self._smtp_pass.setPlaceholderText("••••••••"); self._smtp_pass.setEchoMode(QLineEdit.Password)
+        self._smtp_user = LineEdit(); self._smtp_user.setPlaceholderText(tr("send.placeholder.user", self._language))
+        self._smtp_pass = LineEdit(); self._smtp_pass.setPlaceholderText(tr("send.placeholder.pass", self._language)); self._smtp_pass.setEchoMode(QLineEdit.Password)
         
         self._auth_switch = MacSwitch()
         self._ssl_switch = MacSwitch()
@@ -90,12 +199,12 @@ class EmailSenderPage(QWidget):
         # Step 2 Widgets
         self._from_name = LineEdit(); self._from_name.setPlaceholderText("John Doe")
         self._reply_to = LineEdit(); self._reply_to.setPlaceholderText("reply@domain.com")
-        self._subject = LineEdit(); self._subject.setPlaceholderText("Broadcast Subject Line")
+        self._subject = LineEdit(); self._subject.setPlaceholderText(tr("send.placeholder.subject", self._language))
         
         self._body_stack = QStackedWidget()
         self._body_stack.setMinimumHeight(150)
         self._body_text = PlainTextEdit()
-        self._body_text.setPlaceholderText("Compose your message here...")
+        self._body_text.setPlaceholderText(tr("send.placeholder.body", self._language))
         self._body_stack.addWidget(self._body_text)
         
         self._body_preview = QTextBrowser()
@@ -106,20 +215,21 @@ class EmailSenderPage(QWidget):
         self._preview_btn = ToolButton(FluentIcon.VIEW)
         self._attach_btn = ToolButton(FluentIcon.ADD)
         self._attach_clear_btn = ToolButton(FluentIcon.DELETE)
-        self._attach_badge = QLabel("0 FILES")
+        self._attach_badge = QLabel(tr("send.badge.files", self._language).format(count=0))
         
         # Step 3 Widgets
-        self._btn_dedup = PushButton("CLEAN")
+        self._btn_dedup = PushButton(tr("send.button.clean", self._language))
         self._btn_dedup.setStyleSheet(Theme.secondary_button())
-        self._rec_count = QLabel("0 EMAIL(S)")
-        self._recipients_text = PlainTextEdit()
-        self._recipients_text.setMinimumHeight(100)
-        self._recipients_text.setPlaceholderText("recipients@example.com (one per line)")
+        self._rec_count = QLabel(tr("send.badge.emails", self._language).format(count=0))
+        
+        self._recipient_list = RecipientListWidget()
+        self._recipient_list.setMinimumHeight(150)
+        self._recipient_list.items_changed.connect(self._on_recipients_changed)
         
         self._status_log = QTextBrowser()
         self._status_log.setOpenExternalLinks(False)
         self._status_log.setReadOnly(True)
-        self._status_log.setText("Awaiting manual broadcast...")
+        self._status_log.setText(tr("send.log.initial", self._language))
         
         self._interval_input = LineEdit(); self._interval_input.setText("15")
         self._interval_input.setFixedWidth(70)
@@ -127,18 +237,18 @@ class EmailSenderPage(QWidget):
         self._batch_size = LineEdit(); self._batch_size.setText("100")
         self._batch_size.setFixedWidth(70)
         
-        self._btn_purge_sent = PushButton("PURGE SENT")
+        self._btn_purge_sent = PushButton(tr("send.button.purge", self._language))
         
-        self._btn_send_one = PushButton("SEND ONE")
-        self._btn_stop = PushButton("STOP")
+        self._btn_send_one = PushButton(tr("send.button.send_one", self._language))
+        self._btn_stop = PushButton(tr("send.button.stop", self._language))
         self._btn_stop.setEnabled(False)
-        self._btn_export = PushButton("EXPORT SENT")
-        self._btn_send_all = PushButton("SEND ALL")
-        self._btn_clear_data = PushButton("CLEAR ALL")
+        self._btn_export = PushButton(tr("send.button.export", self._language))
+        self._btn_send_all = PushButton(tr("send.button.send_all", self._language))
+        self._btn_clear_data = PushButton(tr("send.button.clear", self._language))
         
         # New Search & Delete
         self._search_input = LineEdit()
-        self._search_input.setPlaceholderText("Search email...")
+        self._search_input.setPlaceholderText(tr("send.placeholder.search", self._language))
         self._search_input.setClearButtonEnabled(True)
         self._search_input.setFixedWidth(150)
         
@@ -188,11 +298,11 @@ class EmailSenderPage(QWidget):
         header_h.setContentsMargins(0, 0, 0, 0)
         header_h.setSpacing(12)
         
-        self._page_title = QLabel("ZUGZWANG Broadcast")
+        self._page_title = QLabel(tr("send.title", self._language))
         self._page_title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-weight: 600; font-size: 28px;")
         header_h.addWidget(self._page_title)
         
-        self._status_badge = QLabel("READY")
+        self._status_badge = QLabel(tr("send.status.ready", self._language))
         self._status_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 500; font-size: 10px; letter-spacing: 1.4px; border-radius: 6px; padding: 3px 10px;")
         header_h.addWidget(self._status_badge, 0, Qt.AlignVCenter)
         
@@ -222,14 +332,14 @@ class EmailSenderPage(QWidget):
         
 
         # ── Step 1: Identity & Credentials ───────────────────────────────────
-        body.addWidget(self._step_card("1", "ZUGZWANG Identity", self._build_identity_section(), compact=True))
+        body.addWidget(self._step_card("1", tr("send.step1.title", self._language), self._build_identity_section(), compact=True))
 
         # ── Main Side-by-Side Area ──────────────────────────────────────────
         workflow_h = QHBoxLayout()
         workflow_h.setSpacing(10)
         
-        self._card2 = self._step_card("2", "Audience & Payload", self._build_payload_section())
-        self._card3 = self._step_card("3", "Broadcast Monitor", self._build_monitor_section())
+        self._card2 = self._step_card("2", tr("send.step2.title", self._language), self._build_payload_section())
+        self._card3 = self._step_card("3", tr("send.step3.title", self._language), self._build_monitor_section())
         
         workflow_h.addWidget(self._card2, 55)
         workflow_h.addWidget(self._card3, 45)
@@ -286,10 +396,10 @@ class EmailSenderPage(QWidget):
         self._style_input(self._smtp_user)
         self._style_input(self._smtp_pass)
         
-        grid.addWidget(self._field_label("SMTP"), 0, 0)
-        grid.addWidget(self._field_label("PORT"), 0, 1)
-        grid.addWidget(self._field_label("USERNAME"), 0, 2)
-        grid.addWidget(self._field_label("SECURITY TOKEN"), 0, 3)
+        grid.addWidget(self._field_label(tr("send.field.smtp", self._language)), 0, 0)
+        grid.addWidget(self._field_label(tr("send.field.port", self._language)), 0, 1)
+        grid.addWidget(self._field_label(tr("send.field.user", self._language)), 0, 2)
+        grid.addWidget(self._field_label(tr("send.field.pass", self._language)), 0, 3)
         
         grid.addWidget(self._smtp_host, 1, 0)
         grid.addWidget(self._smtp_port, 1, 1)
@@ -324,8 +434,8 @@ class EmailSenderPage(QWidget):
         send_row.setSpacing(10)
         self._style_input(self._from_name)
         self._style_input(self._reply_to)
-        send_row.addLayout(self._make_field("SENDER NAME", self._from_name), 1)
-        send_row.addLayout(self._make_field("REPLY-TO ADDRESS", self._reply_to), 1)
+        send_row.addLayout(self._make_field(tr("send.field.from_name", self._language), self._from_name), 1)
+        send_row.addLayout(self._make_field(tr("send.field.reply_to", self._language), self._reply_to), 1)
         layout.addWidget(send_widget)
 
         self._style_input(self._subject)
@@ -334,7 +444,7 @@ class EmailSenderPage(QWidget):
         sub_layout = QVBoxLayout(sub_container)
         sub_layout.setContentsMargins(0, 0, 0, 0)
         sub_layout.setSpacing(4)
-        sub_layout.addWidget(self._field_label("BROADCAST SUBJECT"))
+        sub_layout.addWidget(self._field_label(tr("send.field.subject", self._language)))
         sub_layout.addWidget(self._subject)
         layout.addWidget(sub_container)
 
@@ -404,11 +514,11 @@ class EmailSenderPage(QWidget):
         self._interval_input.setFixedHeight(34)
         self._interval_input.setFixedWidth(52)
         
-        iv_lbl = self._field_label("INTERVAL (S)")
+        iv_lbl = self._field_label(tr("send.field.interval", self._language))
         rec_h.addWidget(iv_lbl, 0, Qt.AlignVCenter)
         rec_h.addWidget(self._interval_input, 0, Qt.AlignVCenter)
         
-        bs_lbl = self._field_label("BATCH SIZE")
+        bs_lbl = self._field_label(tr("send.field.batch", self._language))
         rec_h.addWidget(bs_lbl, 0, Qt.AlignVCenter)
         
         self._style_input(self._batch_size)
@@ -435,8 +545,8 @@ class EmailSenderPage(QWidget):
         # Side-by-Side Monitor Area (Grid for perfect 50/50 split)
         monitor_split = QGridLayout()
         monitor_split.setSpacing(12)
-        monitor_split.setColumnStretch(0, 1)
-        monitor_split.setColumnStretch(1, 1)
+        monitor_split.setColumnStretch(0, 60)
+        monitor_split.setColumnStretch(1, 40)
         
         # Left: Recipients
         rec_col = QVBoxLayout()
@@ -445,13 +555,12 @@ class EmailSenderPage(QWidget):
         lbl_rec_row = QHBoxLayout()
         lbl_rec_row.setSpacing(12)
         lbl_rec = self._field_label("RECIPIENT QUEUE")
-        lbl_rec.setFixedHeight(32) # Match height with search input
+        lbl_rec.setFixedHeight(32)
         lbl_rec_row.addWidget(lbl_rec)
+        lbl_rec_row.addStretch(1)
         
-        lbl_rec_row.addSpacing(12) # Unified gap
-        
-        # Add Search Input (Optimized Width for 50/50 balance)
-        self._search_input.setFixedWidth(160)
+        # Add Search Input
+        self._search_input.setFixedWidth(180)
         self._search_input.setFixedHeight(32)
         self._search_input.setPlaceholderText("Find recipient...")
         self._search_input.setStyleSheet("""
@@ -473,17 +582,41 @@ class EmailSenderPage(QWidget):
         self._status_log.anchorClicked.connect(self._on_error_anchor_clicked)
         lbl_rec_row.addWidget(self._search_input, 0, Qt.AlignVCenter)
         
-        # Add Delete Button (Simple Square Balanced)
         self._setup_delete_menu()
-        lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
         
-        lbl_rec_row.addStretch(1) # Push all to the left as a unit
+        # Load From Leads Icon Button (Next to Delete)
+        self._btn_load_leads = TransparentPushButton(FluentIcon.ADD.icon(color=QColor("#8E8E93")), "")
+        self._btn_load_leads.setFixedSize(32, 32)
+        self._btn_load_leads.setIconSize(QSize(16, 16))
+        self._btn_load_leads.setToolTip("Load from Leads Database")
+        self._btn_load_leads.setCursor(Qt.PointingHandCursor)
+        self._btn_load_leads.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_load_leads.clicked.connect(self._load_from_leads)
+        
+        lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
         
         rec_col.addLayout(lbl_rec_row)
         
-        # Re-use existing recipients text
-        self._style_plaintext(self._recipients_text)
-        rec_col.addWidget(self._recipients_text, 1)
+        # Re-use existing recipients list instead of plaintext
+        # ── Improvement 7: Empty State Guidance ──────────────────────────────
+        from PySide6.QtWidgets import QStackedWidget
+        self._rec_stack = QStackedWidget()
+        
+        from .components import EmptyStateWidget
+        self._rec_empty = EmptyStateWidget(
+            FluentIcon.HELP,
+            title="Queue is Empty",
+            description="Add emails manually, import from a file, or load directly from your lead database.",
+            button_text="Load from Leads",
+            button_callback=self._load_from_leads
+        )
+        
+        self._rec_stack.addWidget(self._rec_empty)
+        self._rec_stack.addWidget(self._recipient_list)
+        self._rec_stack.setCurrentWidget(self._rec_empty)
+        
+        rec_col.addWidget(self._rec_stack, 1)
         monitor_split.addLayout(rec_col, 0, 0)
         
         # Right: Log Stack
@@ -535,7 +668,7 @@ class EmailSenderPage(QWidget):
         n_ic = IconWidget(FluentIcon.INFO); n_ic.setFixedSize(16, 16); n_ic.setStyleSheet("background: transparent; border: none; color: #0A84FF;")
         notice_h.addWidget(n_ic)
         
-        n_txt = QLabel("Gmail Policy: Sending >100 emails/day may flag your account as spam. Use batching for safety.")
+        n_txt = QLabel(tr("send.notice.gmail", self._language))
         n_txt.setStyleSheet("color: #4EA1FF; font-size: 11px; font-weight: 500; font-family: 'PT Root UI', sans-serif;")
         notice_h.addWidget(n_txt, 1)
         
@@ -650,9 +783,11 @@ class EmailSenderPage(QWidget):
         self._btn_purge_sent.clicked.connect(self._on_purge_sent)
         self._btn_export.clicked.connect(self._on_export)
         self._btn_continue.clicked.connect(self._on_continue)
-        self._recipients_text.textChanged.connect(self._on_recipients_changed)
+        # self._recipients_text is replaced by self._recipient_list
+        # The list widget handles changes via items_changed which is already connected in _init_widgets
         
         # Persistence hooks for all fields
+
         self._smtp_host.textChanged.connect(self._save_fields)
         self._smtp_port.textChanged.connect(self._save_fields)
         self._smtp_user.textChanged.connect(self._save_fields)
@@ -678,11 +813,11 @@ class EmailSenderPage(QWidget):
         self._status_log.verticalScrollBar().setValue(self._status_log.verticalScrollBar().maximum())
 
     def _on_progress(self, current: int, total: int):
-        self._status_badge.setText(f"SENDING {current}/{total}")
+        self._status_badge.setText(f"{tr('send.status.sending', self._language)} {current}/{total}")
 
     def _on_finished(self, sent: int, failed: int, was_aborted: bool):
         self._set_sending_state(False)
-        self._status_badge.setText("ABORTED" if was_aborted else "FINISHED")
+        self._status_badge.setText(tr("monitor.status.cancelled", self._language) if was_aborted else tr("send.status.done", self._language))
         msg = f"Broadcast aborted by user. Sent: {sent}, Failed: {failed}" if was_aborted else f"Broadcast concluded. Sent: {sent}, Failed: {failed}"
         color = "#FF453A" if was_aborted else "#4EA1FF"
         self._status_log.append(f'<span style="color: {color}">{msg}</span>')
@@ -713,22 +848,39 @@ class EmailSenderPage(QWidget):
         files, _ = QFileDialog.getOpenFileNames(self, "Attach Files")
         if files:
             self._attachments = files
-            self._attach_badge.setText(f"{len(files)} FILES")
+            self._attach_badge.setText(tr("send.badge.files", self._language).format(count=len(files)))
             self._on_log(f"Attached {len(files)} file(s).", "INFO")
 
     def _on_attach_clear(self):
         if self._attachments:
             count = len(self._attachments)
             self._attachments = []
-            self._attach_badge.setText("0 FILES")
+            self._attach_badge.setText(tr("send.badge.files", self._language).format(count=0))
             self._on_log(f"Cleared {count} attachment(s).", "WARNING")
 
+    def _get_recipients(self) -> list[str]:
+        return [self._recipient_list.item(i).email for i in range(self._recipient_list.count())]
+
+    def _set_recipients(self, emails: list[str]):
+        self._recipient_list.setUpdatesEnabled(False)
+        self._recipient_list.model().blockSignals(True)
+        self._recipient_list.clear()
+        for e in emails:
+            e = e.strip()
+            if e:
+                self._recipient_list.addItem(RecipientItem(e))
+        self._recipient_list.model().blockSignals(False)
+        self._recipient_list.setUpdatesEnabled(True)
+        self._on_recipients_changed()
+
     def _on_dedup(self):
-        text = self._recipients_text.toPlainText()
-        emails = list(dict.fromkeys([e.strip() for e in text.splitlines() if e.strip()]))
-        self._recipients_text.setPlainText("\n".join(emails))
-        self._rec_count.setText(f"{len(emails)} EMAIL(S)")
-        self._on_log(f"De-duplicated list. {len(emails)} unique recipients.", "SUCCESS")
+        emails = self._get_recipients()
+        unique = list(dict.fromkeys(emails))
+        if len(unique) < len(emails):
+            self._set_recipients(unique)
+            self._on_log(f"De-duplicated list. {len(unique)} unique recipients.", "SUCCESS")
+        else:
+            self._on_log("Queue is already deduplicated.", "INFO")
 
     def _on_stop(self):
         self._stop_requested = True
@@ -745,12 +897,11 @@ class EmailSenderPage(QWidget):
             self._on_log("No successful transmissions to purge.", "WARNING")
             return
             
-        current_text = self._recipients_text.toPlainText().splitlines()
-        purged = [e.strip() for e in current_text if e.strip() and e.strip() not in self._successful_emails]
+        current = self._get_recipients()
+        purged = [e for e in current if e not in self._successful_emails]
         
-        self._recipients_text.setPlainText("\n".join(purged))
+        self._set_recipients(purged)
         self._successful_emails = [] # Clear tracking after purge
-        self._on_recipients_changed()
         self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
 
     def _setup_delete_menu(self):
@@ -766,59 +917,34 @@ class EmailSenderPage(QWidget):
         self._btn_delete_menu.setMenu(menu)
 
     def _on_delete_all(self):
-        self._recipients_text.clear()
+        self._recipient_list.clear()
         self._on_recipients_changed()
         self._on_log("Cleared all recipients.", "WARNING")
 
     def _on_delete_selection(self):
-        cursor = self._recipients_text.textCursor()
-        if not cursor.hasSelection():
+        selected = self._recipient_list.selectedItems()
+        if not selected:
             self._on_log("No selection to delete.", "WARNING")
             return
         
-        selected_text = cursor.selectedText()
-        # Count lines properly (selectedText() uses \u2029 for newlines in QTextEdit)
-        count = selected_text.replace('\u2029', '\n').count('\n') + 1
-        
-        cursor.removeSelectedText()
-        
-        # Post-delete cleanup: remove empty lines and redundant newlines
-        text = self._recipients_text.toPlainText()
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        self._recipients_text.setPlainText("\n".join(lines))
-        
+        count = len(selected)
+        for item in selected:
+            row = self._recipient_list.row(item)
+            self._recipient_list.takeItem(row)
+            
         self._on_recipients_changed()
         self._on_log(f"Deleted selection ({count} rows).", "SUCCESS")
 
     def _on_search_recipients(self, text: str):
         text = text.strip().lower()
-        # Reset selections (highlighting)
-        self._recipients_text.setExtraSelections([])
         if not text:
+            for i in range(self._recipient_list.count()):
+                self._recipient_list.item(i).setHidden(False)
             return
 
-        doc = self._recipients_text.document()
-        extra_selections = []
-        
-        cursor = doc.find(text)
-        while not cursor.isNull():
-            selection = QTextEdit.ExtraSelection()
-            selection.format.setBackground(QColor("#30D158")) # macOS Success Green
-            selection.format.setForeground(QColor("#000000"))
-            selection.cursor = cursor
-            extra_selections.append(selection)
-            
-            # Find next occurrence
-            cursor = doc.find(text, cursor)
-        
-        if extra_selections:
-            self._recipients_text.setExtraSelections(extra_selections)
-            # Ensure the first match is visible
-            self._recipients_text.setTextCursor(extra_selections[0].cursor)
-            self._recipients_text.ensureCursorVisible()
-        else:
-            # Highlight border red if not found? No, keep it simple.
-            pass
+        for i in range(self._recipient_list.count()):
+            item = self._recipient_list.item(i)
+            item.setHidden(text not in item.email.lower())
 
     def _on_export(self):
         if not self._successful_emails:
@@ -829,32 +955,46 @@ class EmailSenderPage(QWidget):
             with open(path, "w") as f: f.write("\n".join(self._successful_emails))
             self._on_log(f"Exported to {Path(path).name}", "SUCCESS")
 
+    def _load_from_leads(self):
+        from .load_leads_dialog import LoadLeadsDialog
+        from .event_bridge import event_bus
+        dialog = LoadLeadsDialog(self)
+        if dialog.exec():
+            emails = dialog.selected_emails
+            if emails:
+                self.import_emails(emails)
+                event_bus.emit("toast.show",
+                    title="Leads Loaded",
+                    subtitle=f"Imported {len(emails)} emails into the broadcast queue.",
+                    type="success"
+                )
+
     def import_emails(self, emails: list[str]):
         """Public API for MainWindow to push leads here."""
         if not emails: return
         clean_new = [e.strip() for e in emails if e.strip()]
-        current = self._recipients_text.toPlainText().splitlines()
-        combined = list(dict.fromkeys([e.strip() for e in current + clean_new if e.strip()]))
+        current = self._get_recipients()
+        combined = list(dict.fromkeys(current + clean_new))
         
-        self._recipients_text.setPlainText("\n".join(combined))
-        self._rec_count.setText(f"{len(combined)} EMAIL(S)")
+        self._set_recipients(combined)
         self._on_log(f"Imported {len(clean_new)} lead(s). Total recipients: {len(combined)}", "SUCCESS")
 
     def _send_test(self):
-        recs = [e.strip() for e in self._recipients_text.toPlainText().splitlines() if e.strip()]
+        recs = self._get_recipients()
         if not recs: return self._on_log("No recipients in queue.", "ERROR")
         self._log(f"Executing test broadcast to {recs[0]}...")
         self._set_sending_state(True)
         threading.Thread(target=self._worker_send, args=([recs[0]],), daemon=True).start()
 
     def _send_all(self):
-        recs = [e.strip() for e in self._recipients_text.toPlainText().splitlines() if e.strip()]
+        recs = self._get_recipients()
         if not recs: return self._on_log("Recipient queue empty.", "ERROR")
         self._log("Initiating global broadcast...")
         self._set_sending_state(True)
         threading.Thread(target=self._worker_send, args=(recs,), daemon=True).start()
 
     def _set_sending_state(self, sending: bool):
+
         self._sending = sending
         self._stop_requested = False
         self._btn_send_all.setEnabled(not sending)
@@ -905,16 +1045,43 @@ class EmailSenderPage(QWidget):
                 msg = self._build_message(rec)
                 if self._stop_requested: break
                 
-                self._active_server.send_message(msg)
-                sent += 1
-                self._successful_emails.append(rec)
-                self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
+                # Attempt to send with retry logic for disconnections
+                max_retries = 1
+                for attempt in range(max_retries + 1):
+                    try:
+                        if not self._active_server:
+                             raise smtplib.SMTPServerDisconnected("No active connection")
+                        self._ensure_smtp_connection()
+                        self._active_server.send_message(msg)
+                        sent += 1
+                        self._successful_emails.append(rec)
+                        self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
+                        break # Success
+                    except (smtplib.SMTPServerDisconnected, ConnectionError) as e:
+                        if attempt < max_retries and not self._stop_requested:
+                            self._log(f"Connection lost for {rec}. Reconnecting...", "WARNING")
+                            try:
+                                if self._active_server:
+                                    try: self._active_server.close()
+                                    except: pass
+                                self._active_server = self._create_smtp_connection()
+                                self._log("Reconnected successfully.", "SUCCESS")
+                                continue # Retry sending
+                            except Exception as re_err:
+                                self._log(f"Reconnection failed: {re_err}", "ERROR")
+                                raise e # Re-raise original disconnection error if reconnection fails
+                        else:
+                            raise e
             except Exception as e:
                 if self._stop_requested: break
                 failed += 1
                 self._error_vault[rec] = str(e)
                 # Shorten error for log
                 err_short = str(e).splitlines()[0][:60] + "..." if len(str(e)) > 60 else str(e)
+                # Clean up known cryptic messages
+                if "please run connect() first" in err_short:
+                    err_short = "Connection lost (Please check SMTP settings or network)"
+                
                 self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
             
             self._signals.progress.emit(i+1, total)
@@ -933,7 +1100,7 @@ class EmailSenderPage(QWidget):
             self._on_log("Broadcast already in progress.", "WARNING")
             return
             
-        all_recs = [e.strip() for e in self._recipients_text.toPlainText().splitlines() if e.strip()]
+        all_recs = self._get_recipients()
         # Filter out those already successfully sent
         remaining = [e for e in all_recs if e not in self._successful_emails]
         
@@ -982,18 +1149,43 @@ class EmailSenderPage(QWidget):
 
     def _create_smtp_connection(self):
         host = self._smtp_host.text().strip()
-        port = int(self._smtp_port.text().strip())
+        if not host:
+            raise ValueError("SMTP Host is required. Please check your settings.")
+            
+        port_txt = self._smtp_port.text().strip()
+        try:
+            port = int(port_txt)
+        except ValueError:
+            raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
         if self._ssl_switch.isChecked():
             server = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=15)
+            server.ehlo()
         else:
             server = smtplib.SMTP(host, port, timeout=15)
+            server.ehlo()
             if self._tls_switch.isChecked():
                 server.starttls(context=ssl.create_default_context())
+                server.ehlo()
         if self._auth_switch.isChecked():
             server.login(self._smtp_user.text().strip(), self._smtp_pass.text().strip())
         return server
 
+    def _ensure_smtp_connection(self):
+        if not self._active_server:
+            raise smtplib.SMTPServerDisconnected("No active connection")
+        try:
+            status = self._active_server.noop()
+            if isinstance(status, tuple) and status[0] and int(status[0]) >= 400:
+                raise smtplib.SMTPServerDisconnected(f"SMTP NOOP failed with status {status[0]}")
+        except smtplib.SMTPServerDisconnected:
+            raise
+        except Exception as e:
+            raise smtplib.SMTPServerDisconnected(str(e))
+
     def _save_fields(self):
+        if getattr(self, '_is_restoring', False):
+            return
+            
         config_manager.update(
             email_smtp_host=self._smtp_host.text(),
             email_smtp_port=self._smtp_port.text(),
@@ -1008,7 +1200,7 @@ class EmailSenderPage(QWidget):
             email_subject=self._subject.text(),
             email_body=self._body_text.toPlainText(),
             email_interval=self._interval_input.text(),
-            email_recipients=self._recipients_text.toPlainText()
+            email_recipients="\n".join(self._get_recipients())
         )
 
     def _restore_fields(self):
@@ -1026,14 +1218,20 @@ class EmailSenderPage(QWidget):
         self._subject.setText(s.email_subject)
         self._body_text.setPlainText(s.email_body)
         self._interval_input.setText(s.email_interval)
-        self._recipients_text.setPlainText(s.email_recipients)
-        self._on_recipients_changed()
+        if s.email_recipients:
+            self._set_recipients(s.email_recipients.split("\n"))
+        else:
+            self._on_recipients_changed()
 
     def _on_recipients_changed(self):
         """Updates the numeric badge and persists the updated list."""
-        raw = self._recipients_text.toPlainText().strip()
-        count = len([r for r in raw.split("\n") if r.strip()])
+        count = self._recipient_list.count()
         self._rec_count.setText(f"{count} EMAIL(S)")
+        if count == 0:
+            self._rec_stack.setCurrentWidget(self._rec_empty)
+        else:
+            self._rec_stack.setCurrentWidget(self._recipient_list)
         self._save_fields()
+
 
     # End of class

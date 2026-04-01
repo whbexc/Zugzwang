@@ -18,6 +18,7 @@ from .maps_scraper import GoogleMapsScraper
 from .jobsuche_scraper import JobsucheScraper
 from .ausbildung_scraper import AusbildungScraper
 from .aubiplus_scraper import AubiPlusScraper
+from .azubiyo_scraper import AzubiyoScraper
 from .export_service import ExportService
 from ..core.config import config_manager, get_data_dir, get_memory_db_path
 from ..core.events import event_bus
@@ -157,6 +158,16 @@ class ScrapingOrchestrator:
 
         event_bus.emit(event_bus.DB_UPDATED, records=[])
 
+    def persist_current_job(self) -> None:
+        """Persist the current in-memory job snapshot to app memory."""
+        if not self._current_job:
+            return
+        try:
+            self._export.save_project(self._current_job, str(get_memory_db_path()))
+            event_bus.emit(event_bus.DB_UPDATED, records=list(self._current_job.results))
+        except Exception as e:
+            logger.warning(f"Could not persist current job snapshot: {e}")
+
     def _run_job_thread(self, job: ScrapingJob) -> None:
         """Runs in a dedicated thread. Creates its own asyncio event loop."""
         self._loop = asyncio.new_event_loop()
@@ -197,6 +208,8 @@ class ScrapingOrchestrator:
                 self._scraper = AusbildungScraper(self._session, job.config, job.id)
             elif job.config.source_type == SourceType.AUBIPLUS_DE:
                 self._scraper = AubiPlusScraper(self._session, job.config, job.id)
+            elif job.config.source_type == SourceType.AZUBIYO:
+                self._scraper = AzubiyoScraper(self._session, job.config, job.id)
             else:
                 raise ValueError(f"Unsupported source type: {job.config.source_type}")
 
@@ -205,6 +218,7 @@ class ScrapingOrchestrator:
             async for record in self._scraper.scrape():
                 if job.status == ScrapingStatus.CANCELLED:
                     break
+                record = record.normalize()
                 record.id = record.stable_id()
                 with self._memory_lock:
                     if record.id in self._known_record_ids or record.id in current_job_ids:

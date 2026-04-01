@@ -53,7 +53,7 @@ class WebsiteEmailCrawler:
         Returns (email, source_page_url, social_dict).
         """
         website = normalize_website(website)
-        cache_key = self._cache_key(website)
+        cache_key = self._cache_key(website, company_name)
         socials = {}
 
         if self.session.is_blacklisted(website):
@@ -124,7 +124,9 @@ class WebsiteEmailCrawler:
         if prefer_fast_fetch:
             html = await self.session.fetch_url_content_fast(url, timeout=self._timeout_for_url(url))
             if html:
-                emails = deduplicate_emails(extract_emails_from_html(html))
+                emails = self._extract_priority_emails(html)
+                if not emails:
+                    emails = deduplicate_emails(extract_emails_from_html(html))
                 if extract_social:
                     socials = self._extract_socials(html)
                 if emails or (extract_social and socials):
@@ -143,7 +145,9 @@ class WebsiteEmailCrawler:
             text = ""
 
         if text:
-            emails = deduplicate_emails(extract_emails_from_text(text))
+            emails = self._extract_priority_emails(text)
+            if not emails:
+                emails = deduplicate_emails(extract_emails_from_text(text))
             if emails:
                 return "", emails, url, {}
 
@@ -151,8 +155,10 @@ class WebsiteEmailCrawler:
         if not html:
             return "", [], None, {}
 
-        emails = extract_emails_from_html(html)
-        emails = deduplicate_emails(emails)
+        emails = self._extract_priority_emails(html)
+        if not emails:
+            emails = extract_emails_from_html(html)
+            emails = deduplicate_emails(emails)
         
         if extract_social:
             socials = self._extract_socials(html)
@@ -225,6 +231,52 @@ class WebsiteEmailCrawler:
 
         return sorted(paths, key=score)
 
+    def _prioritize_paths(self, paths: list[str]) -> list[str]:
+        discovery_order = [
+            "impressum", "kontakt", "contact",
+            "karriere", "jobs", "job", "stellenangebote",
+            "ausbildung", "azubi", "bewerbung",
+            "team", "datenschutz", "kontaktformular",
+            "über uns", "ueber uns", "ueber-uns", "über-uns", "about",
+        ]
+
+        def score(path: str) -> tuple[int, str]:
+            p = path.strip("/").lower()
+            if not p:
+                return (99, p)
+
+            for i, token in enumerate(discovery_order):
+                if token in p:
+                    return (i, p)
+
+            if any(token in p for token in ("about", "contact", "legal", "about-us")):
+                return (50, p)
+
+            return (60, p)
+
+        return sorted(paths, key=score)
+
+    def _extract_priority_emails(self, content: str) -> list[str]:
+        if not content:
+            return []
+
+        normalized = content.replace("\xa0", " ")
+        candidates: list[str] = []
+        patterns = [
+            r"E-?Mail\s*:\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"Kontakt\s*:\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"Impressum[\s\S]{0,300}?([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"mailto:([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+        ]
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, normalized, re.IGNORECASE):
+                email = match.group(1).strip().lower()
+                if email:
+                    candidates.append(email)
+
+        return deduplicate_emails(candidates) if candidates else []
+
     def _timeout_for_url(self, url: str) -> int:
         path = urlparse(url).path.lower()
         if path in ("", "/"):
@@ -233,9 +285,14 @@ class WebsiteEmailCrawler:
             return self._fast_timeout_ms
         return min(self._fast_timeout_ms, 8_000)
 
-    def _cache_key(self, website: str) -> str:
+    def _cache_key(self, website: str, company_name: Optional[str] = None) -> str:
         parsed = urlparse(website)
-        return f"{parsed.scheme}://{parsed.netloc.lower()}"
+        base = f"{parsed.scheme}://{parsed.netloc.lower()}"
+        if company_name:
+            company_slug = " ".join(company_name.strip().lower().split())
+            if company_slug:
+                return f"{base}|{company_slug}"
+        return base
 
     async def _is_allowed_by_robots(self, url: str) -> bool:
         """Check if URL is allowed per robots.txt (minimal implementation)."""

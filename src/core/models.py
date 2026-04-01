@@ -19,6 +19,7 @@ class SourceType(str, Enum):
     JOBSUCHE = "jobsuche"
     AUSBILDUNG_DE = "ausbildung_de"
     AUBIPLUS_DE = "aubiplus_de"
+    AZUBIYO = "azubiyo"
     MANUAL = "manual"
 
 
@@ -100,6 +101,12 @@ class LeadRecord:
         """Clean and standardize all fields in the record. Call before yielding/saving."""
         # 1. Company Name - Strip "Arbeitgeber:" and generic prefixes
         if self.company_name:
+            lines = [line.strip() for line in str(self.company_name).splitlines() if line.strip()]
+            if lines and re.fullmatch(r"(?i)arbeitgeber\s*[:\-]?", lines[0]):
+                lines = lines[1:]
+            if lines:
+                self.company_name = " ".join(lines).strip()
+
             # Handle "Arbeitgeber:" on same line or separated by colon/dash
             self.company_name = re.sub(r'(?i)arbeitgeber\s*[:\-]?\s*', '', self.company_name).strip()
             # Remove trailing ellipses
@@ -125,25 +132,65 @@ class LeadRecord:
 
         if self.city:
             self.city = self.city.strip()
-            # If city was extracted from search query (config), sometimes it's like "berlin"
-            if self.city.islower():
-                self.city = self.city.title()
+            if self.city.lower() in ["", "ort", "standort", "location", "arbeitsort", "arbeitsplatz"]:
+                self.city = None
+            else:
+                # If city was extracted from search query (config), sometimes it's like "berlin"
+                if self.city.islower():
+                    self.city = self.city.title()
 
         # 3. Phone - Standard formatting
         if self.phone:
             cleaned = self.phone.strip()
-            # German international prefix: 0049 → +49
+            cleaned = cleaned.replace("\xa0", " ")
+            # German international prefix: 0049 -> +49
             cleaned = re.sub(r"^0049\s*", "+49 ", cleaned)
-            # Remove cosmetic (0) in area codes: +49 (0)89 → +49 89
+            # Remove cosmetic (0) in area codes: +49 (0)89 -> +49 89
             cleaned = re.sub(r"\(0\)\s*", "", cleaned)
-            # Strip everything except digits, +, (, ), -, space
-            cleaned = re.sub(r"[^\d+\(\)\-\s]", "", cleaned)
-            self.phone = re.sub(r"\s{2,}", " ", cleaned).strip()
+            # Strip everything except digits, +, parentheses, slash, dash, space
+            cleaned = re.sub(r"[^\d+\(\)\-/\s]", "", cleaned)
+            cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+            digits = re.sub(r"\D", "", cleaned)
+            def _looks_suspicious(national: str) -> bool:
+                return (
+                    not national
+                    or len(national) < 9
+                    or len(national) > 12
+                    or national.startswith("00")
+                    or re.fullmatch(r"0+\d+", national) is not None
+                )
+
+            if len(digits) < 10 or re.fullmatch(r"\d{8}", digits):
+                self.phone = None
+            elif cleaned.startswith("+49"):
+                national = digits[2:]
+                if _looks_suspicious(national):
+                    self.phone = None
+                else:
+                    suffix = cleaned[3:].strip()
+                    suffix = re.sub(r"^0+\b", "", suffix).strip()
+                    suffix = re.sub(r"\s{2,}", " ", suffix)
+                    self.phone = f"+49 {suffix}".strip()
+            elif digits.startswith("49"):
+                national = digits[2:]
+                self.phone = None if _looks_suspicious(national) else f"+49 {national}"
+            elif digits.startswith("0") and len(digits) >= 10:
+                national = digits[1:]
+                if _looks_suspicious(national):
+                    self.phone = None
+                else:
+                    suffix = cleaned[1:].strip()
+                    suffix = re.sub(r"\s{2,}", " ", suffix)
+                    self.phone = f"+49 {suffix}".strip()
+            else:
+                self.phone = None
 
         # 4. Website - Ensure scheme
         if self.website:
             self.website = self.website.strip().rstrip("/")
-            if self.website and not self.website.startswith(("http://", "https://")):
+            if self.website.lower().startswith("mailto:"):
+                self.website = None
+            elif self.website and not self.website.startswith(("http://", "https://")):
                 self.website = "https://" + self.website
 
         # 5. Email - Force lower case
@@ -355,18 +402,19 @@ class AppSettings:
     # UI
     theme: str = "dark"
     results_per_page: int = 50
+    app_language: str = "en"
+    column_visibility: str = ""       # JSON: ResultsPage column visibility
+    last_seen_version: str = ""       # For "What's New" popup trigger
 
-    # Email Sender persistence
+    email_smtp_host: str = ""
+    email_smtp_port: str = "587"
     email_smtp_user: str = ""
     email_smtp_pass: str = ""
-    email_smtp_host: str = "smtp.gmail.com"
-    email_smtp_port: str = "587"
+    email_from_name: str = ""
+    email_reply_to: str = ""
+    email_smtp_auth: bool = True
     email_smtp_ssl: bool = False
     email_smtp_tls: bool = True
-    email_smtp_auth: bool = True
-    email_from_name: str = ""
-    email_from_email: str = ""
-    email_reply_to: str = ""
     email_subject: str = ""
     email_body: str = ""
     email_body_html: bool = False
@@ -382,7 +430,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.1"
+    app_version: str = "1.0.2"
 
     # Free Trial Tracking
     trial_scraps_count: int = 0

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout, QVBoxLayout,
     QPushButton, QFrame, QSizePolicy, QDialog,
 )
+from qfluentwidgets import IconWidget, FluentIconBase
 
 from .icons import apply_button_icon
 
@@ -673,15 +674,17 @@ class MacSwitch(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
 
         track_color = self._on_color if self._checked else QColor("#3A3A3C")
         if not self.isEnabled():
             track_color.setAlpha(128)
         painter.setBrush(QBrush(track_color))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, 34, 20, 10, 10)
+        painter.drawRoundedRect(0, 0, w, h, h/2, h/2)
 
-        thumb_rect = QRectF(self._thumb_x, 2, 16, 16)
+        thumb_size = h - 4
+        thumb_rect = QRectF(self._thumb_x, 2, thumb_size, thumb_size)
         painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
         painter.drawEllipse(thumb_rect.translated(0, 1))
         painter.setBrush(QBrush(QColor("#FFFFFF")))
@@ -689,4 +692,56 @@ class MacSwitch(QWidget):
         painter.end()
 
 
+class EmptyStateWidget(QWidget):
+    """Reusable empty state layout with icon, title, description, and optional action button."""
 
+    def __init__(self, icon: FluentIconBase, title: str, description: str, 
+                 button_text: str = None, button_icon: FluentIconBase = None,
+                 button_callback=None, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(12)
+
+        icon_lbl = IconWidget(icon)
+        icon_lbl.setFixedSize(48, 48)
+        icon_lbl.setStyleSheet("color: #3A3A3C; border: none;")
+        layout.addWidget(icon_lbl, 0, Qt.AlignHCenter)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet("color: #E5E5EA; font-family: 'PT Root UI', sans-serif; font-size: 16px; font-weight: 600; border: none;")
+        layout.addWidget(title_lbl, 0, Qt.AlignHCenter)
+
+        desc_lbl = QLabel(description)
+        desc_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 13px; border: none;")
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc_lbl, 0, Qt.AlignHCenter)
+
+        if button_text and button_callback:
+            layout.addSpacing(16)
+            from PySide6.QtWidgets import QPushButton
+            btn = QPushButton(button_text)
+            btn.setFixedHeight(36)
+            btn.setCursor(Qt.PointingHandCursor)
+            
+            # Simple layout if no icon
+            if not button_icon:
+                btn.setStyleSheet("""
+                    QPushButton { background: #0A84FF; color: white; border: none; border-radius: 8px; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; padding: 0 24px; }
+                    QPushButton:hover { background: #409CFF; }
+                """)
+            else:
+                # With FluentIcon
+                btn.setStyleSheet("""
+                    QPushButton { background: #0A84FF; color: white; border: none; border-radius: 8px; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; padding: 0 16px 0 36px; text-align: left; }
+                    QPushButton:hover { background: #409CFF; }
+                """)
+                btn_icon = IconWidget(button_icon, btn)
+                btn_icon.setFixedSize(16, 16)
+                btn_icon.setStyleSheet("color: white; border: none; background: transparent;")
+                btn_icon.move(12, 10)
+                btn.setFixedWidth(btn.fontMetrics().horizontalAdvances(button_text)[0] + 60)
+
+            btn.clicked.connect(button_callback)
+            layout.addWidget(btn, 0, Qt.AlignHCenter)

@@ -23,6 +23,8 @@ from qfluentwidgets import (
 )
 
 from ..core.events import event_bus
+from ..core.config import config_manager
+from ..core.i18n import get_language, tr
 from ..services.orchestrator import orchestrator
 from .theme import Theme
 
@@ -37,7 +39,7 @@ class MetricTile(QFrame):
                  icon: FluentIcon = FluentIcon.INFO,
                  color: str = "#0A84FF"):
         super().__init__()
-        self.setMinimumHeight(110)
+        self.setMinimumHeight(100)
         self.setStyleSheet("MetricTile { background: #2C2C2E; border-radius: 12px; border: none; }")
 
         layout = QVBoxLayout(self)
@@ -59,7 +61,7 @@ class MetricTile(QFrame):
 
         row = QHBoxLayout()
         self._value = QLabel(value)
-        self._value.setStyleSheet(f"color: {color}; font-family: 'PT Root UI', sans-serif; font-size: 44px; font-weight: 700; background: transparent; border: none; padding: 0; margin-top: 4px;")
+        self._value.setStyleSheet(f"color: {color}; font-family: 'PT Root UI', sans-serif; font-size: 36px; font-weight: 700; background: transparent; border: none; padding: 0; margin-top: 4px;")
         row.addWidget(self._value)
         row.addStretch()
 
@@ -112,6 +114,7 @@ class MonitorPage(QWidget):
         self._user_scrolling = False
         self._active_job_id: Optional[str] = None
         self._update_queue: queue.Queue = queue.Queue()
+        self._language = get_language(config_manager.settings.app_language)
 
         self._build_ui()
         self._connect_events()
@@ -131,12 +134,12 @@ class MonitorPage(QWidget):
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 4)
 
-        self._page_title = QLabel("Runtime Monitor")
+        self._page_title = QLabel(tr("monitor.title", self._language))
         self._page_title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600; letter-spacing: 0.3px;")
         header_row.addWidget(self._page_title)
         header_row.addStretch(1)
 
-        self._status_badge = QLabel("IDLE")
+        self._status_badge = QLabel(tr("monitor.status.idle", self._language))
         self._status_badge.setAlignment(Qt.AlignCenter)
         self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         header_row.addWidget(self._status_badge, 0, Qt.AlignVCenter)
@@ -149,11 +152,11 @@ class MonitorPage(QWidget):
 
         left_col = QVBoxLayout()
         left_col.setSpacing(20)
-        workspace.addLayout(left_col, 5)
+        workspace.addLayout(left_col, 6)
 
         right_col = QVBoxLayout()
         right_col.setSpacing(0)
-        workspace.addLayout(right_col, 5)
+        workspace.addLayout(right_col, 4)
 
         # ── Hero Card ─────────────────────────────────────────────────────────
         hero = QFrame()
@@ -163,11 +166,11 @@ class MonitorPage(QWidget):
         hero_layout.setSpacing(16)
 
         title_row = QHBoxLayout()
-        self._query_label = QLabel("No active session")
+        self._query_label = QLabel(tr("monitor.query.idle", self._language))
         self._query_label.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 15px; font-weight: 600;")
         title_row.addWidget(self._query_label, 1)
         
-        self._status_line = QLabel("Waiting for a search to begin")
+        self._status_line = QLabel(tr("monitor.status_line.idle", self._language))
         self._status_line.setStyleSheet("color: #8E8E93; font-family: '-apple-system', sans-serif; font-size: 13px;")
         title_row.addWidget(self._status_line, 0, Qt.AlignRight)
         hero_layout.addLayout(title_row)
@@ -193,7 +196,7 @@ class MonitorPage(QWidget):
         hero_layout.addWidget(self._progress_bar)
 
         prog_hdr = QHBoxLayout()
-        self._progress_label = QLabel("Idle")
+        self._progress_label = QLabel(tr("monitor.status.idle", self._language).capitalize())
         self._progress_label.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 13px;")
         prog_hdr.addWidget(self._progress_label, 1)
         self._pct_label = QLabel("0%")
@@ -210,24 +213,22 @@ class MonitorPage(QWidget):
 
         time_row = QHBoxLayout()
         time_row.setSpacing(8)
-        self._elapsed_value = _time_pill("ELAPSED 00:00:00")
-        self._remaining_value = _time_pill("REMAINING —")
+        self._elapsed_value = _time_pill(f"{tr('monitor.label.elapsed', self._language)} 00:00:00")
+        self._remaining_value = _time_pill(f"{tr('monitor.label.remaining', self._language)} —")
         time_row.addWidget(self._elapsed_value)
         time_row.addWidget(self._remaining_value)
         
         time_row.addStretch()
         
-        self._btn_pause = MonitorControlButton("PAUSE", is_warning=True)
+        self._btn_pause = MonitorControlButton(tr("monitor.button.pause", self._language), is_warning=True)
         self._btn_pause.setEnabled(False)
         self._btn_pause.clicked.connect(self._pause)
         time_row.addWidget(self._btn_pause)
-
-        self._btn_resume = MonitorControlButton("RESUME", is_success=True)
+        self._btn_resume = MonitorControlButton(tr("monitor.button.resume", self._language), is_success=True)
         self._btn_resume.setEnabled(False)
         self._btn_resume.clicked.connect(self._resume)
         time_row.addWidget(self._btn_resume)
-
-        self._btn_cancel = MonitorControlButton("STOP", is_danger=True)
+        self._btn_cancel = MonitorControlButton(tr("monitor.button.stop", self._language), is_danger=True)
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._cancel)
         time_row.addWidget(self._btn_cancel)
@@ -236,11 +237,10 @@ class MonitorPage(QWidget):
         left_col.addWidget(hero)
 
         # ── Metrics Grid ──────────────────────────────────────────────────────
-        # Icons colored matching the spec: Blue found, Green verified, Yellow sites, Red errors.
-        self._card_found  = MetricTile("Total Leads Found",  "0", "+0/s",        FluentIcon.PEOPLE, "#0A84FF")
-        self._card_emails = MetricTile("Emails Verified",    "0", "0% coverage", FluentIcon.MAIL,   "#30D158")
-        self._card_sites  = MetricTile("Sites Scanned",      "0", "domains",     FluentIcon.GLOBE,  "#FFD60A")
-        self._card_errors = MetricTile("Anomalies",          "0", "warnings",    FluentIcon.INFO,   "#FF453A")
+        self._card_found  = MetricTile(tr("monitor.metric.found", self._language),  "0", "+0/s",        FluentIcon.PEOPLE, "#0A84FF")
+        self._card_emails = MetricTile(tr("monitor.metric.emails", self._language), "0", "0% coverage", FluentIcon.MAIL,   "#30D158")
+        self._card_sites  = MetricTile(tr("monitor.metric.sites", self._language),  "0", "domains",     FluentIcon.GLOBE,  "#FFD60A")
+        self._card_errors = MetricTile(tr("monitor.metric.errors", self._language), "0", "warnings",    FluentIcon.INFO,   "#FF453A")
 
         tiles_grid = QGridLayout()
         tiles_grid.setSpacing(16)
@@ -259,15 +259,27 @@ class MonitorPage(QWidget):
         act_layout.setSpacing(12)
 
         act_head = QHBoxLayout()
-        stream_lbl = QLabel("ACTIVITY STREAM")
+        stream_lbl = QLabel(tr("monitor.section.activity", self._language))
         stream_lbl.setStyleSheet("color: #636366; font-family: '-apple-system', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.5px;")
         act_head.addWidget(stream_lbl)
         act_head.addStretch()
         
-        self._live_badge = QLabel("• LIVE")
+        self._live_badge = QLabel(tr("monitor.badge.live", self._language))
         self._live_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         act_head.addWidget(self._live_badge)
         act_layout.addLayout(act_head)
+
+        from PySide6.QtWidgets import QStackedWidget
+        self._stream_stack = QStackedWidget()
+        act_layout.addWidget(self._stream_stack, 1)
+
+        from .components import EmptyStateWidget
+        self._empty_state = EmptyStateWidget(
+            FluentIcon.INFO,
+            title=tr("monitor.section.activity", self._language),
+            description="The live activity stream will appear here when a job starts."
+        )
+        self._stream_stack.addWidget(self._empty_state)
 
         self._log_tail = QTextBrowser()
         self._log_tail.setOpenExternalLinks(True)
@@ -283,20 +295,11 @@ class MonitorPage(QWidget):
                 selection-background-color: rgba(10, 132, 255, 0.3);
             }
         """)
-        
-        self._empty_state = QLabel()
-        self._empty_state.setAlignment(Qt.AlignCenter)
-        empty_layout = QVBoxLayout(self._empty_state)
-        # We can simulate empty waveform with icon later, for now text or an icon
-        wave_icon = IconWidget(FluentIcon.INFO)
-        wave_icon.setFixedSize(32, 32)
-        wave_icon.setStyleSheet("color: #3A3A3C; background: transparent; border: none;")
-        empty_layout.addWidget(wave_icon, 0, Qt.AlignCenter)
-        
-        # Place empty state initially over log, though simplified we can just use a stacked approach or hide it
-        # Actually, let's just make it visible inside log if we want, or side-by-side. I'll just clear the text instead.
-        
-        act_layout.addWidget(self._log_tail, 1)
+        self._stream_stack.addWidget(self._log_tail)
+
+        # Show empty state initially
+        self._stream_stack.setCurrentWidget(self._empty_state)
+
         right_col.addWidget(activity_card, 1)
 
         scrollbar = self._log_tail.verticalScrollBar()
@@ -405,17 +408,17 @@ class MonitorPage(QWidget):
 
         query_text = f"{job_title} — {city}" if city else (job_title or "Unnamed Search")
         self._query_label.setText(query_text)
-        self._status_line.setText("Scanning in progress")
+        self._status_line.setText(tr("monitor.status_line.running", self._language))
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
-        self._status_badge.setText("RUNNING")
+        self._status_badge.setText(tr("monitor.status.running", self._language))
         self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_bar.setValue(0)
-        self._progress_label.setText("Initializing browser...")
+        self._progress_label.setText(tr("monitor.progress.init", self._language))
         self._pct_label.setText("0%")
-        self._elapsed_value.setText("ELAPSED 00:00:00")
-        self._remaining_value.setText("REMAINING —")
+        self._elapsed_value.setText(f"{tr('monitor.label.elapsed', self._language)} 00:00:00")
+        self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} —")
         
         self._btn_pause.setEnabled(True)
         self._btn_resume.setEnabled(False)
@@ -452,53 +455,51 @@ class MonitorPage(QWidget):
 
         self._progress_bar.setValue(pct)
         self._pct_label.setText(f"{pct}%")
-        self._progress_label.setText("Scanning, enriching, and verifying leads...")
-
+        self._progress_label.setText(tr("monitor.progress.scanning", self._language))
         elapsed = time.monotonic() - self._job_start_time
-        self._elapsed_value.setText(f"ELAPSED {self._format_time(elapsed, fixed=True)}")
-
+        self._elapsed_value.setText(f"{tr('monitor.label.elapsed', self._language)} {self._format_time(elapsed, fixed=True)}")
         if 0 < pct < 100:
             total_est = elapsed / (pct / 100.0)
             remaining = max(total_est - elapsed, 0)
-            self._remaining_value.setText(f"REMAINING {self._format_time(remaining, fixed=True)}")
+            self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} {self._format_time(remaining, fixed=True)}")
         else:
-            self._remaining_value.setText("REMAINING 00:00:00")
+            self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} 00:00:00")
 
     def _ui_completed(self):
         self._progress_bar.setValue(100)
         self._pct_label.setText("100%")
-        self._status_line.setText("Completed successfully")
+        self._status_line.setText(tr("monitor.status_line.success", self._language))
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
-        self._status_badge.setText("DONE")
+        self._status_badge.setText(tr("monitor.status.done", self._language))
         self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
-        self._progress_label.setText("All records captured and ready for export.")
-        self._elapsed_value.setText(f"ELAPSED {self._format_time(time.monotonic() - self._job_start_time, fixed=True)}")
-        self._remaining_value.setText("REMAINING —")
+        self._progress_label.setText(tr("monitor.progress.done", self._language))
+        self._elapsed_value.setText(f"{tr('monitor.label.elapsed', self._language)} {self._format_time(time.monotonic() - self._job_start_time, fixed=True)}")
+        self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} —")
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)
         self._ui_log("INFO", "=== Job completed successfully ===")
 
     def _ui_failed(self, error: str):
-        self._status_line.setText(f"Failed — {error or 'Unexpected error'}")
+        self._status_line.setText(tr("monitor.status_line.failed", self._language).format(error=error or 'Unexpected error'))
         self._status_line.setStyleSheet("color: #FF453A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
-        self._status_badge.setText("FAILED")
+        self._status_badge.setText(tr("monitor.status.failed", self._language))
         self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
-        self._progress_label.setText("Scraper stopped. Review the activity stream.")
+        self._progress_label.setText(tr("monitor.progress.failed", self._language))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)
 
     def _ui_paused(self):
-        self._status_line.setText("Paused — waiting for resume")
+        self._status_line.setText(tr("monitor.status_line.paused", self._language))
         self._status_line.setStyleSheet("color: #FF9F0A; font-family: '-apple-system', sans-serif; font-size: 13px;")
-        self._status_badge.setText("PAUSED")
+        self._status_badge.setText(tr("monitor.status.paused", self._language))
         self._status_badge.setStyleSheet("color: #FF9F0A; background: rgba(255,159,10,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
-        self._progress_label.setText("Paused. Resume when ready to continue.")
+        self._progress_label.setText(tr("monitor.progress.paused", self._language))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(True)
         self._btn_cancel.setEnabled(True)
@@ -506,11 +507,11 @@ class MonitorPage(QWidget):
         self._ui_log("WARNING", "=== Job paused ===")
 
     def _ui_cancelled(self):
-        self._status_line.setText("Cancelled by user")
+        self._status_line.setText(tr("monitor.status_line.cancelled", self._language))
         self._status_line.setStyleSheet("color: #FF9F0A; font-family: '-apple-system', sans-serif; font-size: 13px;")
-        self._status_badge.setText("IDLE")
+        self._status_badge.setText(tr("monitor.status.idle", self._language))
         self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
-        self._progress_label.setText("The current scraping run was cancelled.")
+        self._progress_label.setText(tr("monitor.progress.cancelled", self._language))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)
@@ -518,7 +519,7 @@ class MonitorPage(QWidget):
 
     def _ui_trial_limit(self):
         """Show the trial limit dialog and stop UI timers."""
-        self._status_line.setText("Trial Limit Reached")
+        self._status_line.setText(tr("monitor.status.trial", self._language))
         self._status_line.setStyleSheet("color: #FF453A; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
         self._status_badge.setText("TRIAL OVER")
@@ -559,27 +560,30 @@ class MonitorPage(QWidget):
         
         safe_msg = display_msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         linked_msg = _URL_RE.sub(fr'<a href="\1" style="color: {Theme.ACCENT_BLUE}; text-decoration: none;">\1</a>', safe_msg)
-        html = (
+        html_msg = (
             f'<div style="margin-bottom: 2px;">'
             f'<span style="color:rgba(255,255,255,0.25); font-weight: 600;">{time.strftime("%H:%M:%S")}</span> '
             f'<span style="color:{color};">{linked_msg}</span>'
             f'</div>'
         )
-        self._log_tail.append(html)
-
-        if not self._user_scrolling:
-            scrollbar = self._log_tail.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
+        def _append():
+            if self._stream_stack.currentWidget() != self._log_tail:
+                self._stream_stack.setCurrentWidget(self._log_tail)
+            self._log_tail.append(html_msg)
+            if not self._user_scrolling:
+                scrollbar = self._log_tail.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
+        _append()
 
     def _pause(self):
         orchestrator.pause_job()
 
     def _resume(self):
         orchestrator.resume_job()
-        self._status_line.setText("Scanning resumed")
+        self._status_line.setText(tr("monitor.status_line.running", self._language))
         self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 13px;")
         
-        self._status_badge.setText("RUNNING")
+        self._status_badge.setText(tr("monitor.status.running", self._language))
         self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600;")
         
         self._progress_label.setText("Resuming network activity...")
@@ -592,8 +596,8 @@ class MonitorPage(QWidget):
     def _cancel(self):
         from .components import ZugzwangDialog
         msg = ZugzwangDialog(
-            "Stop Scraping",
-            "Are you sure you want to stop scraping?\nData collected so far will be saved.",
+            tr("monitor.dialog.stop.title", self._language),
+            tr("monitor.dialog.stop.body", self._language),
             self.window(),
             destructive=True
         )
