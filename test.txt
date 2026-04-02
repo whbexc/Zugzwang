@@ -1,0 +1,15 @@
+ZUGZWANG Export
+Generated: 2026-04-02 00:15:07
+Records: 1
+--------------------------------------------------------------------------------
+
+1. Test Company
+  Id: f6df8048-7940-41b2-85aa-cf9d87ef9f99
+  Source Type: google_maps
+  Company Name: Test Company
+  Email: test@test.com
+  Phone: +49 123 456789
+  Scraped At: 2026-04-01T23:15:06.141955
+
+--------------------------------------------------------------------------------
+

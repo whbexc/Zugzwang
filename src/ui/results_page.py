@@ -1334,7 +1334,10 @@ class ResultsPage(QWidget):
         menu = RoundMenu(parent=self._btn_export)
         menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.excel", self._language), triggered=lambda: self._export_results("xlsx")))
         menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.word", self._language), triggered=lambda: self._export_results("docx")))
+        menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.txt", self._language), triggered=lambda: self._export_results("txt")))
         menu.addAction(Action(FluentIcon.SAVE, tr("results.export.db", self._language), triggered=lambda: self._export_results("sqlite")))
+        menu.addSeparator()
+        menu.addAction(Action(FluentIcon.COPY, tr("results.menu.copy_emails", self._language), triggered=self._copy_all_emails_in_view))
         menu.addSeparator()
         menu.addAction(Action(FluentIcon.SEARCH, tr("results.export.no_email", self._language), triggered=self._export_no_email_sites))
         
@@ -1356,6 +1359,7 @@ class ResultsPage(QWidget):
         event_bridge.job_failed.connect(self._on_job_failed)
         event_bridge.job_cancelled.connect(self._on_job_cancelled)
         event_bridge.export_completed.connect(self._on_export_completed)
+        event_bridge.export_failed.connect(self._on_export_failed)
 
     def _on_job_result(self, record=None, count=0, **kw):
         if record is not None:
@@ -1413,8 +1417,12 @@ class ResultsPage(QWidget):
             self._ui_job_cancelled()
         elif event_name == "export_done":
             fmt, path, count = payload
-            from qfluentwidgets import InfoBar, InfoBarPosition
+            from qfluentwidgets import InfoBar
             InfoBar.success(tr("results.export.complete", self._language), tr("results.export.complete.body", self._language).format(count=count), duration=4000, parent=self)
+        elif event_name == "export_failed":
+            fmt, error = payload
+            from qfluentwidgets import InfoBar
+            InfoBar.error(tr("dashboard.activity.export_failed", self._language).format(fmt=fmt.upper()), error, duration=6000, parent=self)
 
     def _apply_text_filter(self, text: str):
         self._proxy.setFilterFixedString(text.strip())
@@ -1520,6 +1528,9 @@ class ResultsPage(QWidget):
     def _on_export_completed(self, format="", path="", count=0, **kw):
         self._ui_event_queue.put(("export_done", (str(format), str(path), int(count))))
 
+    def _on_export_failed(self, format="", error="", **kw):
+        self._ui_event_queue.put(("export_failed", (str(format), str(error))))
+
     def _ui_job_started(self):
         self._job_start_time = time.monotonic()
         while not self._record_queue.empty():
@@ -1591,8 +1602,8 @@ class ResultsPage(QWidget):
             InfoBar.warning(tr("results.export.no_data", self._language), tr("results.export.no_data.body", self._language), duration=2000, parent=self)
             return
 
-        ext_map = {"xlsx": "Excel Files (*.xlsx)", "docx": "Word Files (*.docx)", "sqlite": "SQLite Database (*.db)"}
-        ext_ext = {"xlsx": ".xlsx", "docx": ".docx", "sqlite": ".db"}
+        ext_map = {"xlsx": "Excel Files (*.xlsx)", "docx": "Word Files (*.docx)", "txt": "Text Files (*.txt)", "sqlite": "SQLite Database (*.db)"}
+        ext_ext = {"xlsx": ".xlsx", "docx": ".docx", "txt": ".txt", "sqlite": ".db"}
         export_dir = get_projects_dir() if fmt == "sqlite" else get_exports_dir()
         suggested = self._suggested_export_path(fmt, export_dir, ext_ext[fmt], records, prefix)
         path, _ = QFileDialog.getSaveFileName(self, tr("results.export.as", self._language).format(fmt=fmt.upper()), suggested, ext_map[fmt])

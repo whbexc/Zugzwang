@@ -184,6 +184,29 @@ class ExportService:
             event_bus.emit(event_bus.EXPORT_FAILED, format="docx", error=str(e))
             raise
 
+    def export_txt(self, records: list[LeadRecord], path: str) -> int:
+        """Export emails from records to a plain text file, one per line."""
+        logger.info(f"Exporting emails from {len(records)} records to TXT: {path}")
+        try:
+            emails = [r.email for r in records if r.email]
+            with open(path, "w", encoding="utf-8") as f:
+                if emails:
+                    f.write("\n".join(emails) + "\n")
+                else:
+                    # If no emails, write a summary instead of an empty file
+                    for index, record in enumerate(records, 1):
+                        f.write(f"{index}. {record.company_name or 'Lead'}\n")
+                        if record.website: f.write(f"   Website: {record.website}\n")
+                        if record.phone: f.write(f"   Phone: {record.phone}\n")
+                        f.write("\n")
+            
+            event_bus.emit(event_bus.EXPORT_COMPLETED, format="txt", path=path, count=len(records))
+            return len(records)
+        except Exception as e:
+            logger.error(f"TXT export failed: {e}")
+            event_bus.emit(event_bus.EXPORT_FAILED, format="txt", error=str(e))
+            raise
+
     def save_project(self, job: ScrapingJob, path: str) -> None:
         """Save a scraping job (with results) to SQLite project file."""
         logger.info(f"Saving project to: {path}")

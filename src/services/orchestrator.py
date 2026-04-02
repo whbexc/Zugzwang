@@ -123,13 +123,14 @@ class ScrapingOrchestrator:
                         path=path,
                         count=len(records),
                     )
+                elif format == "txt":
+                    self._export.export_txt(records, path)
                 else:
                     raise ValueError(f"Unsupported export format: {format}")
                 logger.info(f"Export complete: {format} -> {path}")
             except Exception as e:
-                if format == "sqlite":
-                    event_bus.emit(event_bus.EXPORT_FAILED, format="sqlite", error=str(e))
-                logger.error(f"Export failed: {e}")
+                event_bus.emit(event_bus.EXPORT_FAILED, format=format, error=str(e))
+                logger.error(f"Export failed ({format}): {e}")
 
         t = threading.Thread(target=_do_export, daemon=True, name="export-worker")
         t.start()
