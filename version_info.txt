@@ -21,12 +21,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'ZUGZWANG'),
             StringStruct(u'FileDescription', u'ZUGZWANG - Lead Generation & Recruitment Research'),
-            StringStruct(u'FileVersion', u'1.0.2'),
+            StringStruct(u'FileVersion', u'1.0.3'),
             StringStruct(u'InternalName', u'ZUGZWANG'),
             StringStruct(u'LegalCopyright', u'Copyright 2024 ZUGZWANG'),
             StringStruct(u'OriginalFilename', u'ZUGZWANG.exe'),
             StringStruct(u'ProductName', u'ZUGZWANG'),
-            StringStruct(u'ProductVersion', u'1.0.2'),
+            StringStruct(u'ProductVersion', u'1.0.3'),
           ]
         )
       ]
