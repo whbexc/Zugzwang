@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from collections import deque
 
-from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QEasingCurve, QSize
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,

@@ -5,7 +5,7 @@ Target Generation workflow using Obsidian Core design language.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, Property, QEasingCurve
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, Property, QEasingCurve, QEvent, QTimer
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QColor
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QGraphicsDropShadowEffect
 
@@ -110,6 +110,16 @@ class SearchSourceCard(QFrame):
                 border-radius: 12px;
             }}
         """)
+        
+        # Add tooltips for better UX
+        tooltips = {
+            "maps": "Search businesses and services globally via Google Maps",
+            "jobsuche": "Search official German Federal Employment Agency listings",
+            "ausbildung": "Find apprenticeship positions across Germany",
+            "aubiplus": "High-quality vocational training and study positions",
+            "azubiyo": "Sophisticated matching for apprenticeships (Coming Soon)"
+        }
+        self.setToolTip(tooltips.get(self._key, ""))
 
     def enterEvent(self, event):
         if not self.isEnabled():
@@ -168,34 +178,52 @@ class SearchHistoryDropdown(QFrame):
     _SOURCE_KEYS = ("maps", "jobsuche", "ausbildung", "aubiplus") #, "azubiyo" - Staged for v1.1.0
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setObjectName("HistoryDropdown")
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self._entries: list = []  # (id, job_title, city, source, offer_type, is_saved)
+        self._anchor_widget = None
 
-        self.setStyleSheet("""
-            QFrame#HistoryDropdown {
-                background: #2C2C2E;
+        from PySide6.QtCore import QCoreApplication
+        QCoreApplication.instance().installEventFilter(self)
+
+        # Container to hold styles and shadow
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        self.container = QFrame(self)
+        self.container.setObjectName("HistoryContainer")
+        self.container.setStyleSheet("""
+            QFrame#HistoryContainer {
+                background: #1C1C1E;
                 border: 1px solid #3A3A3C;
                 border-radius: 10px;
             }
         """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 12)
+        self.container.setGraphicsEffect(shadow)
 
-        from PySide6.QtWidgets import QScrollArea
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 6, 0, 6)
-        outer.setSpacing(0)
+        # Main layout holds container
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)  # Give room for shadow
+        main_layout.addWidget(self.container)
+
+        # Content layout inside container
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setContentsMargins(0, 6, 0, 6)
+        self.content_layout.setSpacing(0)
 
         self._list_layout = QVBoxLayout()
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(0)
-        outer.addLayout(self._list_layout)
+        self.content_layout.addLayout(self._list_layout)
 
         # Divider + Clear button
         div = QFrame()
         div.setFixedHeight(1)
         div.setStyleSheet("background: #3A3A3C; border: none;")
-        outer.addWidget(div)
+        self.content_layout.addWidget(div)
 
         self._clear_btn = QPushButton("  Clear History")
         self._clear_btn.setFixedHeight(32)
@@ -210,11 +238,35 @@ class SearchHistoryDropdown(QFrame):
             QPushButton:hover { background: rgba(255,69,58,0.08); }
         """)
         self._clear_btn.clicked.connect(self._clear_history)
-        outer.addWidget(self._clear_btn)
+        self.content_layout.addWidget(self._clear_btn)
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent, QRect
+        from PySide6.QtGui import QMouseEvent
+        if event.type() == QEvent.MouseButtonPress and self.isVisible():
+            if isinstance(event, QMouseEvent):
+                try:
+                    pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+                except AttributeError:
+                    return super().eventFilter(obj, event)
+                
+                if not self.geometry().contains(pos):
+                    if getattr(self, '_anchor_widget', None):
+                        top_left = self._anchor_widget.mapToGlobal(self._anchor_widget.rect().topLeft())
+                        bottom_right = self._anchor_widget.mapToGlobal(self._anchor_widget.rect().bottomRight())
+                        if QRect(top_left, bottom_right).contains(pos):
+                            return super().eventFilter(obj, event)
+                    self.hide()
+        return super().eventFilter(obj, event)
 
     def refresh(self) -> None:
-        """Reload from DB and rebuild rows."""
-        self._entries = config_manager.get_search_history()
+        """Reload from DB and rebuild rows if changed."""
+        new_entries = config_manager.get_search_history()
+        # Optimization: Avoid rebuilding if data is identical and list is already populated
+        if new_entries == self._entries and self._list_layout.count() > 0:
+            return
+            
+        self._entries = new_entries
         # clear old rows
         while self._list_layout.count():
             item = self._list_layout.takeAt(0)
@@ -269,6 +321,7 @@ class SearchHistoryDropdown(QFrame):
             label_text += f"  ·  {source}"
         lbl = QLabel(label_text)
         lbl.setStyleSheet("color: #AEAEB2; font-family: 'PT Root UI', sans-serif; font-size: 13px; background: transparent; border: none;")
+        lbl.setToolTip(f"Re-apply this search configuration:\\nRole: {job_title or 'Any'}\\nCity: {city or 'Any'}\\nSource: {source or 'Maps'}")
         hl.addWidget(lbl, 1)
 
         # Hover effect (event filter)
@@ -307,6 +360,7 @@ class SearchHistoryDropdown(QFrame):
 
     def show_below(self, anchor_widget: QWidget) -> None:
         """Position the dropdown below anchor_widget and show."""
+        self._anchor_widget = anchor_widget
         self.refresh()
         pos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
         self.setFixedWidth(max(anchor_widget.width(), 360))
@@ -336,6 +390,16 @@ class SearchToggleTile(QWidget):
 
 class SearchPage(QWidget):
     job_requested = Signal(object)
+
+    def eventFilter(self, obj, event: QEvent):
+        if obj == self._job_title:
+            if event.type() in [QEvent.FocusIn, QEvent.MouseButtonPress]:
+                # Snappy 20ms delay instead of 100ms
+                QTimer.singleShot(20, lambda: self._history_dropdown.show_below(self._job_title))
+            elif event.type() == QEvent.FocusOut:
+                # Hide dropdown when field loses focus
+                self._history_dropdown.hide()
+        return super().eventFilter(obj, event)
 
     def __init__(self):
         super().__init__()
@@ -396,6 +460,7 @@ class SearchPage(QWidget):
         self._launch_btn.setFixedSize(320, 42)
         self._launch_btn.setCursor(Qt.PointingHandCursor)
         self._launch_btn.setStyleSheet(Theme.zugzwang_primary_button())
+        self._launch_btn.setToolTip("Initiate the scraping job with the configured parameters")
         self._launch_btn.clicked.connect(self._launch)
         self._interactive_widgets.append(self._launch_btn)
         
@@ -534,6 +599,7 @@ class SearchPage(QWidget):
         self._job_title.setPlaceholderText(tr("search.placeholder.job", self._language))
         self._job_title.textChanged.connect(self._clear_validation_error)
         self._style_input(self._job_title)
+        self._job_title.setToolTip("Enter the job title or role to search for (e.g. 'Software Engineer', 'Pflegefachmann')")
 
         self._title_error = QLabel(tr("search.error.required", self._language))
         self._title_error.setStyleSheet(f"color: {Theme.DANGER}; font-size: 11px; font-weight: 700; background: transparent; border: none;")
@@ -542,13 +608,10 @@ class SearchPage(QWidget):
         layout.addLayout(self._make_field(tr("search.field.job_title", self._language), self._job_title, self._title_error))
 
         # ── Search History Dropdown ───────────────────────────────────────────
-        self._history_dropdown = SearchHistoryDropdown()
+        self._history_dropdown = SearchHistoryDropdown(self)
         self._history_dropdown.item_selected.connect(self._apply_history)
 
-        def _on_title_focus(event, orig=self._job_title.focusInEvent):
-            orig(event)
-            self._history_dropdown.show_below(self._job_title)
-        self._job_title.focusInEvent = _on_title_focus
+        self._job_title.installEventFilter(self)
 
         # Location Row
         loc_row = QHBoxLayout()
@@ -558,12 +621,14 @@ class SearchPage(QWidget):
         self._country.setFixedHeight(40)
         self._country.addItems(["Germany", "United States", "United Kingdom", "France", "Netherlands", "Switzerland", "Austria"])
         self._style_combo(self._country)
+        self._country.setToolTip("Select the country where you want to search for leads")
         loc_row.addLayout(self._make_field(tr("search.field.country", self._language), self._country), 1)
 
         self._city = LineEdit()
         self._city.setFixedHeight(40)
         self._city.setPlaceholderText(tr("search.placeholder.city", self._language))
         self._style_input(self._city)
+        self._city.setToolTip("Target a specific city or region (e.g. 'Berlin', 'New York')")
         loc_row.addLayout(self._make_field(tr("search.field.city", self._language), self._city), 1)
         
         layout.addLayout(loc_row)
@@ -584,6 +649,7 @@ class SearchPage(QWidget):
             tr("search.offer.selbststaendigkeit", self._language)
         ])
         self._style_combo(self._offer_type)
+        self._offer_type.setToolTip("Filter by the type of job offer (Apprenticeship, Full-time, etc.)")
         offer_vbox.addLayout(self._make_field(tr("search.field.offer_type", self._language), self._offer_type))
         
         layout.addWidget(self._offer_type_container)
@@ -617,6 +683,7 @@ class SearchPage(QWidget):
         self._max_results_input.setText("100")
         self._max_results_input.setFixedSize(130, 40)
         self._style_input(self._max_results_input)
+        self._max_results_input.setToolTip("Maximum number of leads to extract in this session")
         max_col.addWidget(self._max_results_input)
         limits_row.addLayout(max_col)
 
@@ -631,6 +698,7 @@ class SearchPage(QWidget):
         self._delay_min.setText("0.5")
         self._delay_min.setFixedSize(100, 40)
         self._style_input(self._delay_min)
+        self._delay_min.setToolTip("Minimum seconds to wait between actions (prevents bans)")
         min_col.addWidget(self._delay_min)
         limits_row.addLayout(min_col)
 
@@ -642,6 +710,7 @@ class SearchPage(QWidget):
         self._delay_max.setText("0.5")
         self._delay_max.setFixedSize(100, 40)
         self._style_input(self._delay_max)
+        self._delay_max.setToolTip("Maximum seconds to wait (randomized for human-like behavior)")
         max_delay_col.addWidget(self._delay_max)
         limits_row.addLayout(max_delay_col)
         limits_row.addStretch(1)
@@ -667,6 +736,13 @@ class SearchPage(QWidget):
         
         for switch in [self._chk_emails, self._chk_headless, self._chk_latest, self._chk_robots, self._chk_refresh, self._chk_social]:
             self._interactive_widgets.append(switch)
+        
+        self._chk_emails.setToolTip("Extract email addresses from the websites found")
+        self._chk_headless.setToolTip("Run the browser invisibly (Faster)")
+        self._chk_latest.setToolTip("Only scrape the most recently posted offers")
+        self._chk_robots.setToolTip("Respect robots.txt and website policies")
+        self._chk_refresh.setToolTip("Ignore cached data and fetch everything fresh")
+        self._chk_social.setToolTip("Search for Instagram, LinkedIn, and Facebook profiles")
 
         toggles.addWidget(SearchToggleTile(tr("search.toggle.emails", self._language), self._chk_emails), 0, 0)
         toggles.addWidget(SearchToggleTile(tr("search.toggle.headless", self._language), self._chk_headless), 0, 1)
@@ -912,6 +988,13 @@ class SearchPage(QWidget):
                     if idx2 >= 0:
                         self._offer_type.setCurrentIndex(idx2)
         self._clear_validation_error()
+
+    def mousePressEvent(self, event) -> None:
+        if hasattr(self, '_job_title'):
+            self._job_title.clearFocus()
+        if hasattr(self, '_history_dropdown'):
+            self._history_dropdown.hide()
+        super().mousePressEvent(event)
 
     def lock(self) -> None:
         for widget in self._interactive_widgets:

@@ -1,14 +1,42 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 CHANGELOG = [
     {
-        "version": "1.0.2",
-        "date": "April 2026",
+        "version": "1.0.3",
+        "date": "April 3, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "Ultra-reliable search history — pops up every time you click the field"
+            },
+            {
+                "type": "improved",
+                "text": "Comprehensive Guidance — Hover tooltips added to all search and dashboard elements"
+            },
+            {
+                "type": "improved",
+                "text": "Refined Results — renamed 'PUBLISHED' column to 'BEGINN' for better apprenticeship clarity"
+            },
+            {
+                "type": "fixed",
+                "text": "Fixed Search Page initialization error (RuntimeError)"
+            },
+            {
+                "type": "fixed",
+                "text": "Resolved dashboard rendering glitches and item overlap"
+            },
+        ]
+    },
+    {
+        "version": "1.0.2",
+        "date": "April 1, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "new",
@@ -88,10 +116,44 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.2",
-        "date": "أبريل 2026",
+        "version": "1.0.3",
+        "date": "3 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "موثوقية سجل البحث — تظهر القائمة المنسدلة الآن في كل نقرة"
+            },
+            {
+                "type": "improved",
+                "text": "تعليمات توضيحية شاملة (Tooltips) في جميع أنحاء الصفحة"
+            },
+            {
+                "type": "improved",
+                "text": "تحسين النتائج — تغيير اسم عمود 'تاريخ النشر' إلى 'تاريخ البدء' (Beginn)"
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح خطأ التهيئة (RuntimeError) في صفحة البحث"
+            },
+            {
+                "type": "fixed",
+                "text": "معالجة أخطاء عرض لوحة التحكم وتداخل العناصر"
+            },
+        ]
+    },
+    {
+        "version": "1.0.2",
+        "date": "أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",
