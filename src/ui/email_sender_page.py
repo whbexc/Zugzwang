@@ -1248,48 +1248,44 @@ class EmailSenderPage(QWidget):
 
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
+            
+            # ── Robust Sending Logic ──
             try:
                 msg = self._build_message(rec)
                 if self._stop_requested: break
                 
-                # Attempt to send with retry logic for disconnections
-                max_retries = 1
-                for attempt in range(max_retries + 1):
-                    try:
-                        if not self._active_server:
-                             raise smtplib.SMTPServerDisconnected("No active connection")
-                        self._ensure_smtp_connection()
-                        self._active_server.send_message(msg)
-                        sent += 1
-                        self._successful_emails.append(rec)
-                        self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
-                        break # Success
-                    except (smtplib.SMTPServerDisconnected, ConnectionError) as e:
-                        if attempt < max_retries and not self._stop_requested:
-                            self._log(f"Connection lost for {rec}. Reconnecting...", "WARNING")
-                            try:
-                                if self._active_server:
-                                    try: self._active_server.close()
-                                    except: pass
-                                self._active_server = self._create_smtp_connection()
-                                self._log("Reconnected successfully.", "SUCCESS")
-                                continue # Retry sending
-                            except Exception as re_err:
-                                self._log(f"Reconnection failed: {re_err}", "ERROR")
-                                raise e # Re-raise original disconnection error if reconnection fails
-                        else:
-                            raise e
+                # Proactively ensure connection BEFORE sending
+                try:
+                    self._ensure_smtp_connection()
+                except (smtplib.SMTPServerDisconnected, socket.error):
+                    self._log(f"Connection lost. Reconnecting for {rec}...", "WARNING")
+                    if self._active_server:
+                        try: self._active_server.close()
+                        except: pass
+                    time.sleep(2) # Prevent rapid-fire reconnection
+                    self._active_server = self._create_smtp_connection()
+                    self._log("Reconnected successfully.", "SUCCESS")
+
+                # Actual Transmission
+                self._active_server.send_message(msg)
+                sent += 1
+                self._successful_emails.append(rec)
+                self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
+
             except Exception as e:
                 if self._stop_requested: break
+                
+                # If we fail here, the connection might be truly dead or the recipient is invalid
                 failed += 1
                 self._error_vault[rec] = str(e)
-                # Shorten error for log
                 err_short = str(e).splitlines()[0][:60] + "..." if len(str(e)) > 60 else str(e)
-                # Clean up known cryptic messages
-                if "please run connect() first" in err_short:
-                    err_short = "Connection lost (Please check SMTP settings or network)"
                 
-                self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
+                # Check if it was a disconnection we couldn't recover from in time
+                if "Server not connected" in err_short or "closed" in err_short.lower():
+                    self._log(f"Connection error for {rec}: {err_short}. Re-initializing for next recipient.", "ERROR")
+                    self._active_server = None # Force re-init on next loop
+                else:
+                    self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
             
             self._signals.progress.emit(i+1, total)
             if i < total - 1 and not self._stop_requested:
@@ -1365,7 +1361,7 @@ class EmailSenderPage(QWidget):
         except ValueError:
             raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
             
-        timeout = 30
+        timeout = 60
         try:
             if self._ssl_switch.isChecked():
                 self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
@@ -1407,16 +1403,20 @@ class EmailSenderPage(QWidget):
             raise Exception(f"{err_msg}")
 
     def _ensure_smtp_connection(self):
+        """Verify the connection is still alive, otherwise raise SMTPServerDisconnected."""
         if not self._active_server:
             raise smtplib.SMTPServerDisconnected("No active connection")
         try:
+            # noop() is the standard way to check if the session is still valid
             status = self._active_server.noop()
-            if isinstance(status, tuple) and status[0] and int(status[0]) >= 400:
-                raise smtplib.SMTPServerDisconnected(f"SMTP NOOP failed with status {status[0]}")
-        except smtplib.SMTPServerDisconnected:
-            raise
-        except Exception as e:
+            if not (isinstance(status, tuple) and status[0] and 200 <= int(status[0]) < 400):
+                raise smtplib.SMTPServerDisconnected(f"SMTP session invalid (status {status[0]})")
+        except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError) as e:
+            # Explicitly catch socket and SSL errors as they imply a dead connection
             raise smtplib.SMTPServerDisconnected(str(e))
+        except Exception as e:
+            # Fallback for other potential issues
+            raise smtplib.SMTPServerDisconnected(f"Session check failed: {e}")
 
     def _save_fields(self):
         if getattr(self, '_is_restoring', False):

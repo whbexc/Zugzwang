@@ -162,6 +162,16 @@ class ResultsTableModel(QStandardItemModel):
         self._record_index_by_id.clear()
         self.removeRows(0, self.rowCount())
 
+    def remove_records_by_indices(self, rows: list[int]) -> None:
+        rows = sorted(rows, reverse=True)
+        for row in rows:
+            if 0 <= row < len(self._records):
+                record = self._records.pop(row)
+                if record.id in self._record_index_by_id:
+                    del self._record_index_by_id[record.id]
+                self.removeRow(row)
+        self._record_index_by_id = {rec.id: i for i, rec in enumerate(self._records)}
+
     def _replace_row(self, row: int, record: LeadRecord) -> None:
         for col, item in enumerate(self._build_row_items(record)):
             self.setItem(row, col, item)
@@ -1111,7 +1121,7 @@ class ResultsPage(QWidget):
         self._table.setModel(self._proxy)
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setSortingEnabled(True)
         self._table.verticalHeader().hide()
         self._table.verticalHeader().setDefaultSectionSize(24)
@@ -1476,19 +1486,34 @@ class ResultsPage(QWidget):
 
         menu = RoundMenu(parent=self)
         
-        # Copy Email
-        if record.email:
-            copy_action = Action(FluentIcon.COPY, tr("results.menu.copy_email", self._language), self)
-            copy_action.triggered.connect(lambda: QGuiApplication.clipboard().setText(record.email))
-            menu.addAction(copy_action)
-            
-        # Visit Website
-        if record.website or record.source_url:
-            target_url = record.website or record.source_url
-            visit_action = Action(FluentIcon.GLOBE, tr("results.menu.visit_website", self._language), self)
-            from PySide6.QtGui import QDesktopServices, QUrl
-            visit_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
-            menu.addAction(visit_action)
+        selected_indexes = self._table.selectionModel().selectedRows()
+        
+        # Copy Clicked Cell Value
+        cell_data = self._table.model().data(index)
+        if cell_data and str(cell_data) != "—":
+            copy_cell_action = Action(FluentIcon.COPY, tr("results.menu.copy_cell", self._language), self)
+            copy_cell_action.triggered.connect(lambda: QGuiApplication.clipboard().setText(str(cell_data)))
+            menu.addAction(copy_cell_action)
+
+        # Copy Selected Records Data
+        if len(selected_indexes) >= 1:
+            copy_sel_action = Action(FluentIcon.COPY, tr("results.menu.copy_selected_rows", self._language).format(count=len(selected_indexes)), self)
+            copy_sel_action.triggered.connect(self._copy_selected_records)
+            menu.addAction(copy_sel_action)
+
+        menu.addSeparator()
+
+        # Remove Selection
+        if selected_indexes:
+            remove_sel_action = Action(FluentIcon.DELETE, tr("results.menu.remove_selection", self._language).format(count=len(selected_indexes)), self)
+            remove_sel_action.triggered.connect(self._remove_selection)
+            menu.addAction(remove_sel_action)
+
+        # Remove All
+        if self._model.rowCount() > 0:
+            remove_all_action = Action(FluentIcon.DELETE, tr("results.menu.remove_all", self._language), self)
+            remove_all_action.triggered.connect(self._remove_all_records)
+            menu.addAction(remove_all_action)
             
         menu.addSeparator()
         
@@ -1498,6 +1523,41 @@ class ResultsPage(QWidget):
         menu.addAction(copy_all_action)
         
         menu.exec(QCursor.pos(), aniType=MenuAnimationType.DROP_DOWN)
+
+    def _copy_selected_records(self):
+        selected = self._table.selectionModel().selectedRows()
+        if not selected:
+            return
+        lines = []
+        for index in selected:
+            source_row = self._proxy.mapToSource(index).row()
+            record = self._model.get_record(source_row)
+            if record:
+                fields = [
+                    record.company_name or "",
+                    record.job_title or record.category or "",
+                    record.email or "",
+                    str(record.publication_date) if record.publication_date else "",
+                ]
+                lines.append(" | ".join(filter(bool, fields)))
+        if lines:
+            QGuiApplication.clipboard().setText("\n".join(lines))
+            from qfluentwidgets import InfoBar
+            InfoBar.success(tr("results.copied", self._language), tr("results.copied.body", self._language).format(count=len(lines)), duration=3000, parent=self)
+
+    def _remove_selection(self):
+        selected = self._table.selectionModel().selectedRows()
+        if not selected:
+            return
+        source_rows = sorted([self._proxy.mapToSource(i).row() for i in selected], reverse=True)
+        self._model.remove_records_by_indices(source_rows)
+        self._clear_selection()
+        self._update_count_label()
+
+    def _remove_all_records(self):
+        self._model.clear_records()
+        self._clear_selection()
+        self._update_count_label()
 
     def _copy_all_emails_in_view(self):
         records = self._get_visible_records()

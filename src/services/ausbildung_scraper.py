@@ -36,15 +36,20 @@ class AusbildungScraper:
     async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
         logger.info(f"[{self.job_id}] Ausbildung scrape: '{self.config.job_title}' in '{self.config.city or self.config.country}'")
         
-        # Build search URL
-        query = self.config.job_title.replace(" ", "%20")
+        import urllib.parse
+        
+        # Build search URL using the new working format
+        query = urllib.parse.quote(self.config.job_title)
         
         location_val = self.config.city or ""
         if not location_val and self.config.country and self.config.country != "Germany":
             location_val = self.config.country
             
-        loc = location_val.replace(" ", "%20")
-        url = f"https://www.ausbildung.de/suche/?suchbegriff={query}&ort={loc}&umkreis=50"
+        if location_val:
+            loc = urllib.parse.quote(location_val)
+            url = f"https://www.ausbildung.de/suche/?form_main_search[what]={query}&form_main_search[where]={loc}&form_main_search[radius]=50"
+        else:
+            url = f"https://www.ausbildung.de/suche/?form_main_search[what]={query}"
         
         event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}'", level="INFO")
         

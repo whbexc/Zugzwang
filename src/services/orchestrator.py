@@ -270,8 +270,9 @@ class ScrapingOrchestrator:
                 try:
                     auto_save_path = str(get_data_dir() / self._export.generate_filename("job", "db"))
                     self._export.save_project(job, auto_save_path)
-                    self._export.save_project(job, str(get_memory_db_path()))
-                    logger.info(f"Auto-saved project to {auto_save_path}")
+                    # Use central persistence method to emit DB_UPDATED event
+                    self.persist_current_job()
+                    logger.info(f"Auto-saved project and updated global memory")
                 except Exception as e:
                     logger.warning(f"Auto-save failed: {e}")
 

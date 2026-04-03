@@ -27,7 +27,8 @@ from qfluentwidgets import (
     FluentIcon,
     IconWidget,
     PrimaryPushButton,
-    PushButton
+    PushButton,
+    TransparentToolButton
 )
 
 from ..core.events import event_bus
@@ -183,6 +184,7 @@ class JobTableRow(QFrame):
         icon_widget = IconWidget(icon_type)
         icon_widget.setFixedSize(20, 20)
         icon_widget.setStyleSheet(f"color: {icon_color}; background: transparent; border: none;")
+        icon_widget.setToolTip("Platform source for this search")
         layout.addWidget(icon_widget, 0, Qt.AlignVCenter)
 
         text_col = QVBoxLayout()
@@ -193,6 +195,7 @@ class JobTableRow(QFrame):
         title = QLabel(job.config.job_title or job.query_label or "Untitled Search")
         title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: #FFFFFF; background: transparent; border: none;")
         title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        title.setToolTip("Your defined search query or job title")
         text_col.addWidget(title)
 
         started = str(getattr(job, "started_at", "") or tr("dashboard.job.time.now", self._language))
@@ -203,6 +206,7 @@ class JobTableRow(QFrame):
         meta = QLabel(meta_txt)
         meta.setStyleSheet(f"color: #8E8E93; font-size: 11px; background: transparent; border: none;")
         meta.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        meta.setToolTip(f"Found {job.total_found} total records\\nEmails: {job.total_emails}\\nWebsites: {job.total_websites}\\nErrors: {job.total_errors}")
         text_col.addWidget(meta)
         layout.addLayout(text_col, 1)
 
@@ -238,34 +242,16 @@ class JobTableRow(QFrame):
                 padding: 4px 8px;
             }}
         """)
+        badge_label.setToolTip(f"Current scraping status: {status}")
         layout.addWidget(badge_label, 0, Qt.AlignVCenter)
 
         # RE-RUN button
-        from PySide6.QtWidgets import QPushButton as _QPB2
-        rerun_btn = _QPB2(" RE-RUN")
-        rerun_btn.setFixedSize(88, 30)
+        # RE-RUN button
+        rerun_btn = TransparentToolButton(FluentIcon.HISTORY)
+        rerun_btn.setFixedSize(36, 36)
+        rerun_btn.setIconSize(QSize(18, 18))
         rerun_btn.setCursor(Qt.PointingHandCursor)
-        
-        # Add Refresh icon
-        btn_layout = QHBoxLayout(rerun_btn)
-        btn_layout.setContentsMargins(8, 0, 8, 0)
-        btn_layout.setSpacing(4)
-        r_icon = IconWidget(FluentIcon.HISTORY, rerun_btn)
-        r_icon.setFixedSize(12, 12)
-        r_icon.setStyleSheet("background: transparent; border: none; color: #8E8E93;")
-        btn_layout.addWidget(r_icon, 0, Qt.AlignVCenter)
-        btn_layout.addStretch()
-
-        rerun_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px; color: #8E8E93;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 11px; font-weight: 600;
-                text-align: right; padding-right: 10px;
-            }
-            QPushButton:hover { background: rgba(255, 255, 255, 0.1); color: #FFFFFF; border-color: rgba(255, 255, 255, 0.2); }
-        """)
+        rerun_btn.setToolTip("Click to run this search again with the same parameters")
         rerun_btn.clicked.connect(lambda: self.rerun_requested.emit(self._job.config))
         layout.addWidget(rerun_btn, 0, Qt.AlignVCenter)
 
@@ -572,6 +558,13 @@ class DashboardPage(QWidget):
             self._record_activity(tr("dashboard.activity.job_failed", self._language).format(job=job_id[:8], error=error[:60]))
         elif job_id:
             self._record_activity(tr("dashboard.activity.job_updated", self._language).format(job=job_id[:8]))
+        
+        # Ensure the current job is added to the historical list if not present
+        active = orchestrator.current_job
+        if active and active.id == job_id:
+            if active not in self._jobs:
+                self._jobs.insert(0, active)
+        
         QTimer.singleShot(0, self._refresh_stats)
         QTimer.singleShot(0, self._refresh_job_list)
 
@@ -611,16 +604,11 @@ class DashboardPage(QWidget):
         self._refresh_stats()
 
     def _totals(self):
-        # Base totals from past jobs OR saved summary (fallback for startup)
-        total_leads = sum(j.total_found for j in self._jobs)
-        total_emails = sum(j.total_emails for j in self._jobs)
-        total_websites = sum(j.total_websites for j in self._jobs)
-        
-        # If no jobs in session, use the totals from app_memory provided by MainWindow
-        if not self._jobs:
-            total_leads = self._saved_summary[0]
-            total_emails = self._saved_summary[1]
-            total_websites = self._saved_summary[2]
+        # Always use the global database metrics from _saved_summary as the base
+        # MainWindow provides this via load_summary from job_memory.db
+        total_leads = self._saved_summary[0]
+        total_emails = self._saved_summary[1]
+        total_websites = self._saved_summary[2]
         
         # Include active job from orchestrator if not already in self._jobs
         active_job = orchestrator.current_job
@@ -688,7 +676,11 @@ class DashboardPage(QWidget):
             self.jobsFrame.addWidget(empty)
             return
 
-        recent = list(reversed(self._jobs[-4:])) # Showing up to 4 recent jobs
+        # Sort by completion date or creation date if not completed
+        self._jobs.sort(key=lambda j: j.completed_at or j.created_at, reverse=True)
+        
+        # Take the top 4 (most recent)
+        recent = self._jobs[:4]
         for job in recent:
             row = JobTableRow(job, self._language)
             row.rerun_requested.connect(self.rerun_requested.emit)
