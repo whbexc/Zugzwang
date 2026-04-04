@@ -1265,50 +1265,22 @@ class JobsucheScraper:
         except Exception:
             pass
 
+        combined_selector = ", ".join(selectors)
+
         for attempt in range(2):
-            for selector in selectors:
+            try:
+                # Wait for at least one of the panel elements to become visible
+                locator = page.locator(combined_selector).first
+                await locator.wait_for(state='visible', timeout=1500)
                 try:
-                    if selector in {
-                        '#jobdetails-kontaktdaten-block',
-                        '#jobdetails-kontaktdaten-container',
-                        '[id*="jobdetails-kontaktdaten"]',
-                        'text=Informationen zur Bewerbung',
-                        'text=Bewerben Sie sich',
-                        'text=Kontakt',
-                    }:
-                        has_real_contact_fields = await page.evaluate(
-                            """() => {
-                                const contactSelectors = [
-                                    '#detail-bewerbung-mail',
-                                    'a#detail-bewerbung-mail',
-                                    '#detail-bewerbung-telefon-Telefon',
-                                    '#detail-bewerbung-url',
-                                    '#detail-bewerbung-adresse',
-                                    '[id*="detail-bewerbung"]'
-                                ];
-                                return contactSelectors.some((sel) => {
-                                    const el = document.querySelector(sel);
-                                    if (!el) return false;
-                                    const text = (el.textContent || '').trim();
-                                    const href = el.getAttribute?.('href') || '';
-                                    return Boolean(text || href);
-                                });
-                            }"""
-                        )
-                        if not has_real_contact_fields:
-                            continue
-                    locator = page.locator(selector).first
-                    if await locator.count() > 0:
-                        try:
-                            await locator.scroll_into_view_if_needed(timeout=800)
-                        except Exception:
-                            pass
-                        await locator.wait_for(state='visible', timeout=350)
-                        logger.info(f"[{self.job_id}] Application panel ready via {selector}")
-                        return True
+                    await locator.scroll_into_view_if_needed(timeout=500)
                 except Exception:
-                    continue
-            await self._reveal_application_panel(page, attempt)
+                    pass
+                logger.debug(f"[{self.job_id}] Application panel ready via combined selector")
+                return True
+            except Exception:
+                await self._reveal_application_panel(page, attempt)
+        
         return False
 
     async def _reveal_application_panel(self, page: Page, attempt: int) -> None:
@@ -1546,6 +1518,12 @@ class JobsucheScraper:
                     value = (await link.inner_text(timeout=2000)).strip()
                     if value and '@' in value:
                         return value.lower()
+                
+                panel_text = await panel.inner_text(timeout=2000)
+                if panel_text:
+                    emails = deduplicate_emails(extract_emails_from_html(panel_text))
+                    if emails:
+                        return emails[0]
             except Exception:
                 continue
         try:
@@ -1553,6 +1531,10 @@ class JobsucheScraper:
             match = re.search(r"mailto:([^\"'?<>\s]+)", panel_html, flags=re.IGNORECASE)
             if match:
                 return match.group(1).strip().lower()
+            
+            emails = deduplicate_emails(extract_emails_from_html(panel_html))
+            if emails:
+                return emails[0]
         except Exception:
             pass
         for selector in ('#detail-bewerbung-mail', 'a#detail-bewerbung-mail'):
@@ -2225,14 +2207,15 @@ class JobsucheScraper:
                 const h1 = document.querySelector('h1');
                 if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
 
-                if (document.querySelector('iframe[src*="captcha"]')) return true;
-                if (document.querySelector('iframe[src*="geo.captcha"]')) return true;
-                if (document.querySelector('#datadome-slider')) return true;
-                if (document.querySelector('#captchaForm')) return true;
-                if (document.querySelector('#kontaktdaten-captcha-input')) return true;
-                if (document.querySelector('#kontaktdaten-captcha-absenden-button')) return true;
-                if (document.querySelector('#jobdetails-kontaktdaten-block #captchaForm')) return true;
-                if (document.querySelector('[id*="kontaktdaten-captcha"]')) return true;
+                const isVis = (el) => el && (el.offsetWidth > 0 || el.offsetHeight > 0);
+                if (isVis(document.querySelector('iframe[src*="captcha"]'))) return true;
+                if (isVis(document.querySelector('iframe[src*="geo.captcha"]'))) return true;
+                if (isVis(document.querySelector('#datadome-slider'))) return true;
+                if (isVis(document.querySelector('#captchaForm'))) return true;
+                if (isVis(document.querySelector('#kontaktdaten-captcha-input'))) return true;
+                if (isVis(document.querySelector('#kontaktdaten-captcha-absenden-button'))) return true;
+                if (isVis(document.querySelector('#jobdetails-kontaktdaten-block #captchaForm'))) return true;
+                if (isVis(document.querySelector('[id*="kontaktdaten-captcha"]'))) return true;
 
                 if (text.includes('ich bin kein roboter')) return true;
                 if (text.includes('verify you are human')) return true;

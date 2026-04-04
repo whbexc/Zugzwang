@@ -44,6 +44,13 @@ class ScrapingOrchestrator:
         self._export = ExportService()
         self._memory_lock = threading.Lock()
         self._known_record_ids: set[str] = set()
+        self._app_memory_records: list[LeadRecord] = []
+        
+        # Load existing history from disk on startup
+        try:
+            self.load_app_memory()
+        except Exception as e:
+            logger.warning(f"Initial app memory load failed: {e}")
 
     @property
     def is_running(self) -> bool:
@@ -147,11 +154,13 @@ class ScrapingOrchestrator:
 
         with self._memory_lock:
             self._known_record_ids = {record.id for record in records}
+            self._app_memory_records = list(records)
         return records
 
     def clear_app_memory(self) -> None:
         with self._memory_lock:
             self._known_record_ids.clear()
+            self._app_memory_records.clear()
 
         memory_path = Path(get_memory_db_path())
         if memory_path.exists():
@@ -159,13 +168,26 @@ class ScrapingOrchestrator:
 
         event_bus.emit(event_bus.DB_UPDATED, records=[])
 
+    def get_app_memory_records(self) -> list[LeadRecord]:
+        """Return a thread-safe copy of all historical records."""
+        with self._memory_lock:
+            return list(self._app_memory_records)
+
     def persist_current_job(self) -> None:
-        """Persist the current in-memory job snapshot to app memory."""
-        if not self._current_job:
-            return
+        """Persist the cumulative in-memory application records over time."""
         try:
-            self._export.save_project(self._current_job, str(get_memory_db_path()))
-            event_bus.emit(event_bus.DB_UPDATED, records=list(self._current_job.results))
+            from ..core.models import ScrapingJob, ScrapingStatus
+            
+            with self._memory_lock:
+                all_records = list(self._app_memory_records)
+
+            dummy_job = ScrapingJob(
+                config=self._current_job.config if self._current_job else None,
+                results=all_records,
+                status=ScrapingStatus.COMPLETED
+            )
+            self._export.save_project(dummy_job, str(get_memory_db_path()))
+            event_bus.emit(event_bus.DB_UPDATED, records=all_records)
         except Exception as e:
             logger.warning(f"Could not persist current job snapshot: {e}")
 
@@ -222,20 +244,24 @@ class ScrapingOrchestrator:
                 record = record.normalize()
                 record.id = record.stable_id()
                 with self._memory_lock:
-                    if record.id in self._known_record_ids or record.id in current_job_ids:
-                        logger.info(
-                            f"Job {job.id}: skipped duplicate record "
-                            f"'{record.company_name or record.email}' (already captured in a previous run)"
-                        )
+                    if record.id in current_job_ids:
+                        # Skip strictly internal duplicates to prevent UI jitter
+                        continue
+                    
+                    is_new_globally = record.id not in self._known_record_ids
+                    if is_new_globally:
+                        self._known_record_ids.add(record.id)
+                        self._app_memory_records.append(record)
+                    else:
+                        logger.debug(f"Job {job.id}: Lead {record.id} already exists in global library.")
                         event_bus.emit(
                             event_bus.JOB_LOG,
                             job_id=job.id,
-                            message=f"⏭ Skipped (already captured): {record.company_name or record.email}",
+                            message=f"🔄 Already in library: {record.company_name or record.email}",
                             level="INFO",
                         )
-                        continue
+                    
                     current_job_ids.add(record.id)
-                    self._known_record_ids.add(record.id)
 
                 job.results.append(record)
                 job._update_stats()

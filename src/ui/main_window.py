@@ -775,15 +775,15 @@ class MainWindow(FramelessWindow):
         threading.Thread(target=run_it, daemon=True).start()
 
     def _sync_results_page(self, results_page: QWidget, fallback_records=None) -> None:
-        """Prefer live in-memory job results so the Results page doesn't miss enriched rows."""
+        """Sync full historical records from the orchestrator to the Results page."""
         records = []
-        current_job = getattr(orchestrator, "current_job", None)
-        if current_job is not None:
-            records = list(getattr(current_job, "results", []) or [])
-        elif fallback_records:
+        
+        # Always prefer the full cumulative memory from the orchestrator
+        records = orchestrator.get_app_memory_records()
+        
+        # If orchestrator memory is empty but we have fallback records (e.g. from a specific project load)
+        if not records and fallback_records:
             records = list(fallback_records)
-        else:
-            records = orchestrator.load_app_memory()
 
         if records:
             results_page.load_records(records)

@@ -6,6 +6,9 @@ Handles hardware fingerprinting and license validation.
 import hashlib
 import uuid
 import os
+import json
+import threading
+import urllib.request
 from datetime import datetime
 from .config import config_manager
 
@@ -16,6 +19,66 @@ _SALT_HASH       = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9
 
 
 MAX_FREE_TRIAL_SCRAPS = 20
+
+class RemoteSecurityState:
+    kill_switch = False
+    banned_machine_ids = set()
+    banned_license_keys = set()
+    _fetch_started = False
+
+    @classmethod
+    def start_fetch(cls):
+        if cls._fetch_started:
+            return
+        cls._fetch_started = True
+
+        def _fetch():
+            # URL to raw JSON file (e.g. GitHub Gist or your own server)
+            # Format: {"kill_switch": false, "banned_machine_ids": ["..."], "banned_license_keys": ["..."]}
+            url = "YOUR_JSON_URL_HERE"
+            if not url or url == "YOUR_JSON_URL_HERE":
+                return
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode())
+                    cls.kill_switch = data.get("kill_switch", False)
+                    cls.banned_machine_ids = set(data.get("banned_machine_ids", []))
+                    cls.banned_license_keys = set(data.get("banned_license_keys", []))
+            except Exception:
+                pass
+
+        def _ping_discord():
+            webhook_url = "YOUR_DISCORD_WEBHOOK_URL_HERE"
+            if not webhook_url or webhook_url == "YOUR_DISCORD_WEBHOOK_URL_HERE":
+                return
+            try:
+                machine_id = LicenseManager.get_machine_id()
+                license_key = config_manager.settings.license_key
+                is_activated = config_manager.settings.is_activated
+                payload = {
+                    "content": None,
+                    "embeds": [{
+                        "title": "ZUGZWANG App Started",
+                        "color": 5814783,
+                        "fields": [
+                            {"name": "Machine ID", "value": f"`{machine_id}`", "inline": True},
+                            {"name": "License Key", "value": f"`{license_key or 'None'}`", "inline": True},
+                            {"name": "Activated", "value": str(is_activated), "inline": True}
+                        ]
+                    }]
+                }
+                req = urllib.request.Request(
+                    webhook_url,
+                    data=json.dumps(payload).encode(),
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+
+        threading.Thread(target=_fetch, daemon=True).start()
+        threading.Thread(target=_ping_discord, daemon=True).start()
 
 class LicenseManager:
     """
@@ -54,6 +117,9 @@ class LicenseManager:
         if not key or len(key) < 5:
             return False
             
+        if LicenseManager.is_banned(key):
+            return False
+            
         # Master Bypass — compare SHA-256 hash of input, never the key itself
         if hashlib.sha256(key.strip().encode()).hexdigest() == _MASTER_KEY_HASH:
             return True
@@ -68,9 +134,21 @@ class LicenseManager:
         return clean_key == clean_expected
 
     @staticmethod
+    def is_banned(key: str = "") -> bool:
+        if RemoteSecurityState.kill_switch:
+            return True
+        if LicenseManager.get_machine_id() in RemoteSecurityState.banned_machine_ids:
+            return True
+        if key and key in RemoteSecurityState.banned_license_keys:
+            return True
+        return False
+
+    @staticmethod
     def is_active() -> bool:
         """Helper to check current activation state."""
         settings = config_manager.settings
+        if LicenseManager.is_banned(settings.license_key):
+            return False
         if settings.is_activated:
             # Re-verify locally to prevent simple JSON manipulation
             return LicenseManager.validate_license(settings.license_key)
@@ -124,6 +202,8 @@ class LicenseManager:
     @staticmethod
     def can_extract() -> bool:
         """Checks if the user is allowed to extract another lead."""
+        if LicenseManager.is_banned(config_manager.settings.license_key):
+            return False
         if LicenseManager.is_active():
             return True
             
@@ -136,3 +216,6 @@ class LicenseManager:
         if not LicenseManager.is_active():
             current_count = config_manager.settings.trial_scraps_count
             config_manager.update(trial_scraps_count=current_count + 1)
+
+# Initialize remote security monitoring on import
+RemoteSecurityState.start_fetch()

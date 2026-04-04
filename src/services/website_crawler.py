@@ -52,6 +52,7 @@ class WebsiteEmailCrawler:
         Attempt to find an email address for a given website.
         Returns (email, source_page_url, social_dict).
         """
+        import asyncio
         website = normalize_website(website)
         cache_key = self._cache_key(website, company_name)
         socials = {}
@@ -67,35 +68,75 @@ class WebsiteEmailCrawler:
                 return cached[0], cached[1], {}
 
         discovery_paths = self.settings.email_discovery_paths
-        candidate_urls = self._build_candidate_urls(website, discovery_paths)
+        candidate_urls = self._build_candidate_urls(website, discovery_paths)[:self.max_pages]
         logger.info(
-            f"[{job_id}] Email crawl start for {website} across {min(len(candidate_urls), self.max_pages)} pages"
+            f"[{job_id}] Email crawl start for {website} across {len(candidate_urls)} pages"
         )
 
+        async def fast_check(url: str):
+            if self.settings.default_respect_robots:
+                if not await self._is_allowed_by_robots(url):
+                    return None
+            logger.debug(f"[{job_id}] Fast fetch checking {url}")
+            html = await self.session.fetch_url_content_fast(
+                url, timeout=self._timeout_for_url(url), ignore_rate_limit=True
+            )
+            if html:
+                emails = self._extract_priority_emails(html)
+                if not emails:
+                    emails = deduplicate_emails(extract_emails_from_html(html))
+                soc = self._extract_socials(html) if extract_social else {}
+                if emails or soc:
+                    return html, emails, url, soc
+            return None
+
+        # Phase 1: Fire all fast fetches concurrently, ignoring global Jobsuche rate limits
+        results = await asyncio.gather(*(fast_check(url) for url in candidate_urls), return_exceptions=True)
+
+        best_email = None
+        best_source = None
+        
+        for res in results:
+            if isinstance(res, tuple) and res is not None:
+                _, emails, url, soc = res
+                if soc:
+                    socials.update(soc)
+                if emails and not best_email:
+                    best_email = emails[0]
+                    best_source = url
+
+        if best_email:
+            self._result_cache[cache_key] = (best_email, best_source)
+            logger.info(f"[{job_id}] Found email {best_email} at {best_source}")
+            return best_email, best_source, socials
+
+        # Phase 2: If fast fetches failed completely, try Playwright on the homepage as a final fallback
+        logger.debug(f"[{job_id}] Fast fetches failed. Falling back to Playwright for {website}")
         page = await self.session.new_page()
         try:
-            for index, url in enumerate(candidate_urls[: self.max_pages]):
-                logger.info(f"[{job_id}] Email crawl checking {url}")
-                html, emails, source, found_socials = await self._crawl_page(
-                    page,
-                    url,
-                    job_id,
-                    prefer_fast_fetch=index > 0,
-                    extract_social=extract_social,
+            url = candidate_urls[0] if candidate_urls else website
+            if not self.settings.default_respect_robots or await self._is_allowed_by_robots(url):
+                success = await self.session.navigate(
+                    page, url, timeout=self._timeout_for_url(url), retries=1, ignore_rate_limit=True
                 )
-                if found_socials:
-                    socials.update(found_socials)
-
-                if emails:
-                    best = emails[0]  # Already prioritized by deduplicate_emails
-                    self._result_cache[cache_key] = (best, source)
-                    logger.info(f"[{job_id}] Found email {best} at {source}")
-                    return best, source, socials                
-                # Performance Circuit Breaker: If the home page (index 0) fails to load entirely,
-                # don't waste time checking sub-paths like /contact or /impressum on a dead domain.
-                if index == 0 and not html and not emails:
-                    logger.warning(f"[{job_id}] Domain {website} appears unreachable. Circuit breaker triggered.")
-                    break
+                if success:
+                    try:
+                        text = await page.inner_text("body", timeout=5000)
+                    except Exception:
+                        text = ""
+                    emails = self._extract_priority_emails(text)
+                    if not emails:
+                        emails = deduplicate_emails(extract_emails_from_text(text))
+                    if not emails:
+                        html = await self.session.get_page_content(page)
+                        emails = self._extract_priority_emails(html)
+                        if not emails:
+                            emails = deduplicate_emails(extract_emails_from_html(html))
+                    
+                    if emails:
+                        best_email = emails[0]
+                        self._result_cache[cache_key] = (best_email, url)
+                        return best_email, url, socials
         finally:
             try:
                 await page.close()

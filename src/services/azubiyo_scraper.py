@@ -230,22 +230,26 @@ class AzubiyoScraper:
             return None
         finally:
             if detail_page:
-                await detail_page.close()
-            if not email and self.config.scrape_emails:
-                return None
-                
-            record = LeadRecord(
-                source_type=SourceType.AZUBIYO,
-                source_url=url,
-                search_query=self.config.job_title,
-                city=city,
-                postal_code=postal_code,
-                company_name=company_name,
-                address=address,
-                phone=phone,
-                email=email,
-                contact_person="",
-                job_title=job_title,
-            ).normalize()
+                try:
+                    await detail_page.close()
+                except:
+                    pass
+
+        if not email and self.config.scrape_emails:
+            return None
             
-            return record
+        record = LeadRecord(
+            source_type=SourceType.AZUBIYO,
+            source_url=url,
+            search_query=self.config.job_title,
+            city=city,
+            postal_code=postal_code,
+            company_name=company_name,
+            address=address,
+            phone=phone,
+            email=email,
+            contact_person="",
+            job_title=job_title,
+        ).normalize()
+        
+        return record

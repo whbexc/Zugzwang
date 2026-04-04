@@ -73,7 +73,7 @@ class AubiPlusScraper:
                         # Use JS click to bypass interception
                         await btn.evaluate("el => el.click()")
                         logger.debug(f"[{self.job_id}] Cookie modal dismissed with: {sel}")
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(0.5)
                         # Verify modal is gone
                         modal_gone = await page.query_selector("#cookie-manager.show")
                         if not modal_gone:
@@ -117,7 +117,7 @@ class AubiPlusScraper:
             await self._dismiss_cookie_modal(page)
 
             # Wait for page to settle after cookie dismissal
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
 
             # Step 1: Input search parameters
             location_query = self.config.city
@@ -158,7 +158,7 @@ class AubiPlusScraper:
                 loc = (location_query or "").replace(' ', '+')
                 fallback_url = f"https://www.aubi-plus.de/suchmaschine/suche/?what={kw}&where={loc}"
                 await self.session.navigate(page, fallback_url, wait_until="domcontentloaded")
-                await asyncio.sleep(3)
+                await asyncio.sleep(0.3)
                 logger.info(f"[{self.job_id}] Fallback URL: {page.url}")
 
             # Replaced UI click filtering with direct URL parameters to speed up search
@@ -237,7 +237,7 @@ class AubiPlusScraper:
                 logger.error(f"[{self.job_id}] Failed to load search results page")
                 return
             # Wait for results to load
-            await asyncio.sleep(4)
+            await asyncio.sleep(0.3)
 
             # Debug: log what's actually on the page
             page_url = page.url
@@ -382,7 +382,7 @@ class AubiPlusScraper:
                         yield record
 
                     # Polite delay between batches — mirrors extension's 1000ms sleep
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.3)
                 
                 if self._cancelled or yielded_count >= self.config.max_results:
                     break
@@ -391,7 +391,7 @@ class AubiPlusScraper:
                 # Aubi-Plus uses a.page-link with href containing seite=N
                 # The '>' arrow is the last a.page-link on the page.
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.5)
 
                 next_page_url = await page.evaluate("""
                     () => {
@@ -432,7 +432,7 @@ class AubiPlusScraper:
                     success = await self.session.navigate(page, next_page_url, wait_until="domcontentloaded")
                     if not success:
                         break
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
                     continue
 
                 logger.info(f"[{self.job_id}] No more pages available.")
@@ -629,7 +629,7 @@ class AubiPlusScraper:
 
             # Dismiss cookie modal if it appears
             await self._dismiss_cookie_modal(detail_page)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.3)
 
             # Find "E-Mail anzeigen" — exact text from screenshot
             reveal_el = None
@@ -655,7 +655,7 @@ class AubiPlusScraper:
 
             # Click and wait for JS to inject the mailto
             await reveal_el.evaluate("el => el.click()")
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
 
             # Read revealed email — check mailto links first
             for mail_sel in ["a[href^='mailto:']", "#emailbewerbung"]:

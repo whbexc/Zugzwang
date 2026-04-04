@@ -430,7 +430,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.3"
+    app_version: str = "1.0.4"
 
     # Free Trial Tracking
     trial_scraps_count: int = 0

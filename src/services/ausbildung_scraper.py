@@ -38,20 +38,20 @@ class AusbildungScraper:
         
         import urllib.parse
         
-        # Build search URL using the new working format
-        query = urllib.parse.quote(self.config.job_title)
-        
         location_val = self.config.city or ""
         if not location_val and self.config.country and self.config.country != "Germany":
             location_val = self.config.country
             
+        # Build search URL using the precise verified format
         if location_val:
-            loc = urllib.parse.quote(location_val)
-            url = f"https://www.ausbildung.de/suche/?form_main_search[what]={query}&form_main_search[where]={loc}&form_main_search[radius]=50"
+            query_encoded = urllib.parse.quote(self.config.job_title)
+            loc_encoded = urllib.parse.quote(location_val)
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius=1000"
         else:
-            url = f"https://www.ausbildung.de/suche/?form_main_search[what]={query}"
+            query_encoded = urllib.parse.quote(self.config.job_title)
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius=1000"
         
-        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}'", level="INFO")
+        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: 1000km)", level="INFO")
         
         page = await self.session.new_page()
         try:
@@ -63,7 +63,11 @@ class AusbildungScraper:
             if self.config.offer_type and "Ausbildung" in self.config.offer_type:
                 await self._apply_filters(page)
             
-            await asyncio.sleep(2)
+            # Step 1.5: Expand radius if location was provided
+            if location_val:
+                await self._expand_radius(page)
+            
+            await asyncio.sleep(0.5)
             
             # Step 2: Infinite scroll and harvest cards
             yielded_count = 0
@@ -156,7 +160,7 @@ class AusbildungScraper:
                         
             if filter_btn:
                 await filter_btn.evaluate("el => el.click()")
-                await asyncio.sleep(2)  # Give the SPA more time to render the filter menu
+                await asyncio.sleep(0.5)  # Give the SPA more time to render the filter menu
                 
             # Find div id: "klassische-duale-berufsausbildung-label" and check it
             check_label = await page.query_selector("#klassische-duale-berufsausbildung-label")
@@ -166,30 +170,46 @@ class AusbildungScraper:
                 check_icon = await page.query_selector(".CheckboxItem-module__P4--Qq__checkmark")
                 if check_icon:
                     await check_icon.evaluate("el => el.click()")
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.5)
             logger.info(f"[{self.job_id}] Applied Ausbildung dual-vocational filter")
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not apply filters: {e}")
+
+    async def _expand_radius(self, page):
+        """Maximize search radius to + 1000 km to guarantee matching leads."""
+        try:
+            radius_toggle = await page.query_selector("[data-testid='radius-filter']")
+            if radius_toggle:
+                await radius_toggle.evaluate("el => el.click()")
+                await asyncio.sleep(0.3)
+                max_radius_btn = await page.query_selector("li[role='option']:has-text('1000 km')")
+                if max_radius_btn:
+                    await max_radius_btn.evaluate("el => el.click()")
+                    await asyncio.sleep(0.5)
+                    logger.info(f"[{self.job_id}] Expanded search radius to 1000 km.")
+        except Exception as e:
+            logger.debug(f"[{self.job_id}] Could not expand radius: {e}")
 
     async def _load_more(self, page) -> bool:
         try:
             # Scroll down
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
             
             spinner_btn = await page.query_selector(".SearchResults-module__6Vm6GG__spinnerContainer button")
             if spinner_btn:
                 await spinner_btn.evaluate("el => el.click()")
-                await asyncio.sleep(2)
+                await asyncio.sleep(0.5)
                 return True
                 
             load_more_btns = await page.query_selector_all("button")
             for btn in load_more_btns:
                 text = await btn.inner_text()
                 txt_lower = text.lower()
-                if "load more" in txt_lower or "mehr laden" in txt_lower or "weitere" in txt_lower:
+                if "mehr ergebnisse laden" in txt_lower or "load more" in txt_lower or "mehr laden" in txt_lower or "weitere" in txt_lower:
+                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Clicked 'Mehr Ergebnisse laden' button.", level="INFO")
                     await btn.evaluate("el => el.click()")
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
                     return True
             return False
         except Exception as e:
@@ -306,28 +326,29 @@ class AusbildungScraper:
             return None
         finally:
             if detail_page:
-                await detail_page.close()
-            if not email and self.config.scrape_emails:
-                return None
-                
-            record = LeadRecord(
-                source_type=SourceType.AUSBILDUNG_DE,
-                source_url=url,
-                search_query=self.config.job_title,
-                city=city,
-                postal_code=postal_code,
-                company_name=company_name,
-                address=address,
-                phone=phone,
-                email=email,
-                contact_person=contact_person,
-                job_title=self.config.job_title,
-                publication_date=start_date,
-            ).normalize()
+                try:
+                    await detail_page.close()
+                except:
+                    pass
+
+        # As requested in the content script, skip if no email AND user wants emails
+        if not email and self.config.scrape_emails:
+            return None
             
-            # As requested in the content script, skip if no email AND user wants emails
-            if not email and self.config.scrape_emails:
-                return None
-                
-            return record
+        record = LeadRecord(
+            source_type=SourceType.AUSBILDUNG_DE,
+            source_url=url,
+            search_query=self.config.job_title,
+            city=city,
+            postal_code=postal_code,
+            company_name=company_name,
+            address=address,
+            phone=phone,
+            email=email,
+            contact_person=contact_person,
+            job_title=self.config.job_title,
+            publication_date=start_date,
+        ).normalize()
+        
+        return record
     # End of file

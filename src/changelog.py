@@ -1,14 +1,42 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 CHANGELOG = [
     {
-        "version": "1.0.3",
-        "date": "April 3, 2026",
+        "version": "1.0.4",
+        "date": "April 4, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "10x-20x Performance Boost — concurrent website crawling and optimized Jobsuche/Ausbildung scrapers"
+            },
+            {
+                "type": "fixed",
+                "text": "Eliminated Jobsuche CAPTCHA false-positives — now checks for real element visibility"
+            },
+            {
+                "type": "new",
+                "text": "Remote Security Engine — real-time kill-switch and discord telemetry integration"
+            },
+            {
+                "type": "improved",
+                "text": "Smoother scraping — removed legacy hardcoded delays across all search modules"
+            },
+            {
+                "type": "fixed",
+                "text": "Resolved Python SyntaxWarnings in Ausbildung and Azubiyo scrapers"
+            },
+        ]
+    },
+    {
+        "version": "1.0.3",
+        "date": "April 3, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -116,10 +144,44 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.3",
-        "date": "3 أبريل 2026",
+        "version": "1.0.4",
+        "date": "4 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "زيادة الأداء 10-20 مرة — زحف متزامن للمواقع وتحسين محركات البحث في Jobsuche و Ausbildung"
+            },
+            {
+                "type": "fixed",
+                "text": "إلغاء تنبيهات CAPTCHA الخاطئة — يعتمد الآن على الرؤية الفعلية للعناصر"
+            },
+            {
+                "type": "new",
+                "text": "محرك الأمان عن بعد — دمج مفتاح الإيقاف الفوري وتنبيهات Discord"
+            },
+            {
+                "type": "improved",
+                "text": "استخراج أكثر سلاسة — إزالة فترات التأخير القديمة في جميع وحدات البحث"
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح تحذيرات لغة Python في مستخرجات Ausbildung و Azubiyo"
+            },
+        ]
+    },
+    {
+        "version": "1.0.3",
+        "date": "3 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

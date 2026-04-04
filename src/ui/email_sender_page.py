@@ -128,6 +128,11 @@ class RecipientListWidget(QListWidget):
         item = self.itemAt(pos)
         selected = self.selectedItems()
         
+        copy_this = None
+        move_top_act = None
+        copy_sel = None
+        del_act = None
+
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu { background: #2C2C2E; color: white; border: 1px solid #3A3A3C; border-radius: 8px; font-family: 'PT Root UI'; font-size: 13px; padding: 4px; }
@@ -207,14 +212,17 @@ class EmailSenderPage(QWidget):
         self._is_restoring = False
 
     def import_emails(self, emails: list[str]):
-        """Populates the recipient list from external sources (e.g., Results library)."""
+        """Consolidated API to push leads into the recipient queue."""
         if not emails:
             return
         
-        # Canonicalize and join
-        text = "\n".join(emails)
-        self._recipients_text.setPlainText(text)
-        self._on_recipients_changed() # Update internal counts
+        # Merge with existing
+        clean_new = [e.strip() for e in emails if e.strip()]
+        current = self._get_recipients()
+        combined = list(dict.fromkeys(current + clean_new))
+        
+        self._set_recipients(combined)
+        self._on_log(f"Imported {len(clean_new)} lead(s). Total: {len(combined)}", "SUCCESS")
 
     def _init_widgets(self):
         # Step 1 Widgets
@@ -896,14 +904,13 @@ class EmailSenderPage(QWidget):
 
     def _set_recipients(self, emails: list[str]):
         self._recipient_list.setUpdatesEnabled(False)
-        self._recipient_list.model().blockSignals(True)
         self._recipient_list.clear()
         for e in emails:
             e = e.strip()
             if e:
                 self._recipient_list.addItem(RecipientItem(e))
-        self._recipient_list.model().blockSignals(False)
         self._recipient_list.setUpdatesEnabled(True)
+        self._recipient_list.viewport().update()
         self._on_recipients_changed()
 
     def _on_dedup(self):
@@ -1171,15 +1178,7 @@ class EmailSenderPage(QWidget):
                     type="success"
                 )
 
-    def import_emails(self, emails: list[str]):
-        """Public API for MainWindow to push leads here."""
-        if not emails: return
-        clean_new = [e.strip() for e in emails if e.strip()]
-        current = self._get_recipients()
-        combined = list(dict.fromkeys(current + clean_new))
-        
-        self._set_recipients(combined)
-        self._on_log(f"Imported {len(clean_new)} lead(s). Total recipients: {len(combined)}", "SUCCESS")
+    # import_emails consolidated above
 
     def _send_test(self):
         recs = self._get_recipients()

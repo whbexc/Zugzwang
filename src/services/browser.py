@@ -217,9 +217,11 @@ class BrowserSession:
         wait_until: str = "domcontentloaded",
         timeout: int = 30000,
         retries: int = 3,
+        ignore_rate_limit: bool = False,
     ) -> bool:
         """Navigate to URL with retry logic. Returns True on success."""
-        await self.rate_limiter.wait()
+        if not ignore_rate_limit:
+            await self.rate_limiter.wait()
         for attempt in range(1, retries + 1):
             try:
                 await page.goto(url, wait_until=wait_until, timeout=timeout)
@@ -243,14 +245,20 @@ class BrowserSession:
             logger.warning(f"[{self.job_id}] Could not get page content: {e}")
             return ""
 
-    async def fetch_url_content_fast(self, url: str, timeout: int = 10000) -> str:
+    async def fetch_url_content_fast(
+        self, 
+        url: str, 
+        timeout: int = 10000, 
+        ignore_rate_limit: bool = False
+    ) -> str:
         """Fetch HTML through the browser context request client.
         Useful for secondary pages where driving the live browser UI is unnecessary.
         """
         if not self._context:
             return ""
         try:
-            await self.rate_limiter.wait()
+            if not ignore_rate_limit:
+                await self.rate_limiter.wait()
             response = await self._context.request.get(url, timeout=timeout)
             if not response.ok:
                 return ""
