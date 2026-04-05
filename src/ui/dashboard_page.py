@@ -271,10 +271,9 @@ class DashboardPage(QWidget):
         self._activity_timer = QTimer(self)
         self._activity_timer.setSingleShot(True)
         self._activity_timer.setInterval(250)
-        self._activity_timer.timeout.connect(self._refresh_activity)
         self._build_ui()
         self._connect_events()
-        QTimer.singleShot(100, self._load_recent_jobs_from_disk)
+        # Historical jobs will be loaded explicitly by MainWindow once global memory is ready
 
     def _load_recent_jobs_from_disk(self):
         """Loads historical job definitions to populate the Recent Jobs list."""
@@ -298,7 +297,11 @@ class DashboardPage(QWidget):
                     config_data = json.loads(meta.get("config_json", "{}"))
                     from ..core.models import SourceType
                     if config_data.get("source_type") and isinstance(config_data["source_type"], str):
-                        config_data["source_type"] = SourceType(config_data["source_type"])
+                        val = config_data["source_type"]
+                        if val == "google_maps": val = "maps"
+                        elif val == "ausbildung_de": val = "ausbildung"
+                        elif val == "aubiplus_de": val = "aubiplus"
+                        config_data["source_type"] = SourceType(val)
                     
                     job = ScrapingJob(
                         config=SearchConfig(**{k: v for k, v in config_data.items() if k in SearchConfig.__dataclass_fields__}),
@@ -323,6 +326,12 @@ class DashboardPage(QWidget):
             self._jobs = jobs
             self._refresh_stats()
             self._refresh_job_list()
+        else:
+            # Fallback to current orchestrator job if any
+            active = orchestrator.current_job
+            if active:
+                self._jobs = [active]
+                self._refresh_job_list()
 
     def _build_ui(self):
         root = QVBoxLayout(self)

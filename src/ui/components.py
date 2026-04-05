@@ -745,3 +745,204 @@ class EmptyStateWidget(QWidget):
 
             btn.clicked.connect(button_callback)
             layout.addWidget(btn, 0, Qt.AlignHCenter)
+
+from qfluentwidgets import FluentIcon
+from PySide6.QtWidgets import QGraphicsDropShadowEffect
+
+class ZugzwangDropdownItem(QWidget):
+    clicked = Signal(str, int)
+
+    def __init__(self, text: str, index: int, is_selected: bool = False, parent=None):
+        super().__init__(parent)
+        self.text = text
+        self.index = index
+        self.is_selected = is_selected
+        self.setFixedHeight(34)
+        self.setCursor(Qt.PointingHandCursor)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 0, 14, 0)
+        layout.setSpacing(0)
+        
+        self.label = QLabel(text)
+        weight = "600" if is_selected else "400"
+        color = "#0A84FF" if is_selected else "#AEAEB2"
+        self.label.setStyleSheet(f"color: {color}; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: {weight}; background: transparent; border: none;")
+        layout.addWidget(self.label)
+        
+        layout.addStretch()
+        
+        if is_selected:
+            check = IconWidget(FluentIcon.COMPLETED)
+            check.setFixedSize(12, 12)
+            check.setStyleSheet("color: #0A84FF; background: transparent; border: none;")
+            layout.addWidget(check)
+
+        self.setAttribute(Qt.WA_Hover)
+        self._update_style(False)
+
+    def _update_style(self, hovering: bool):
+        bg = "#3A3A3C" if hovering else "transparent"
+        text_color = "white" if hovering else ("#0A84FF" if self.is_selected else "#AEAEB2")
+        self.label.setStyleSheet(self.label.styleSheet().replace("#AEAEB2", text_color).replace("#0A84FF", text_color).replace("white", text_color))
+        self.setStyleSheet(f"background: {bg}; border: none;")
+
+    def enterEvent(self, event):
+        self._update_style(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._update_style(False)
+        super().leaveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.text, self.index)
+        super().mouseReleaseEvent(event)
+
+class ZugzwangDropdownMenu(QFrame):
+    itemSelected = Signal(str, int)
+    closed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self.container = QFrame(self)
+        self.container.setStyleSheet("""
+            QFrame {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+            }
+        """)
+        
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.container)
+        
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setContentsMargins(0, 6, 0, 6)
+        self.content_layout.setSpacing(0)
+        
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 12)
+        self.container.setGraphicsEffect(shadow)
+        
+    def add_item(self, text: str, index: int, is_selected: bool = False):
+        item = ZugzwangDropdownItem(text, index, is_selected, self)
+        item.clicked.connect(self._on_item_clicked)
+        self.content_layout.addWidget(item)
+
+    def _on_item_clicked(self, text: str, index: int):
+        self.itemSelected.emit(text, index)
+        self.close()
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+class ZugzwangDropdown(QPushButton):
+    currentTextChanged = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__("", parent)
+        self.setFixedHeight(40)
+        self.setCursor(Qt.PointingHandCursor)
+        self._items = []
+        self._current_index = -1
+        self._is_open = False
+        self._update_style()
+
+    def addItems(self, items: list[str]):
+        self._items.extend(items)
+        if self._current_index == -1 and self._items:
+            self._current_index = 0
+            self.setText(self._items[0])
+
+    def clear(self):
+        self._items.clear()
+        self._current_index = -1
+        self.setText("")
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemText(self, idx: int) -> str:
+        if 0 <= idx < len(self._items):
+            return self._items[idx]
+        return ""
+
+    def currentText(self) -> str:
+        if 0 <= self._current_index < len(self._items):
+            return self._items[self._current_index]
+        return ""
+
+    def setCurrentText(self, text: str):
+        if text in self._items:
+            self._current_index = self._items.index(text)
+            self.setText(text)
+
+    def _update_style(self):
+        is_blue = self._is_open
+        color = "#0A84FF" if is_blue else "#FFFFFF"
+        border_color = "#0A84FF" if is_blue else "#3A3A3C"
+        chevron_color = "#0A84FF" if is_blue else "#8E8E93"
+        bg_col = "#2C2C2E" if is_blue else "#1C1C1E"
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg_col};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                color: {color};
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                padding: 0 12px;
+                text-align: left;
+                qproperty-iconSize: 10px 10px;
+                spacing: 8px;
+            }}
+            QPushButton:hover {{
+                background: #2C2C2E;
+            }}
+        """)
+        
+        chevron = FluentIcon.CHEVRON_DOWN_MED.icon(color=chevron_color)
+        self.setIcon(chevron)
+        self.setIconSize(QSize(10, 10))
+        self.setLayoutDirection(Qt.RightToLeft)
+
+    def show_menu(self):
+        self._is_open = True
+        self._update_style()
+        
+        menu = ZugzwangDropdownMenu(self.window())
+        menu.setMinimumWidth(self.width())
+        for i, text in enumerate(self._items):
+            menu.add_item(text, i, i == self._current_index)
+            
+        menu.itemSelected.connect(self._on_item_selected)
+        menu.closed.connect(self._on_menu_closed)
+        
+        # Position menu 
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        menu.move(pos.x(), pos.y() + 4)
+        menu.show()
+
+    def _on_item_selected(self, text: str, index: int):
+        self._current_index = index
+        self.setText(text)
+        self.currentTextChanged.emit(text)
+
+    def _on_menu_closed(self):
+        self._is_open = False
+        self._update_style()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.show_menu()
+        super().mouseReleaseEvent(event)

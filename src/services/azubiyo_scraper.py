@@ -81,11 +81,7 @@ class AzubiyoScraper:
 
             # Step 2: Harvest cards and paginate
             yielded_count = 0
-            retries = 0
             processed_urls = set()
-            
-            # The reference script uses pagination by appending /page/ or similar
-            # Let's use Playwright to click the "Next" button or harvest all links
             
             while not self._cancelled and yielded_count < self.config.max_results:
                 while self._paused and not self._cancelled:
@@ -93,64 +89,65 @@ class AzubiyoScraper:
                 if self._cancelled:
                     break
                 
-                # Using the exact selector from job_offers_parser.py
-                # div.col-lg-12.col-md-6.mb-3.mb-md-30px.mb-lg-3
+                # Using selectors based on live Azubiyo structure
                 cards = await page.query_selector_all('div.col-lg-12.col-md-6, article, .job-item')
-                
                 event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Scanning page: found {len(cards)} job cards.", level="INFO")
                 
                 urls_to_visit = []
                 for card in cards:
-                    # Look for the title link inside the card
                     link = await card.query_selector('a, h3 a')
                     if link:
                         href = await link.get_attribute("href")
-                        if href and href not in processed_urls and "/ausbildung/" in href or "/duales-studium/" in href or "/stellenanzeigen/" in href:
-                            processed_urls.add(href)
-                            urls_to_visit.append(href)
+                        if href and href not in processed_urls:
+                            if any(x in href for x in ("/ausbildung/", "/duales-studium/", "/stellenanzeigen/", "/jobs/")):
+                                processed_urls.add(href)
+                                urls_to_visit.append(href if href.startswith("http") else f"https://www.azubiyo.de{href}")
                 
                 if not urls_to_visit:
-                    # Let's try alternative card selectors just in case
-                    a_tags = await page.query_selector_all('a[href*="/ausbildung/"], a[href*="/stellenanzeigen/"]')
-                    for a in a_tags:
-                        href = await a.get_attribute("href")
-                        if href and href not in processed_urls:
-                            processed_urls.add(href)
-                            urls_to_visit.append(href)
-                    
-                    if not urls_to_visit:
-                        logger.debug(f"[{self.job_id}] No links found on this page. Stopping pagination.")
-                        break
+                    logger.debug(f"[{self.job_id}] No links found on this page. Stopping pagination.")
+                    break
 
-                # Step 3: Visit each URL to extract details
-                for href in urls_to_visit:
+                # Step 3: Visit detail pages in concurrent batches (Batch Size: 5)
+                BATCH_SIZE = 5
+                for i in range(0, len(urls_to_visit), BATCH_SIZE):
                     if self._cancelled or yielded_count >= self.config.max_results:
                         break
-                    while self._paused and not self._cancelled:
-                        await asyncio.sleep(0.5)
                     
-                    full_url = href if href.startswith("http") else f"https://www.azubiyo.de{href}"
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Inspecting detail page: {full_url}", level="INFO")
-                    
-                    record = await self._extract_job_detail(full_url)
-                    
-                    if record and (record.company_name or record.email or record.job_title):
-                        if not LicenseManager.can_extract():
-                            logger.warning(f"[{self.job_id}] Free trial limit reached.")
-                            event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.", level="WARNING")
-                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
-                            return
+                    batch = urls_to_visit[i : i + BATCH_SIZE]
+                    remaining_slots = self.config.max_results - yielded_count
+                    if len(batch) > remaining_slots:
+                        batch = batch[:remaining_slots]
 
-                        yielded_count += 1
-                        event_bus.emit(event_bus.JOB_RESULT, job_id=self.job_id, record=record, count=yielded_count)
-                        LicenseManager.record_extraction()
-                        yield record
+                    tasks = [self._extract_job_detail(url) for url in batch]
+                    results = await asyncio.gather(*tasks)
 
+                    for record in results:
+                        if not record:
+                            continue
+                        
+                        if (record.company_name or record.email or record.job_title):
+                            if not LicenseManager.can_extract():
+                                logger.warning(f"[{self.job_id}] Free trial limit reached.")
+                                event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.", level="WARNING")
+                                event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                                return # Abort completely on trial limit
+
+                            yielded_count += 1
+                            event_bus.emit(event_bus.JOB_RESULT, job_id=self.job_id, record=record, count=yielded_count)
+                            LicenseManager.record_extraction()
+                            yield record
+
+                            if yielded_count >= self.config.max_results:
+                                break
+
+                    # Small delay between batches to respect rate limits
+                    await asyncio.sleep(self.config.delay_min or 0.2)
+                
                 # Try to go to next page
                 next_btn = await page.query_selector('a.page-link[aria-label="Weiter"], a:has-text("Nächste"), li.next a')
                 if next_btn:
                     await next_btn.click()
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2.5)
                 else:
                     break
                     

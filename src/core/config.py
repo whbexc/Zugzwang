@@ -16,7 +16,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.6"
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -138,6 +138,7 @@ class ConfigManager:
                 city TEXT,
                 source TEXT,
                 offer_type TEXT,
+                radius INTEGER DEFAULT 25,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 is_saved INTEGER DEFAULT 0
             )
@@ -145,15 +146,15 @@ class ConfigManager:
         conn.commit()
         return conn
 
-    def save_search(self, job_title: str, city: str, source: str, offer_type: str) -> None:
+    def save_search(self, job_title: str, city: str, source: str, offer_type: str, radius: int = 25) -> None:
         """Save a search entry to history, keeping at most 10 unsaved entries."""
         try:
             conn = self._get_db()
             with conn:
                 # Insert new entry
                 conn.execute(
-                    "INSERT INTO search_history (job_title, city, source, offer_type) VALUES (?, ?, ?, ?)",
-                    (job_title, city, source, offer_type)
+                    "INSERT INTO search_history (job_title, city, source, offer_type, radius) VALUES (?, ?, ?, ?, ?)",
+                    (job_title, city, source, offer_type, radius)
                 )
                 # Prune: keep only 10 most recent unsaved entries
                 conn.execute("""
@@ -171,7 +172,7 @@ class ConfigManager:
         try:
             conn = self._get_db()
             cursor = conn.execute(
-                "SELECT id, job_title, city, source, offer_type, is_saved FROM search_history "
+                "SELECT id, job_title, city, source, offer_type, radius, is_saved FROM search_history "
                 "ORDER BY is_saved DESC, timestamp DESC LIMIT 20"
             )
             rows = cursor.fetchall()

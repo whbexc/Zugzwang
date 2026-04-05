@@ -212,10 +212,10 @@ class LoadLeadsDialog(QDialog):
         
         source_map = {
             "All Sources": None,
-            "Google Maps": "google_maps",
+            "Google Maps": "maps",
             "Jobsuche": "jobsuche",
-            "Ausbildung.de": "ausbildung_de",
-            "Aubi-Plus": "aubiplus_de",
+            "Ausbildung.de": "ausbildung",
+            "Aubi-Plus": "aubiplus",
         }
         source_filter = source_map.get(self._source_combo.currentText())
         city_filter = self._city_input.text().strip()
@@ -229,8 +229,17 @@ class LoadLeadsDialog(QDialog):
             if email_only:
                 query += " AND email IS NOT NULL AND email != ''"
             if source_filter:
-                query += " AND source_type = ?"
-                params.append(source_filter)
+                legacy_map = {
+                    "maps": "google_maps",
+                    "ausbildung": "ausbildung_de",
+                    "aubiplus": "aubiplus_de"
+                }
+                if source_filter in legacy_map:
+                    query += " AND (source_type = ? OR source_type = ?)"
+                    params.extend([source_filter, legacy_map[source_filter]])
+                else:
+                    query += " AND source_type = ?"
+                    params.append(source_filter)
             if city_filter:
                 query += " AND city LIKE ?"
                 params.append(f"%{city_filter}%")

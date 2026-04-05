@@ -280,7 +280,7 @@ class MainWindow(FramelessWindow):
         self._active_captcha_dialog = None
 
         self._build_shell()
-        self._connect_signals(); self._restore_saved_results()
+        self._connect_signals()
         # Bridge signals from background threads to UI thread via EventBridge
         from .event_bridge import event_bridge
         event_bridge.captcha_challenge.connect(self._show_captcha_dialog)
@@ -367,8 +367,8 @@ class MainWindow(FramelessWindow):
         self._nav_layout.addWidget(self._support_btn)
 
         self._switch(0)
-        # Defer DB load until after the splash screen / main loop
-        QTimer.singleShot(500, self._restore_saved_results)
+        # Defer DB load until after the splash screen / main loop to ensure stability
+        QTimer.singleShot(800, self._restore_saved_results)
 
     def _switch(self, idx: int):
         # Lazy initialization
@@ -622,8 +622,9 @@ class MainWindow(FramelessWindow):
     def _restore_saved_results(self):
         try:
             records = orchestrator.load_app_memory()
-            if records: self._on_db_updated(records=records)
-        except Exception: pass
+            self._on_db_updated(records=records or [])
+        except Exception: 
+            self._on_db_updated(records=[])
 
     def _on_db_updated(self, records=None, **kw):
         records = records or []
@@ -634,6 +635,8 @@ class MainWindow(FramelessWindow):
         
         self.titleBar.set_stats(len(records))
         self.dashboard_page.load_summary(len(records), sum(1 for r in records if r.email), sum(1 for r in records if r.website))
+        # Ensure Recent Jobs list matches the newly loaded context
+        self.dashboard_page._load_recent_jobs_from_disk()
 
     def _start_job(self, config: SearchConfig):
         if orchestrator.is_running: return

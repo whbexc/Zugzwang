@@ -1635,15 +1635,17 @@ class GoogleMapsScraper:
 
     def _build_query(self) -> str:
 
-        return " ".join(filter(None, [
-
+        parts = [
             self.config.job_title,
-
             self.config.city or self.config.region,
-
             self.config.country,
+        ]
 
-        ]))
+        # Use textual radius constraint (e.g. "Umkreis 50 km") if possible
+        if getattr(self.config, "radius", None) and self.config.radius != "0 km":
+            parts.append(f"Umkreis {self.config.radius}")
+
+        return " ".join(filter(None, parts))
 
 
 

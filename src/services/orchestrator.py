@@ -70,8 +70,6 @@ class ScrapingOrchestrator:
         """
         if self.is_running:
             raise RuntimeError("A scraping job is already running. Stop it first.")
-        if not self._known_record_ids:
-            self.load_app_memory()
 
         job = ScrapingJob(config=config)
         self._current_job = job
@@ -195,6 +193,14 @@ class ScrapingOrchestrator:
         """Runs in a dedicated thread. Creates its own asyncio event loop."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+        
+        # Load app memory in the background thread if not already loaded
+        if not self._known_record_ids:
+            try:
+                self.load_app_memory()
+            except Exception as e:
+                logger.warning(f"Background app memory load failed: {e}")
+
         try:
             self._loop.run_until_complete(self._run_job_async(job))
         except Exception as e:

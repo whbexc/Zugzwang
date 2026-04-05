@@ -34,14 +34,23 @@ VIAddVersionKey "LegalCopyright" "Copyright 2024 ${APP_PUBLISHER}"
 !define MUI_ABORTWARNING
 !define MUI_ICON "assets\icon.ico"
 !define MUI_UNICON "assets\icon.ico"
-!define MUI_WELCOMEPAGE_TITLE "Welcome to ${APP_NAME} Setup"
-!define MUI_WELCOMEPAGE_TEXT "This wizard will install ${APP_NAME} ${APP_VERSION} on your computer.$\r$\n$\r$\nZUGZWANG is a professional lead generation and recruitment research tool.$\r$\n$\r$\nClick Next to continue."
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
-!define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME}"
-!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.txt"
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "View README"
+
+; Custom Branding Images
+!define MUI_WELCOMEFINISHPAGE_BITMAP "assets\wizard.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "assets\wizard.bmp"
 !define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP_NOSTRETCH
+!define MUI_HEADERIMAGE_BITMAP "assets\header.bmp"
+!define MUI_HEADERIMAGE_UNBITMAP "assets\header.bmp"
+!define MUI_HEADERIMAGE_RIGHT
+
+!define MUI_WELCOMEPAGE_TITLE "Welcome to ${APP_NAME} Setup"
+!define MUI_WELCOMEPAGE_TEXT "This wizard will install ${APP_NAME} ${APP_VERSION} on your computer.$\r$\n$\r$\nZUGZWANG is a professional lead generation and recruitment research tool, optimized for maximum speed and accuracy.$\r$\n$\r$\nClick Next to continue."
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME} Now"
+!define MUI_FINISHPAGE_LINK "Visit Official Website"
+!define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/whbexc/Zugzwang"
+!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.txt"
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "View Release Notes (README)"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME

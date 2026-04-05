@@ -170,7 +170,7 @@ class AubiPlusScraper:
             #     uses its geo-radius filter (fGeo). Without real coords it falls back to
             #     text-only city matching → ~6 results. With coords + fGeo=50 → 168+ results.
             from urllib.parse import quote_plus
-            import json, urllib.request as _ureq
+            import json
 
             per_page = min(max(self.config.max_results, 20), 50)
             loc = (location_query or "").strip()
@@ -183,9 +183,10 @@ class AubiPlusScraper:
                         f"https://nominatim.openstreetmap.org/search"
                         f"?q={quote_plus(loc + ', Germany')}&format=json&limit=1"
                     )
-                    geo_req = _ureq.Request(geo_url, headers={"User-Agent": "ZUGZWANG-LeadHunter/1.0"})
-                    with _ureq.urlopen(geo_req, timeout=6) as _r:
-                        geo_data = json.loads(_r.read().decode())
+                    # Use browser-native fetch to avoid 'naked' urllib calls being flagged by AV
+                    logger.debug(f"[{self.job_id}] Geocoding '{loc}' via browser fetch...")
+                    geo_data = await page.evaluate(f"fetch({repr(geo_url)}, {{headers: {{'User-Agent': 'ZUGZWANG-LeadHunter/1.0'}} }}).then(r => r.json())")
+                    
                     if geo_data:
                         lat = round(float(geo_data[0]["lat"]), 4)
                         lon = round(float(geo_data[0]["lon"]), 4)
@@ -217,8 +218,8 @@ class AubiPlusScraper:
             # Handle sorting
             sort_param = "aktualitaet" if self.config.latest_offers_only else "relevanz"
 
-            # fGeo=100 → 100 km radius around the geocoded point
-            fgeo_param = "&fGeo=100&fLand%5B0%5D=deutschland" if (lat and lon) else ""
+            # fGeo={self.config.radius} → {self.config.radius} km radius around the geocoded point
+            fgeo_param = f"&fGeo={self.config.radius}&fLand%5B0%5D=deutschland" if (lat and lon) else ""
             
             search_url = (
                 "https://www.aubi-plus.de/suchmaschine/suche/?"
@@ -714,15 +715,8 @@ class AubiPlusScraper:
         for page_url in pages_to_try:
             try:
                 html = await self._fetch_html_in_page(None, page_url)
-                if not html:
-                    # Try via background fetch with aiohttp-style call
-                    import urllib.request
-                    req = urllib.request.Request(
-                        page_url,
-                        headers={"User-Agent": "Mozilla/5.0"}
-                    )
-                    with urllib.request.urlopen(req, timeout=8) as r:
-                        html = r.read().decode("utf-8", errors="ignore")
+                # Removed 'naked' urllib fallback which can trigger AV false positives.
+                # All scraping now goes through the trusted browser process.
 
                 if not html:
                     continue

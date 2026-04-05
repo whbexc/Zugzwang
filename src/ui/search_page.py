@@ -287,7 +287,7 @@ class SearchHistoryDropdown(QFrame):
 
     def _make_row(self, row) -> QWidget:
         """Build a single history row widget."""
-        rid, job_title, city, source, offer_type, is_saved = row
+        rid, job_title, city, source, offer_type, radius, is_saved = row
         item = QFrame()
         item.setFixedHeight(36)
         item.setStyleSheet("QFrame { background: transparent; border: none; }")
@@ -344,12 +344,13 @@ class SearchHistoryDropdown(QFrame):
         """)
 
     def _on_select(self, row) -> None:
-        _, job_title, city, source, offer_type, _ = row
+        _, job_title, city, source, offer_type, radius, _ = row
         self.item_selected.emit({
             "job_title": job_title or "",
             "city": city or "",
             "source": source or "maps",
             "offer_type": offer_type or "",
+            "radius": radius or 25,
         })
         self.hide()
         self.closed.emit()
@@ -631,6 +632,14 @@ class SearchPage(QWidget):
         self._city.setToolTip("Target a specific city or region (e.g. 'Berlin', 'New York')")
         loc_row.addLayout(self._make_field(tr("search.field.city", self._language), self._city), 1)
         
+        self._radius = EditableComboBox()
+        self._radius.setFixedHeight(40)
+        self._radius.addItems(["0 km", "10 km", "20 km", "25 km", "50 km", "100 km", "200 km"])
+        self._radius.setCurrentText("25 km")
+        self._style_combo(self._radius)
+        self._radius.setToolTip("Search radius around the target city (Jobsuche/Ausbildung)")
+        loc_row.addLayout(self._make_field(tr("search.field.radius", self._language), self._radius), 1)
+
         layout.addLayout(loc_row)
 
         # Offer Type (Specific for Jobsuche)
@@ -640,7 +649,7 @@ class SearchPage(QWidget):
         offer_vbox.setContentsMargins(0, 0, 0, 0)
         offer_vbox.setSpacing(6)
         
-        self._offer_type = ComboBox()
+        self._offer_type = EditableComboBox()
         self._offer_type.setFixedHeight(40)
         self._offer_type.addItems([
             tr("search.offer.arbeit", self._language),
@@ -796,6 +805,27 @@ class SearchPage(QWidget):
         settings = config_manager.settings
         self._offer_type_container.setEnabled(not is_maps)
         self._chk_latest.setEnabled(not is_maps)
+        # Radius is now available for Maps too
+        self._radius.setEnabled(True)
+        
+        # Dynamically adjust radius options based on source
+        current_radius = self._radius.currentText()
+        self._radius.clear()
+        
+        base_radii = ["0 km", "10 km", "20 km", "25 km", "50 km", "100 km", "200 km"]
+        if source == "ausbildung":
+            self._radius.addItems(base_radii + ["500 km", "1000 km"])
+        else:
+            self._radius.addItems(base_radii)
+            
+        # Restore pre-existing radius or fallback safely to max available without crashing
+        if current_radius in [self._radius.itemText(i) for i in range(self._radius.count())]:
+            self._radius.setCurrentText(current_radius)
+        elif source != "ausbildung" and current_radius in ["500 km", "1000 km"]:
+            self._radius.setCurrentText("200 km")
+        else:
+            self._radius.setCurrentText("25 km")
+
         if is_maps:
             self._chk_latest.setChecked(False)
         elif not preserve_values:
@@ -836,14 +866,6 @@ class SearchPage(QWidget):
             self._job_title.setFocus()
             return
 
-        source_map = {
-            "maps": SourceType.GOOGLE_MAPS,
-            "jobsuche": SourceType.JOBSUCHE,
-            "ausbildung": SourceType.AUSBILDUNG_DE,
-            "aubiplus": SourceType.AUBIPLUS_DE,
-            "azubiyo": SourceType.AZUBIYO,
-        }
-
         # Offer type mapping for backend (Jobsuche BA expects specific German strings)
         offer_map = {
             tr("search.offer.arbeit", self._language): "Arbeit",
@@ -856,9 +878,10 @@ class SearchPage(QWidget):
 
         config = SearchConfig(
             job_title=job_title,
-            country=self._country.text().strip() or "Germany",
+            country=self._country.currentText().strip(),
             city=self._city.text().strip(),
-            source_type=source_map.get(self._source, SourceType.GOOGLE_MAPS),
+            radius=int(self._radius.currentText().split()[0]),
+            source_type=SourceType(self._source),
             offer_type=backend_offer,
             max_results=self._int_value(self._max_results_input, 100),
             scrape_emails=self._chk_emails.isChecked(),
@@ -877,6 +900,7 @@ class SearchPage(QWidget):
             city=self._city.text().strip(),
             source=self._source,
             offer_type=backend_offer,
+            radius=int(self._radius.currentText().split()[0]),
         )
         self.job_requested.emit(config)
 
@@ -902,6 +926,7 @@ class SearchPage(QWidget):
         self._chk_latest.setChecked(False)
         self._chk_refresh.setChecked(settings.default_bypass_cache)
         self._chk_social.setChecked(settings.default_extract_social_profiles)
+        self._radius.setCurrentText(f"{settings.last_search_radius} km")
         self._select_source(self._source, preserve_values=True)
 
     def _load_last_search(self) -> None:
@@ -939,6 +964,7 @@ class SearchPage(QWidget):
         self._chk_refresh.setChecked(bool(settings.last_search_bypass_cache))
         self._chk_social.setChecked(bool(settings.last_search_social_profiles))
         self._chk_robots.setChecked(bool(settings.last_search_respect_robots))
+        self._radius.setCurrentText(f"{settings.last_search_radius} km")
 
         source = settings.last_search_source if settings.last_search_source in ("maps", "jobsuche", "ausbildung", "aubiplus") else "maps"
         self._select_source(source, preserve_values=True)
@@ -959,6 +985,7 @@ class SearchPage(QWidget):
             last_search_respect_robots=self._chk_robots.isChecked(),
             last_search_bypass_cache=self._chk_refresh.isChecked(),
             last_search_social_profiles=self._chk_social.isChecked(),
+            last_search_radius=int(self._radius.currentText().split()[0]),
         )
 
     def _apply_history(self, item: dict) -> None:
@@ -987,6 +1014,10 @@ class SearchPage(QWidget):
                     idx2 = self._offer_type.findText(localized)
                     if idx2 >= 0:
                         self._offer_type.setCurrentIndex(idx2)
+        
+        radius = item.get("radius", 25)
+        self._radius.setCurrentText(f"{radius} km")
+        
         self._clear_validation_error()
 
     def mousePressEvent(self, event) -> None:

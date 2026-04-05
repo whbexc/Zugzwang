@@ -15,10 +15,10 @@ import uuid
 
 
 class SourceType(str, Enum):
-    GOOGLE_MAPS = "google_maps"
+    GOOGLE_MAPS = "maps"
     JOBSUCHE = "jobsuche"
-    AUSBILDUNG_DE = "ausbildung_de"
-    AUBIPLUS_DE = "aubiplus_de"
+    AUSBILDUNG_DE = "ausbildung"
+    AUBIPLUS_DE = "aubiplus"
     AZUBIYO = "azubiyo"
     MANUAL = "manual"
 
@@ -253,7 +253,12 @@ class LeadRecord:
     def from_dict(cls, d: dict) -> "LeadRecord":
         d = d.copy()
         if "source_type" in d and d["source_type"]:
-            d["source_type"] = SourceType(d["source_type"])
+            val = d["source_type"]
+            # Backwards compatibility for old db records
+            if val == "google_maps": val = "maps"
+            elif val == "ausbildung_de": val = "ausbildung"
+            elif val == "aubiplus_de": val = "aubiplus"
+            d["source_type"] = SourceType(val)
         if "email_source_type" in d and d["email_source_type"]:
             d["email_source_type"] = EmailSource(d["email_source_type"])
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
@@ -280,6 +285,7 @@ class SearchConfig:
     respect_robots: bool = True
     bypass_cache: bool = False
     extract_social_profiles: bool = False
+    radius: int = 25  # Search radius in km (Jobsuche, Ausbildung, etc.)
     proxy: Optional[str] = None
 
 
@@ -354,6 +360,7 @@ class AppSettings:
     default_bypass_cache: bool = False
     default_extract_social_profiles: bool = False
     browser_channel: Optional[str] = "chrome"  # Default to chrome as requested
+    last_search_radius: int = 200  # Default to 200km as requested
 
     # Email discovery keywords (editable in UI)
     email_discovery_paths: list = field(default_factory=lambda: [
@@ -430,7 +437,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.4"
+    app_version: str = "1.0.6"
 
     # Free Trial Tracking
     trial_scraps_count: int = 0

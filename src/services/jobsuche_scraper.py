@@ -204,14 +204,31 @@ class JobsucheScraper:
                     value=wo_value,
                     field_name="Wo",
                 )
+                # ── Select Radius (Umkreis) ──────────────────
+                await self._select_radius(page)
 
             # ── Submit search ─────────────────────────────────────
-            await page.keyboard.press("Enter")
+            # Give UI a moment to settle after radius/field changes
+            await asyncio.sleep(0.4)
+            
+            search_btn = page.locator('button[id*="suchen"], button:has-text("Suche"), button:has-text("Jobs finden"), button[type="submit"]').first
+            try:
+                if await search_btn.is_visible(timeout=3000):
+                    await search_btn.click()
+                    logger.info(f"[{self.job_id}] Search submitted via button")
+                else:
+                    await page.keyboard.press("Enter")
+                    logger.info(f"[{self.job_id}] Search submitted via Enter key")
+            except Exception:
+                await page.keyboard.press("Enter")
+                logger.info(f"[{self.job_id}] Search submitted via Enter key (fallback)")
+
             await self._wait_for_results(page)
             captcha_seen = await self._handle_captcha(page)
             if captcha_seen:
                 await self._resync_results_after_captcha(page)
-            await self._wait_for_results(page)  # Wait again in case Captcha triggered a reload
+            else:
+                await self._wait_for_results(page) # Final sync
 
             # ── Apply "Latest" sorting if requested ────────────────
             if self.config.latest_offers_only:
@@ -632,6 +649,42 @@ class JobsucheScraper:
             logger.info(f"[{self.job_id}] Angebotsart set to {target}")
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not set Angebotsart: {e}")
+
+    async def _select_radius(self, page: Page) -> None:
+        """Select the configured radius (Umkreis) from the dropdown."""
+        try:
+            radius = self.config.radius
+            # Default is 25km which is typically handled by AA automatically
+            # but if we want 200km or others, we must click.
+            
+            dropdown_btn = page.locator("button#umkreis-dropdown-button")
+            if not await dropdown_btn.is_visible(timeout=5_000):
+                logger.debug(f"[{self.job_id}] Radius dropdown not visible, skipping selection")
+                return
+
+            await dropdown_btn.click()
+            await asyncio.sleep(0.12)
+
+            # Match exactly (e.g. "200 km")
+            target_text = f"{radius} km"
+            option = page.locator(
+                f"#umkreis-dropdownList li:has-text('{target_text}')"
+            ).first
+            
+            if await option.count() > 0:
+                await option.wait_for(state="visible", timeout=5_000)
+                await option.click()
+                # Wait for dropdown to close and UI to reflect change
+                await asyncio.sleep(0.5)
+                logger.info(f"[{self.job_id}] Radius set to {target_text}")
+            else:
+                logger.warning(f"[{self.job_id}] Could not find radius option: {target_text}")
+                # Close the dropdown by clicking the button again or ESC if it's still open
+                if await dropdown_btn.get_attribute("aria-expanded") == "true":
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.2)
+        except Exception as e:
+            logger.warning(f"[{self.job_id}] Could not set Radius: {e}")
 
     async def _select_sorting_latest(self, page: Page) -> None:
         """Select 'Neueste Veröffentlichung' from the sorting dropdown."""

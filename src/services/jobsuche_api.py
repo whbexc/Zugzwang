@@ -73,6 +73,9 @@ def build_jobsuche_query(config: SearchConfig, page: int, page_size: int) -> Job
     offer_code = resolve_offer_type_code(config.offer_type)
     if offer_code is not None:
         params["angebotsart"] = offer_code
+        
+    if config.radius:
+        params["umkreis"] = config.radius
 
     query_string = urlencode(params, doseq=True)
     return JobsucheQuery(

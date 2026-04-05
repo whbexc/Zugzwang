@@ -1,14 +1,38 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.6"
 
 CHANGELOG = [
     {
-        "version": "1.0.4",
-        "date": "April 4, 2026",
+        "version": "1.0.6",
+        "date": "April 6, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "Azubiyo Scraper Performance — implemented concurrent batched extraction for maximum speed"
+            },
+            {
+                "type": "improved",
+                "text": "Dashboard Data Reliability — synchronized startup sequence for perfect leads and metrics loading"
+            },
+            {
+                "type": "fixed",
+                "text": "Search History Crash — fixed UI unpacking error related to the new radius field"
+            },
+            {
+                "type": "fixed",
+                "text": "Dashboard Initialization — resolved a race condition causing intermittent startup crashes"
+            },
+        ]
+    },
+    {
+        "version": "1.0.4",
+        "date": "April 4, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -144,10 +168,40 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.4",
-        "date": "4 أبريل 2026",
+        "version": "1.0.6",
+        "date": "6 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "أداء مستخرج Azubiyo — تنفيذ استخراج الدفعات المتزامنة لأقصى سرعة"
+            },
+            {
+                "type": "improved",
+                "text": "موثوقية بيانات لوحة التحكم — مزامنة تسلسل بدء التشغيل لتحميل مثالي للعملاء والمقاييس"
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح تعطل سجل البحث — معالجة خطأ في واجهة المستخدم يتعلق بحقل نطاق البحث الجديد"
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح تهيئة لوحة التحكم — معالجة مشكلة تسببت في تعطل التطبيق عند بدء التشغيل"
+            },
+        ]
+    },
+    {
+        "version": "1.0.4",
+        "date": "4 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

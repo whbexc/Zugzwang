@@ -46,12 +46,12 @@ class AusbildungScraper:
         if location_val:
             query_encoded = urllib.parse.quote(self.config.job_title)
             loc_encoded = urllib.parse.quote(location_val)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius=1000"
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius={self.config.radius}"
         else:
             query_encoded = urllib.parse.quote(self.config.job_title)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius=1000"
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius={self.config.radius}"
         
-        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: 1000km)", level="INFO")
+        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: {self.config.radius}km)", level="INFO")
         
         page = await self.session.new_page()
         try:
@@ -106,38 +106,49 @@ class AusbildungScraper:
                         retries = 0
                     continue
                 
-                # Step 3: Visit each URL to extract deep email
-                for href in urls_to_visit:
+                # Step 3: Visit in batches of 5 to extract deep email
+                batch_size = 5
+                for i in range(0, len(urls_to_visit), batch_size):
                     if self._cancelled or yielded_count >= self.config.max_results:
                         break
                     while self._paused and not self._cancelled:
                         await asyncio.sleep(0.5)
                     
-                    full_url = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Inspecting detail page: {full_url}", level="INFO")
-                    record = await self._extract_job_detail(full_url)
+                    batch_urls = urls_to_visit[i:i + batch_size]
+                    full_urls = [href if href.startswith("http") else f"https://www.ausbildung.de{href}" for href in batch_urls]
+                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Inspecting {len(full_urls)} detail pages concurrently...", level="INFO")
                     
-                    if record and (record.company_name or record.email or record.address):
-                        if not LicenseManager.can_extract():
-                            logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
-                            event_bus.emit(
-                                event_bus.JOB_LOG,
-                                job_id=self.job_id,
-                                message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
-                                level="WARNING",
-                            )
-                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
-                            return
+                    tasks = [self._extract_job_detail(url) for url in full_urls]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    for idx, record in enumerate(results):
+                        if self._cancelled or yielded_count >= self.config.max_results:
+                            break
+                        if isinstance(record, Exception):
+                            logger.error(f"[{self.job_id}] Batch extraction error for {full_urls[idx]}: {record}")
+                            continue
 
-                        yielded_count += 1
-                        event_bus.emit(
-                            event_bus.JOB_RESULT,
-                            job_id=self.job_id,
-                            record=record,
-                            count=yielded_count,
-                        )
-                        LicenseManager.record_extraction()
-                        yield record
+                        if record and (record.company_name or record.email or record.address):
+                            if not LicenseManager.can_extract():
+                                logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                                event_bus.emit(
+                                    event_bus.JOB_LOG,
+                                    job_id=self.job_id,
+                                    message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                                    level="WARNING",
+                                )
+                                event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                                return
+
+                            yielded_count += 1
+                            event_bus.emit(
+                                event_bus.JOB_RESULT,
+                                job_id=self.job_id,
+                                record=record,
+                                count=yielded_count,
+                            )
+                            LicenseManager.record_extraction()
+                            yield record
                     
             logger.info(f"[{self.job_id}] Scrape finished. Yielded {yielded_count} records.")
             
@@ -182,11 +193,15 @@ class AusbildungScraper:
             if radius_toggle:
                 await radius_toggle.evaluate("el => el.click()")
                 await asyncio.sleep(0.3)
-                max_radius_btn = await page.query_selector("li[role='option']:has-text('1000 km')")
+                max_radius_btn = await page.query_selector(f"li[role='option']:has-text('{self.config.radius} km')")
+                if not max_radius_btn:
+                    # Fallback to 1000km if the exact radius isn't found
+                    max_radius_btn = await page.query_selector("li[role='option']:has-text('1000 km')")
+                
                 if max_radius_btn:
                     await max_radius_btn.evaluate("el => el.click()")
                     await asyncio.sleep(0.5)
-                    logger.info(f"[{self.job_id}] Expanded search radius to 1000 km.")
+                    logger.info(f"[{self.job_id}] Expanded search radius to {self.config.radius if max_radius_btn else 1000} km.")
         except Exception as e:
             logger.debug(f"[{self.job_id}] Could not expand radius: {e}")
 
