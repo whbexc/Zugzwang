@@ -4,9 +4,12 @@ Translated from Chrome Extension JS logic to native async Playwright.
 """
 
 import asyncio
+import re
+import urllib.parse
 from typing import AsyncGenerator
 
 from .browser import BrowserSession, BrowserError
+from .website_crawler import WebsiteEmailCrawler
 from ..core.security import LicenseManager
 from ..core.events import event_bus
 from ..core.logger import get_logger
@@ -23,6 +26,7 @@ class AusbildungScraper:
         self._cancelled = False
         self._paused = False
         self._total_errors = 0
+        self.crawler = WebsiteEmailCrawler(session) if config.scrape_emails else None
 
     def cancel(self):
         self._cancelled = True
@@ -36,28 +40,30 @@ class AusbildungScraper:
     async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
         logger.info(f"[{self.job_id}] Ausbildung scrape: '{self.config.job_title}' in '{self.config.city or self.config.country}'")
         
-        import urllib.parse
-        
         location_val = self.config.city or ""
         if not location_val and self.config.country and self.config.country != "Germany":
             location_val = self.config.country
             
+        radius_val = getattr(self.config, 'radius', 25)
+
         # Build search URL using the precise verified format
         if location_val:
             query_encoded = urllib.parse.quote(self.config.job_title)
             loc_encoded = urllib.parse.quote(location_val)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius={self.config.radius}"
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius={radius_val}"
         else:
             query_encoded = urllib.parse.quote(self.config.job_title)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius={self.config.radius}"
+            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius={radius_val}"
         
-        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: {self.config.radius}km)", level="INFO")
+        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: {radius_val}km)", level="INFO")
         
         page = await self.session.new_page()
         try:
             success = await self.session.navigate(page, url, wait_until="domcontentloaded")
             if not success:
                 raise BrowserError("Failed to load Ausbildung portal")
+
+            await self._accept_cookies(page)
             
             # Step 1: Apply filters if configured
             if self.config.offer_type and "Ausbildung" in self.config.offer_type:
@@ -79,12 +85,16 @@ class AusbildungScraper:
                     await asyncio.sleep(0.5)
                 if self._cancelled:
                     break
-                
-                # Extract all card links on the current page
-                cards = await page.query_selector_all(".JobPostingCard-module__RpcvXq__cardWrapper a")
-                
-                event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Scanning page: found {len(cards)} total job cards.", level="INFO")
-                
+
+                cards = await self._query_result_cards(page)
+
+                event_bus.emit(
+                    event_bus.JOB_LOG,
+                    job_id=self.job_id,
+                    message=f"Scanning page: found {len(cards)} total job cards.",
+                    level="INFO",
+                )
+
                 urls_to_visit = []
                 for card in cards:
                     href = await card.get_attribute("href")
@@ -104,58 +114,70 @@ class AusbildungScraper:
                             break
                     else:
                         retries = 0
+                        # FIX #3: DOM Settling wait
+                        await asyncio.sleep(1.0)
                     continue
                 
-                # Step 3: Visit in batches of 5 to extract deep email
-                batch_size = 5
-                for i in range(0, len(urls_to_visit), batch_size):
+                # Step 3: Visit URLs in parallel batches of 5
+                async for record in self._fetch_batch(urls_to_visit):
                     if self._cancelled or yielded_count >= self.config.max_results:
                         break
-                    while self._paused and not self._cancelled:
-                        await asyncio.sleep(0.5)
-                    
-                    batch_urls = urls_to_visit[i:i + batch_size]
-                    full_urls = [href if href.startswith("http") else f"https://www.ausbildung.de{href}" for href in batch_urls]
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Inspecting {len(full_urls)} detail pages concurrently...", level="INFO")
-                    
-                    tasks = [self._extract_job_detail(url) for url in full_urls]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    for idx, record in enumerate(results):
-                        if self._cancelled or yielded_count >= self.config.max_results:
-                            break
-                        if isinstance(record, Exception):
-                            logger.error(f"[{self.job_id}] Batch extraction error for {full_urls[idx]}: {record}")
-                            continue
+                    if record is None:
+                        continue
+                    if not (record.company_name or record.email or record.address):
+                        continue
+                    if not LicenseManager.can_extract():
+                        logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                        event_bus.emit(
+                            event_bus.JOB_LOG,
+                            job_id=self.job_id,
+                            message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                            level="WARNING",
+                        )
+                        event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                        return
 
-                        if record and (record.company_name or record.email or record.address):
-                            if not LicenseManager.can_extract():
-                                logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
-                                event_bus.emit(
-                                    event_bus.JOB_LOG,
-                                    job_id=self.job_id,
-                                    message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
-                                    level="WARNING",
-                                )
-                                event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
-                                return
+                    yielded_count += 1
+                    event_bus.emit(
+                        event_bus.JOB_RESULT,
+                        job_id=self.job_id,
+                        record=record,
+                        count=yielded_count,
+                    )
+                    LicenseManager.record_extraction()
+                    yield record
 
-                            yielded_count += 1
-                            event_bus.emit(
-                                event_bus.JOB_RESULT,
-                                job_id=self.job_id,
-                                record=record,
-                                count=yielded_count,
-                            )
-                            LicenseManager.record_extraction()
-                            yield record
-                    
             logger.info(f"[{self.job_id}] Scrape finished. Yielded {yielded_count} records.")
             
         except Exception as e:
             logger.error(f"[{self.job_id}] Fatal error during scrape: {e}", exc_info=True)
             self._total_errors += 1
             event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, level="ERROR", message=f"Ausbildung scan aborted: {str(e)}")
+
+    async def _fetch_batch(self, hrefs: list[str]) -> AsyncGenerator[LeadRecord | None, None]:
+        """Fetch detail pages sequentially to prevent UI thread flooding."""
+        for href in hrefs:
+            if self._cancelled:
+                return
+
+            while self._paused and not self._cancelled:
+                await asyncio.sleep(0.3)
+            
+            full = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
+            event_bus.emit(
+                event_bus.JOB_LOG,
+                job_id=self.job_id,
+                message=f"Inspecting detail page: {full}",
+                level="INFO",
+            )
+            try:
+                record = await self._extract_job_detail(full)
+                # Small yield to let UI and DB pipeline breathe one-by-one.
+                await asyncio.sleep(0.1)
+                yield record
+            except Exception as e:
+                logger.warning(f"[{self.job_id}] Detail task failed for {full}: {e}")
+                yield None
 
     async def _apply_filters(self, page):
         try:
@@ -187,21 +209,51 @@ class AusbildungScraper:
             logger.warning(f"[{self.job_id}] Could not apply filters: {e}")
 
     async def _expand_radius(self, page):
-        """Maximize search radius to + 1000 km to guarantee matching leads."""
+        """Maximize search radius to configured value to guarantee matching leads."""
         try:
+            radius = getattr(self.config, 'radius', 25)
+            # FIX #2: Radius normalization
+            target_text = f"{radius} km"
+            
             radius_toggle = await page.query_selector("[data-testid='radius-filter']")
+            if not radius_toggle:
+                # Fallback for dynamic ID
+                radius_toggle = await page.query_selector("button[id*='toggle-button'][aria-label='Radiusauswahl']")
+            
             if radius_toggle:
+                curr_text = (await radius_toggle.inner_text()).replace("\xa0", " ").strip()
+                if target_text in curr_text:
+                    logger.info(f"[{self.job_id}] Radius is already {target_text}.")
+                    return
+
                 await radius_toggle.evaluate("el => el.click()")
-                await asyncio.sleep(0.3)
-                max_radius_btn = await page.query_selector(f"li[role='option']:has-text('{self.config.radius} km')")
-                if not max_radius_btn:
-                    # Fallback to 1000km if the exact radius isn't found
-                    max_radius_btn = await page.query_selector("li[role='option']:has-text('1000 km')")
+                # FIX #2: Jitter and load wait
+                await asyncio.sleep(1.5)
                 
+                # Look for the target option in the dropdown
+                options = await page.query_selector_all("li[role='option'], .RadiusFilter-module__5FLedG__menuItem")
+                for opt in options:
+                    text = (await opt.inner_text()).replace("\xa0", " ").strip()
+                    if target_text in text:
+                        await opt.evaluate("el => el.click()")
+                        await asyncio.sleep(1.5)
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:
+                            pass
+                        logger.info(f"[{self.job_id}] Expanded search radius to {target_text}.")
+                        return
+                
+                # Second fallback: look for text directly
+                max_radius_btn = await page.query_selector(f"text='{target_text}'")
                 if max_radius_btn:
                     await max_radius_btn.evaluate("el => el.click()")
-                    await asyncio.sleep(0.5)
-                    logger.info(f"[{self.job_id}] Expanded search radius to {self.config.radius if max_radius_btn else 1000} km.")
+                    await asyncio.sleep(1.5)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
+                    logger.info(f"[{self.job_id}] Expanded search radius to {target_text} (text fallback).")
         except Exception as e:
             logger.debug(f"[{self.job_id}] Could not expand radius: {e}")
 
@@ -210,146 +262,241 @@ class AusbildungScraper:
             # Scroll down
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             await asyncio.sleep(0.5)
-            
-            spinner_btn = await page.query_selector(".SearchResults-module__6Vm6GG__spinnerContainer button")
+
+            # FIX #1: Resilient structural selectors
+            spinner_selector = "button[class*='spinnerContainer'], [class*='spinnerContainer'] button, button[class*='loadMore'], button[class*='load-more']"
+            spinner_btn = await page.query_selector(spinner_selector)
             if spinner_btn:
                 await spinner_btn.evaluate("el => el.click()")
-                await asyncio.sleep(0.5)
-                return True
-                
+                # FIX #1: Increased sleep and selector wait
+                await asyncio.sleep(2.5)
+                try:
+                    await page.wait_for_selector("a[href*='/stellen/']", state="attached", timeout=4000)
+                    return True
+                except Exception:
+                    return False
+
             load_more_btns = await page.query_selector_all("button")
             for btn in load_more_btns:
                 text = await btn.inner_text()
                 txt_lower = text.lower()
-                if "mehr ergebnisse laden" in txt_lower or "load more" in txt_lower or "mehr laden" in txt_lower or "weitere" in txt_lower:
+                if any(x in txt_lower for x in ["mehr ergebnisse laden", "load more", "mehr laden", "weitere"]):
                     event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Clicked 'Mehr Ergebnisse laden' button.", level="INFO")
                     await btn.evaluate("el => el.click()")
-                    await asyncio.sleep(0.5)
-                    return True
+                    # FIX #1: Increased sleep and selector wait
+                    await asyncio.sleep(2.5)
+                    try:
+                        await page.wait_for_selector("a[href*='/stellen/']", state="attached", timeout=4000)
+                        return True
+                    except Exception:
+                        # Maybe new cards didn't load but we don't want to fail if it was just a slow DOM
+                        return False
             return False
         except Exception as e:
             logger.debug(f"[{self.job_id}] Load more failed: {e}")
             return False
 
-    async def _extract_job_detail(self, url: str) -> LeadRecord | None:
-        detail_page = None
+    async def _accept_cookies(self, page) -> None:
         try:
-            detail_page = await self.session.new_page()
-            success = await self.session.navigate(detail_page, url, wait_until="domcontentloaded", timeout=30000)
-            if not success:
-                return None
-            
-            # Simple bot detection evasion
-            await asyncio.sleep(self.config.delay_min)
-            
-            company_name_el = await detail_page.query_selector(".jp-c-header__corporation-link")
-            company_name = await company_name_el.inner_text() if company_name_el else ""
-            if company_name:
-                company_name = company_name.replace("Arbeitgeber:", "").strip()
-                company_name = company_name.strip()
-            
-            address = ""
-            contact_person = ""
-            
-            # Use the richer detail address block if available
-            detail_addr_el = await detail_page.query_selector("#detail-bewerbung-adresse")
-            if detail_addr_el:
-                content = await detail_addr_el.inner_text()
-                lines = [l.strip() for l in content.splitlines() if l.strip()]
-                # Filter out "Arbeitgeber:" label if it appears on its own line
-                lines = [l for l in lines if l.lower().rstrip(":") != "arbeitgeber"]
-                if len(lines) >= 3:
-                    # Format: Company \n Contact \n Street \n Zip City
-                    if "herr " in lines[1].lower() or "frau " in lines[1].lower() or any(x in lines[1].lower() for x in ["dir. ", "dr. ", "diederik"]):
-                        if not company_name:
-                            company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                        contact_person = lines[1]
-                        address = ", ".join(lines[2:])
-                    else:
-                        # Probably just Company \n Street \n Zip City
-                        if not company_name:
-                            company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                        address = ", ".join(lines[1:])
-                elif len(lines) == 2:
+            buttons = await page.query_selector_all("button")
+            for btn in buttons:
+                try:
+                    text = (await btn.inner_text()).strip().lower()
+                except Exception:
+                    continue
+                if "alles akzeptieren" in text or "accept all" in text:
+                    await btn.evaluate("el => el.click()")
+                    await asyncio.sleep(0.6)
+                    return
+        except Exception as e:
+            logger.debug(f"[{self.job_id}] Cookie accept skipped: {e}")
+
+    async def _query_result_cards(self, page):
+        selectors = [
+            ".JobPostingCard-module__RpcvXq__cardWrapper a[href]",  # From user script
+            "[class*='JobPostingCard-module__'][class*='cardWrapper'] a[href]",
+            "article[data-testid='jp-card'] a[href]",
+            "a[href*='/stellen/']",
+        ]
+        seen = set()
+        nodes = []
+        for selector in selectors:
+            try:
+                found = await page.query_selector_all(selector)
+            except Exception:
+                continue
+            for node in found:
+                try:
+                    href = await node.get_attribute("href")
+                except Exception:
+                    continue
+                if not href or "/stellen/" not in href:
+                    continue
+                key = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                nodes.append(node)
+        return nodes
+
+    def _parse_detail_html(self, html: str) -> dict:
+        from bs4 import BeautifulSoup
+
+        doc = BeautifulSoup(html, "html.parser")
+        company_name = ""
+        company_name_el = doc.select_one(".jp-c-header__corporation-link")
+        if company_name_el:
+            company_name = company_name_el.get_text(" ", strip=True).replace("Arbeitgeber:", "").strip()
+
+        address = ""
+        contact_person = ""
+        detail_addr_el = doc.select_one("#detail-bewerbung-adresse")
+        if detail_addr_el:
+            lines = [line.strip() for line in detail_addr_el.get_text("\n", strip=True).splitlines() if line.strip()]
+            lines = [line for line in lines if line.lower().rstrip(":") != "arbeitgeber"]
+            if len(lines) >= 3:
+                if "herr " in lines[1].lower() or "frau " in lines[1].lower() or any(x in lines[1].lower() for x in ["dir. ", "dr. "]):
                     if not company_name:
                         company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                    address = lines[1]
-                elif len(lines) == 1:
-                    address = lines[0]
-                    
-            # Fallback to simple address if still empty
-            if not address:
-                address_el = await detail_page.query_selector(".jp-title__address")
-                address = await address_el.inner_text() if address_el else ""
-                if address:
-                    address = address.replace("📍", "").strip()
-                
-            # Extract phone number
-            phone = ""
-            phone_el = await detail_page.query_selector("#detail-bewerbung-telefon-Telefon")
-            if not phone_el:
-                phone_el = await detail_page.query_selector('a[href^="tel:"]')
-            
-            if phone_el:
-                phone_href = await phone_el.get_attribute("href")
-                if phone_href:
-                    phone = phone_href.replace("tel:", "").strip()
+                    contact_person = lines[1]
+                    address = ", ".join(lines[2:])
                 else:
-                    phone = await phone_el.inner_text()
-                    phone = phone.strip()
+                    if not company_name:
+                        company_name = lines[0].replace("Arbeitgeber:", "").strip()
+                    address = ", ".join(lines[1:])
+            elif len(lines) == 2:
+                if not company_name:
+                    company_name = lines[0].replace("Arbeitgeber:", "").strip()
+                address = lines[1]
+            elif len(lines) == 1:
+                address = lines[0]
 
-            # Extract specific city/postal code from the address
-            extracted_city = ""
-            postal_code = ""
-            if address:
-                # Look for "12345 City" pattern
-                import re
-                city_pc_match = re.search(r'(\d{5})\s+([^,]+)', address)
-                if city_pc_match:
-                    postal_code = city_pc_match.group(1)
-                    extracted_city = city_pc_match.group(2).strip()
+        if not address:
+            address_el = doc.select_one(".jp-title__address")
+            if address_el:
+                address = address_el.get_text(" ", strip=True).replace("📍", "").strip()
+
+        phone = ""
+        phone_el = doc.select_one("#detail-bewerbung-telefon-Telefon") or doc.select_one('a[href^="tel:"]')
+        if phone_el:
+            phone_href = phone_el.get("href", "")
+            phone = phone_href.replace("tel:", "").strip() if phone_href else phone_el.get_text(" ", strip=True).strip()
+
+        email = ""
+        for a in doc.select('a[href^="mailto:"]'):
+            href = a.get("href", "")
+            if href and "@" in href:
+                email = href.replace("mailto:", "").split("?")[0].strip()
+                break
+
+        website = ""
+        website_selectors = [
+            "#detail-bewerbung-url",
+            "a[href*='homepage']",
+            "a[href*='internetseite']",
+            "a[href*='website']",
+            "a[target='_blank'][href^='http']",
+        ]
+        for selector in website_selectors:
+            for a in doc.select(selector):
+                href = (a.get("href") or "").strip()
+                if not href:
+                    continue
+                lower_href = href.lower()
+                if lower_href.startswith(("mailto:", "tel:")):
+                    continue
+                if "ausbildung.de" in lower_href:
+                    continue
+                website = href
+                break
+            if website:
+                break
+
+        body_text = doc.get_text("\n", strip=True)
+        start_date = ""
+        date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})|(\d{8})", body_text)
+        if date_match:
+            start_date = date_match.group(0)
+
+        postal_code = ""
+        extracted_city = ""
+        if address:
+            city_pc_match = re.search(r"(\d{5})\s+([^,]+)", address)
+            if city_pc_match:
+                postal_code = city_pc_match.group(1)
+                extracted_city = city_pc_match.group(2).strip()
+
+        return {
+            "company_name": company_name,
+            "address": address,
+            "contact_person": contact_person,
+            "phone": phone,
+            "email": email,
+            "website": website,
+            "start_date": start_date,
+            "postal_code": postal_code,
+            "extracted_city": extracted_city,
+        }
+
+    async def _extract_job_detail(self, url: str) -> LeadRecord | None:
+        try:
+            html = await self.session.fetch_url_content_fast(url, ignore_rate_limit=True)
             
-            # Use extracted city if available, fallback to config if not generic "Ort"
+            if not html:
+                logger.debug(f"[{self.job_id}] Fast fetch empty for {url}, falling back to tab navigation.")
+                async with self.session.page_lock:
+                    detail_page = await self.session.new_page()
+                    try:
+                        success = await self.session.navigate(detail_page, url, wait_until="domcontentloaded", timeout=30000)
+                        if not success:
+                            return None
+                        await asyncio.sleep(0.5)
+                        html = await detail_page.content()
+                    except Exception as e:
+                        logger.warning(f"[{self.job_id}] Tab navigation failed for {url}: {e}")
+                        return None
+                    finally:
+                        await detail_page.close()
+
+            if not html:
+                return None
+
+            fields = self._parse_detail_html(html)
+            company_name = fields["company_name"]
+            address = fields["address"]
+            contact_person = fields["contact_person"]
+            phone = fields["phone"]
+            email = fields["email"]
+            website = fields["website"]
+            start_date = fields["start_date"]
+            postal_code = fields["postal_code"]
+            extracted_city = fields["extracted_city"]
             city = self.config.city
             if extracted_city and (not city or city.lower() == "ort"):
                 city = extracted_city
 
-            # Extract apprenticeship start date (Ausbildungsbeginn) if available
-            start_date = ""
-            try:
-                page_text = await detail_page.inner_text("body")
-                # Look for format: 01.09.2026 or 01092026
-                # Many Ausbildung listings show a Beginn date
-                date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})|(\d{8})', page_text)
-                if date_match:
-                    start_date = date_match.group(0)
-            except:
-                pass
+            if email:
+                event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Found email: {email}", level="INFO")
 
-            email = ""
-            mailto_links = await detail_page.query_selector_all('a[href^="mailto:"]')
-            for a in mailto_links:
-                href = await a.get_attribute("href")
-                if href and "@" in href:
-                    email = href.replace("mailto:", "").split("?")[0].strip()
+            if self.crawler and website and (not email or not phone):
+                crawled_email, crawled_phone, source_page, _socials = await self.crawler.find_contact_info(
+                    website,
+                    company_name=company_name,
+                    job_id=self.job_id,
+                )
+                if crawled_email and not email:
+                    email = crawled_email
                     event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Found email: {email}", level="INFO")
-                    break
+                if crawled_phone and not phone:
+                    phone = crawled_phone
+                if source_page and not website:
+                    website = source_page
                     
         except Exception as e:
             logger.warning(f"[{self.job_id}] Error extracting {url}: {e}")
             self._total_errors += 1
             return None
-        finally:
-            if detail_page:
-                try:
-                    await detail_page.close()
-                except:
-                    pass
 
-        # As requested in the content script, skip if no email AND user wants emails
-        if not email and self.config.scrape_emails:
-            return None
-            
         record = LeadRecord(
             source_type=SourceType.AUSBILDUNG_DE,
             source_url=url,
@@ -358,6 +505,7 @@ class AusbildungScraper:
             postal_code=postal_code,
             company_name=company_name,
             address=address,
+            website=website,
             phone=phone,
             email=email,
             contact_person=contact_person,
@@ -366,4 +514,3 @@ class AusbildungScraper:
         ).normalize()
         
         return record
-    # End of file

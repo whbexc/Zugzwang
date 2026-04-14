@@ -167,6 +167,47 @@ class GoogleMapsScraper:
             logger.info(f"[{self.job_id}] Maps solver reported completion, syncing cookies...")
             self._interaction_queue.put_nowait({"type": "solver_complete", "cookies": cookies})
 
+    async def _enrich_record_contacts(self, record: LeadRecord) -> list[LeadRecord]:
+        if not self.crawler or not record.website or (record.email and record.phone):
+            return [record]
+
+        emails, phone, source, socials = await self.crawler.find_all_contact_info(
+            record.website,
+            record.company_name,
+            self.job_id,
+            bypass_cache=self.config.bypass_cache,
+            extract_social=self.config.extract_social_profiles,
+        )
+
+        emails = deduplicate_emails(
+            [email for email in (emails or []) if email and email != (record.email or "").strip().lower()]
+        )
+
+        if record.email:
+            base_emails = [record.email.strip().lower()]
+        else:
+            base_emails = []
+
+        all_emails = base_emails + emails
+        if all_emails:
+            record.email = all_emails[0]
+            record.email_source_page = source
+        if phone and not record.phone:
+            record.phone = phone
+        if socials:
+            record.linkedin = socials.get("linkedin")
+            record.twitter = socials.get("twitter")
+            record.instagram = socials.get("instagram")
+
+        results = [record]
+        for extra_email in all_emails[1:]:
+            clone = LeadRecord.from_dict(record.to_dict())
+            clone.email = extra_email
+            clone.email_source_page = source
+            results.append(clone.normalize())
+
+        return results
+
 
 
     # ── Main scrape loop ──────────────────────────────────────────────────
@@ -263,9 +304,11 @@ class GoogleMapsScraper:
 
 
             results_count = 0
-
             emitted_keys: set[str] = set()
 
+
+
+            feed_records = self._build_records_from_feed(query)
 
 
             feed_records = self._build_records_from_feed(query)
@@ -281,41 +324,8 @@ class GoogleMapsScraper:
 
 
             for record in feed_records:
-
                 if self._cancelled or results_count >= self.config.max_results:
-
                     break
-
-
-
-                dedupe_key = record.stable_id()
-
-                if dedupe_key in emitted_keys:
-
-                    continue
-
-
-
-                if self.crawler and record.website and not record.email:
-
-                    email, source, socials = await self.crawler.find_email(
-
-                        record.website, record.company_name, self.job_id,
-                        bypass_cache=self.config.bypass_cache,
-                        extract_social=self.config.extract_social_profiles
-                    )
-
-                    if email:
-
-                        record.email = email
-
-                        record.email_source_page = source
-                    if socials:
-                        record.linkedin = socials.get("linkedin")
-                        record.twitter = socials.get("twitter")
-                        record.instagram = socials.get("instagram")
-
-
 
                 if not LicenseManager.can_extract():
                     logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
@@ -328,75 +338,45 @@ class GoogleMapsScraper:
                     event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
                     return
 
-                results_count += 1
-                emitted_keys.add(dedupe_key)
-                logger.info(
-                    f"[{self.job_id}] [{results_count}] {record.company_name} "
-                    f"| {record.city or ''} | email={'yes' if record.email else 'no'} | feed"
-                )
-                event_bus.emit(
-                    event_bus.JOB_RESULT,
-                    job_id=self.job_id,
-                    record=record,
-                    count=results_count,
-                )
-                LicenseManager.record_extraction()
-                yield record
+                # Inline website enrichment
+                if self.crawler and record.website and (not record.email or not record.phone):
+                    enriched_records = await self._enrich_record_contacts(record)
+                else:
+                    enriched_records = [record]
+
+                for enriched in enriched_records:
+                    dedupe_key = enriched.stable_id()
+                    if dedupe_key in emitted_keys:
+                        continue
+                        
+                    results_count += 1
+                    emitted_keys.add(dedupe_key)
+                    logger.info(
+                        f"[{self.job_id}] [{results_count}] {enriched.company_name} "
+                        f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | feed"
+                    )
+                    event_bus.emit(
+                        event_bus.JOB_RESULT,
+                        job_id=self.job_id,
+                        record=enriched,
+                        count=results_count,
+                    )
+                    LicenseManager.record_extraction()
+                    yield enriched
 
                 await self.session.rate_limiter.wait()
 
-
-
             for i, listing in enumerate(listings):
-
                 if self._cancelled or results_count >= self.config.max_results:
-
                     break
 
                 while self._paused and not self._cancelled:
-
                     await asyncio.sleep(0.5)
 
-
-
                 try:
-
                     record = await self._extract_listing(page, listing, query)
-
                     if not record:
-
                         continue
-
-
-
-                    dedupe_key = record.stable_id()
-
-                    if dedupe_key in emitted_keys:
-
-                        continue
-
-
-
-                    if self.crawler and record.website and not record.email:
-
-                        email, source, socials = await self.crawler.find_email(
-
-                            record.website, record.company_name, self.job_id,
-                            bypass_cache=self.config.bypass_cache,
-                            extract_social=self.config.extract_social_profiles
-                        )
-
-                        if email:
-
-                            record.email = email
-
-                            record.email_source_page = source
-                        if socials:
-                            record.linkedin = socials.get("linkedin")
-                            record.twitter = socials.get("twitter")
-                            record.instagram = socials.get("instagram")
-
-
 
                     if not LicenseManager.can_extract():
                         logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
@@ -409,47 +389,45 @@ class GoogleMapsScraper:
                         event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
                         return
 
-                    results_count += 1
-                    emitted_keys.add(dedupe_key)
-                    logger.info(
-                        f"[{self.job_id}] [{results_count}] {record.company_name} "
-                        f"| {record.city or ''} | email={'yes' if record.email else 'no'} | click"
-                    )
-                    event_bus.emit(
-                        event_bus.JOB_RESULT,
-                        job_id=self.job_id,
-                        record=record,
-                        count=results_count,
-                    )
-                    LicenseManager.record_extraction()
-                    yield record
+                    # Inline website enrichment
+                    if self.crawler and record.website and (not record.email or not record.phone):
+                        enriched_records = await self._enrich_record_contacts(record)
+                    else:
+                        enriched_records = [record]
 
+                    for enriched in enriched_records:
+                        dedupe_key = enriched.stable_id()
+                        if dedupe_key in emitted_keys:
+                            continue
 
+                        results_count += 1
+                        emitted_keys.add(dedupe_key)
+                        logger.info(
+                            f"[{self.job_id}] [{results_count}] {enriched.company_name} "
+                            f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | click"
+                        )
+                        event_bus.emit(
+                            event_bus.JOB_RESULT,
+                            job_id=self.job_id,
+                            record=enriched,
+                            count=results_count,
+                        )
+                        LicenseManager.record_extraction()
+                        yield enriched
 
                 except Exception as e:
-
                     self._total_errors += 1
-
                     logger.warning(f"[{self.job_id}] Error on listing {i+1}: {e}")
-
                     event_bus.emit(
-
                         event_bus.JOB_LOG,
-
                         job_id=self.job_id,
-
                         message=f"Error extracting listing {i+1}: {e}",
-
                         level="WARNING",
-
                     )
-
-
 
                 await self.session.rate_limiter.wait()
 
         except BrowserError:
-
             raise
 
         except Exception as e:

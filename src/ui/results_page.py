@@ -151,6 +151,30 @@ class ResultsTableModel(QStandardItemModel):
         self._records.append(record)
         self.appendRow(self._build_row_items(record))
 
+    def add_records(self, records: list[LeadRecord]) -> None:
+        """Insert records using the same logic as add_record, but without
+        emitting signals per-cell.  The caller is responsible for suspending
+        the proxy's dynamic sort/filter before calling this and invalidating
+        it afterwards.
+        """
+        if not records:
+            return
+        for record in records:
+            record.id = record.stable_id()
+            existing_row = self._record_index_by_id.get(record.id)
+            if existing_row is not None:
+                merged = self._merge_records(self._records[existing_row], record)
+                self._records[existing_row] = merged
+                self._replace_row(existing_row, merged)
+            else:
+                self._record_index_by_id[record.id] = len(self._records)
+                self._records.append(record)
+                self.appendRow(self._build_row_items(record))
+
+    def set_records(self, records: list[LeadRecord]) -> None:
+        self.clear_records()
+        self.add_records(records)
+
     def get_record(self, row: int) -> Optional[LeadRecord]:
         return self._records[row] if 0 <= row < len(self._records) else None
 
@@ -474,8 +498,16 @@ class LeadFilterProxy(QSortFilterProxyModel):
         self._city_filter = tr("results.filter.all_cities", self._language)
         self._postal_code_filter = "" # Prefix filter
         self._date_filter = 0  
+        self._cached_search_text = ""
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
         self.setFilterKeyColumn(-1)
+
+    def setFilterRegularExpression(self, pattern) -> None:
+        if isinstance(pattern, str):
+            self._cached_search_text = pattern
+        else:
+            self._cached_search_text = pattern.pattern()
+        super().setFilterRegularExpression(pattern)
 
     def set_source_filter(self, index: int):
         self._source_filter = index
@@ -505,7 +537,7 @@ class LeadFilterProxy(QSortFilterProxyModel):
         if record is None:
             return False
 
-        filter_text = self.filterRegularExpression().pattern()
+        filter_text = self._cached_search_text
         if filter_text:
             searchable = " ".join(
                 [
@@ -1045,6 +1077,28 @@ class ResultsPage(QWidget):
         self._search_box.setStyleSheet(Theme.line_edit())
         topRow.addWidget(self._search_box)
 
+        self._btn_clear_all = QPushButton(tr("results.button.clear", self._language).upper())
+        self._btn_clear_all.setFixedHeight(34)
+        self._btn_clear_all.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_all.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 69, 58, 0.08);
+                border: 1px solid rgba(255, 69, 58, 0.4);
+                border-radius: 8px;
+                color: #FF453A;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 500;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                padding: 0 12px;
+            }
+            QPushButton:hover { background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.6); }
+            QPushButton:pressed { background: rgba(255, 69, 58, 0.25); }
+        """)
+        self._btn_clear_all.clicked.connect(self._confirm_clear_list)
+        topRow.addWidget(self._btn_clear_all)
+
         # Filter Chips
         self._source_chip = FilterChip("ALL SOURCES")
         self._source_chip.clicked.connect(self._show_source_menu)
@@ -1068,25 +1122,131 @@ class ResultsPage(QWidget):
 
         topRow.addStretch(1)
 
-        # Action buttons
-        self._btn_export = QPushButton(tr("results.button.export", self._language))
-        self._btn_export.setFixedHeight(36)
-        self._btn_export.setStyleSheet(Theme.zugzwang_primary_button())
+        # ── Stats pills — exact match of reference ─────────────────────────────
+        def _make_stat_pill(fluent_icon, icon_color: str, label_text: str, count_color: str):
+            """Bordered pill: [colored icon] [grey label] [bold colored count]"""
+            pill = QFrame()
+            pill.setStyleSheet(
+                "QFrame { background: rgba(255,255,255,0.04); "
+                "border: 1px solid rgba(255,255,255,0.10); border-radius: 9px; }"
+            )
+            pill.setFixedHeight(32)
+            lay = QHBoxLayout(pill)
+            lay.setContentsMargins(10, 0, 12, 0)
+            lay.setSpacing(6)
+
+            ico = IconWidget(fluent_icon)
+            ico.setFixedSize(14, 14)
+            ico.setStyleSheet(f"color: {icon_color};")
+
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(
+                "color: #636366;"
+                "font-family: 'PT Root UI', sans-serif;"
+                "font-size: 10px; font-weight: 600;"
+                "letter-spacing: 1px;"
+                "background: transparent; border: none;"
+            )
+
+            cnt = QLabel("0")
+            cnt.setStyleSheet(
+                f"color: {count_color};"
+                "font-family: 'PT Root UI', sans-serif;"
+                "font-size: 12px; font-weight: 700;"
+                "background: transparent; border: none;"
+            )
+
+            lay.addWidget(ico)
+            lay.addWidget(lbl)
+            lay.addWidget(cnt)
+            return pill, cnt
+
+        self._stat_leads_w, self._stat_leads = _make_stat_pill(
+            FluentIcon.PEOPLE, "#9B6DFF", "LEADS", "#9B6DFF")
+        self._stat_emails_w, self._stat_emails = _make_stat_pill(
+            FluentIcon.MAIL, "#30D158", "EMAIL", "#30D158")
+        self._stat_phones_w, self._stat_phones = _make_stat_pill(
+            FluentIcon.PHONE, "#FF375F", "PHONES", "#FF9F0A")
+
+        topRow.addWidget(self._stat_leads_w)
+        topRow.addWidget(self._stat_emails_w)
+        topRow.addWidget(self._stat_phones_w)
+        topRow.addSpacing(4)
+
+        # ── Square icon-only action buttons ────────────────────────────────────
+        _sq = (
+            "QPushButton {{"
+            "  background: rgba(255,255,255,0.05);"
+            "  border: 1px solid rgba(255,255,255,0.10);"
+            "  border-radius: 9px;"
+            "  color: {fg}; font-size: 15px; font-weight: 600;"
+            "}}"
+            "QPushButton:hover {{"
+            "  background: rgba(255,255,255,0.11);"
+            "  border-color: rgba(255,255,255,0.20);"
+            "}}"
+            "QPushButton:pressed {{ background: rgba(255,255,255,0.18); }}"
+        )
+
+        self._btn_import = QPushButton()
+        self._btn_import.setFixedSize(38, 38)
+        self._btn_import.setToolTip("Import leads from file or clipboard")
+        self._btn_import.setCursor(Qt.PointingHandCursor)
+        import_ico = IconWidget(FluentIcon.ADD, self._btn_import)
+        import_ico.setFixedSize(18, 18)
+        import_ico.move(10, 10)
+        self._btn_import.setStyleSheet("""
+            QPushButton {
+                background: #6E3FBF;
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton:hover { background: #8B55D4; }
+            QPushButton:pressed { background: #532E94; }
+        """)
+        self._btn_import.clicked.connect(self._handle_import)
+
+        self._btn_export = QPushButton()
+        self._btn_export.setFixedSize(38, 38)
+        self._btn_export.setToolTip("Export")
+        self._btn_export.setCursor(Qt.PointingHandCursor)
+        export_ico = IconWidget(FluentIcon.SAVE, self._btn_export)
+        export_ico.setFixedSize(18, 18)
+        export_ico.move(10, 10)
+        self._btn_export.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton:hover { background: #409CFF; }
+            QPushButton:pressed { background: #005CC8; }
+        """)
         self._btn_export.clicked.connect(self._show_export_menu)
 
-        self._btn_send_emails = QPushButton(tr("results.button.send", self._language))
-        self._btn_send_emails.setFixedHeight(36)
-        self._btn_send_emails.setStyleSheet(Theme.zugzwang_success_button())
+        self._btn_send_emails = QPushButton()
+        self._btn_send_emails.setFixedSize(38, 38)
+        self._btn_send_emails.setToolTip("Send Messages")
+        self._btn_send_emails.setCursor(Qt.PointingHandCursor)
+        send_ico = IconWidget(FluentIcon.SEND, self._btn_send_emails)
+        send_ico.setFixedSize(18, 18)
+        send_ico.move(10, 10)
+        self._btn_send_emails.setStyleSheet("""
+            QPushButton {
+                background: #1A3A23;
+                border: 1px solid rgba(48,209,88,0.35);
+                border-radius: 10px;
+            }
+            QPushButton:hover { background: #1F4A2A; border-color: rgba(48,209,88,0.6); }
+            QPushButton:pressed { background: #0F2A15; }
+        """)
         self._btn_send_emails.clicked.connect(self._push_emails_to_sender)
 
-        self._btn_clear_all = QPushButton(tr("results.button.clear", self._language))
-        self._btn_clear_all.setFixedHeight(36)
-        self._btn_clear_all.setStyleSheet(Theme.zugzwang_danger_button())
-        self._btn_clear_all.clicked.connect(self._confirm_clear_list)
-
+        topRow.addWidget(self._btn_import)
         topRow.addWidget(self._btn_export)
         topRow.addWidget(self._btn_send_emails)
-        topRow.addWidget(self._btn_clear_all)
+
+
 
         self.mainLayout.addLayout(topRow)
 
@@ -1355,6 +1515,103 @@ class ResultsPage(QWidget):
         pos = self._btn_export.mapToGlobal(self._btn_export.rect().bottomLeft())
         menu.exec(pos, aniType=MenuAnimationType.PULL_UP)
 
+    def _handle_import(self):
+        menu = RoundMenu(parent=self._btn_import)
+        menu.addAction(Action(FluentIcon.COPY, "From Clipboard", triggered=self._import_from_clipboard))
+        menu.addAction(Action(FluentIcon.DOCUMENT, "From File...", triggered=self._import_from_file))
+        pos = self._btn_import.mapToGlobal(self._btn_import.rect().bottomLeft())
+        menu.exec(pos, aniType=MenuAnimationType.PULL_UP)
+
+    def _import_from_clipboard(self):
+        text = QGuiApplication.clipboard().text()
+        self._parse_and_import_text(text)
+
+    def _import_from_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import Data", "", "Data Files (*.txt *.csv *.xlsx *.docx)")
+        if not path:
+            return
+        text = ""
+        ext = Path(path).suffix.lower()
+        try:
+            if ext in (".txt", ".csv"):
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+            elif ext == ".xlsx":
+                import openpyxl
+                wb = openpyxl.load_workbook(path, data_only=True)
+                for sheet in wb.worksheets:
+                    for row in sheet.iter_rows(values_only=True):
+                        row_strs = [str(cell) for cell in row if cell is not None]
+                        text += " ".join(row_strs) + "\n"
+            elif ext == ".docx":
+                import zipfile
+                import xml.etree.ElementTree as ET
+                with zipfile.ZipFile(path) as d:
+                    xml_content = d.read('word/document.xml')
+                    tree = ET.fromstring(xml_content)
+                    for node in tree.iter():
+                        if node.tag.endswith('}t') and node.text:
+                            text += node.text + " "
+                        elif node.tag.endswith('}p'):
+                            text += "\n"
+            self._parse_and_import_text(text)
+        except Exception as e:
+            from qfluentwidgets import InfoBar
+            InfoBar.error("Import Failed", str(e), duration=4000, parent=self)
+
+    def _parse_and_import_text(self, text: str):
+        import re, time
+        from ..core.models import LeadRecord, SourceType
+        lines = text.splitlines()
+        added = 0
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            if "|" in line: parts = [p.strip() for p in line.split("|")]
+            elif "\t" in line: parts = [p.strip() for p in line.split("\t")]
+            elif "," in line and '"' not in line: parts = [p.strip() for p in line.split(",")]
+            else: parts = [line]
+
+            email = ""
+            phone = ""
+            company = ""
+            for p in parts:
+                if "@" in p and "." in p and not email:
+                    m = re.search(r"([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})", p)
+                    if m: email = m.group(1).lower()
+                elif re.search(r"^\+?[0-9\s()./\-]{8,}$", p) and not phone:
+                    phone = p
+                elif len(p) > 2 and not company and "http" not in p and p != email and p != phone:
+                    company = p
+                    
+            if not email and not phone:
+                em_m = re.search(r"([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})", line)
+                ph_m = re.search(r"(\+?[0-9][\d\s()\-./]{7,})", line)
+                if em_m: email = em_m.group(1).lower()
+                if ph_m: phone = ph_m.group(1).strip()
+                
+            if email or phone:
+                record = LeadRecord(
+                    source_type=SourceType.MANUAL,
+                    search_query="Imported",
+                    country="Import",
+                    company_name=company[:200] if company else "Imported Lead",
+                    email=email if email else None,
+                    phone=phone if phone else None,
+                    scraped_at=time.time()
+                )
+                self._record_queue.put(record)
+                added += 1
+
+        if added > 0:
+            from qfluentwidgets import InfoBar
+            InfoBar.success("Import Successful", f"Imported {added} leads.", duration=3000, parent=self)
+            self._drain_queue()
+        else:
+            from qfluentwidgets import InfoBar
+            InfoBar.warning("No Data", "Could not find any emails or phone numbers.", duration=3000, parent=self)
+
     def _clear_selection(self) -> None:
         self._table.clearSelection()
         self._table.setCurrentIndex(QModelIndex())
@@ -1388,17 +1645,35 @@ class ResultsPage(QWidget):
         added = 0
         from ..core.logger import get_logger
         log = get_logger(__name__)
-        while not self._record_queue.empty() and added < 50:
+
+        # Drain up to 15 records into a local list first (no Qt calls yet)
+        batch: list[LeadRecord] = []
+        while not self._record_queue.empty() and len(batch) < 15:
             try:
                 record = self._record_queue.get_nowait()
                 if isinstance(record, dict):
                     record = LeadRecord.from_dict(record)
-                self._model.add_record(record)
-                added += 1
+                batch.append(record)
             except queue.Empty:
                 break
             except Exception as e:
-                log.error(f"Failed to render LeadRecord in drain_queue: {e}", exc_info=True)
+                log.error(f"Failed to read LeadRecord from queue: {e}", exc_info=True)
+
+        if batch:
+            # blockSignals on the SOURCE model is the definitive fix:
+            # no dataChanged / rowsInserted reaches the proxy during the batch,
+            # so filterAcceptsRow is NEVER triggered per-row.
+            # After all inserts, emit layoutChanged once → one O(n) filter pass.
+            self._model.blockSignals(True)
+            try:
+                self._model.add_records(batch)
+                added = len(batch)
+            except Exception as e:
+                log.error(f"Failed to render batch in drain_queue: {e}", exc_info=True)
+            finally:
+                self._model.blockSignals(False)
+                # Tell the proxy the layout changed so it can rebuild its mapping
+                self._proxy.invalidate()
 
         if added:
             self._update_count_label()
@@ -1463,7 +1738,10 @@ class ResultsPage(QWidget):
         self._update_count_label()
 
     def _update_count_label(self):
-        pass # Page subtitle was removed for a cleaner macOS aesthetic
+        records = self._model.get_all_records()
+        self._stat_leads.setText(str(len(records)))
+        self._stat_emails.setText(str(sum(1 for r in records if r.email)))
+        self._stat_phones.setText(str(sum(1 for r in records if r.phone)))
 
     def _on_row_selected(self, current, previous):
         if not current.isValid():

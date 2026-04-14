@@ -44,15 +44,19 @@ class RateLimiter:
         self.min_delay = min_delay
         self.max_delay = max_delay
         self._last_request: float = 0.0
+        self._lock = asyncio.Lock()
 
     async def wait(self) -> None:
-        now = time.monotonic()
-        elapsed = now - self._last_request
-        delay = random.uniform(self.min_delay, self.max_delay)
-        remaining = delay - elapsed
-        if remaining > 0:
-            await asyncio.sleep(remaining)
-        self._last_request = time.monotonic()
+        async with self._lock:
+            now = time.monotonic()
+            # If the last request was already scheduled in the future, base our delay on that
+            base_time = max(now, self._last_request)
+            delay = random.uniform(self.min_delay, self.max_delay)
+            self._last_request = base_time + delay
+            sleep_time = self._last_request - now
+            
+        if sleep_time > 0:
+            await asyncio.sleep(sleep_time)
 
 
 class BrowserSession:
@@ -80,6 +84,8 @@ class BrowserSession:
         )
         self._screenshot_index = 0
         self._blocked_resource_types = self._build_blocked_resource_types()
+        # Serializes concurrent browser-tab operations (new_page / navigate fallbacks)
+        self.page_lock = asyncio.Lock()
 
     def _build_blocked_resource_types(self) -> set[str]:
         if self.source_type == SourceType.JOBSUCHE:

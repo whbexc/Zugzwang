@@ -276,62 +276,101 @@ class DashboardPage(QWidget):
         # Historical jobs will be loaded explicitly by MainWindow once global memory is ready
 
     def _load_recent_jobs_from_disk(self):
-        """Loads historical job definitions to populate the Recent Jobs list."""
+        """Loads historical job definitions to populate the Recent Jobs list.
+
+        Each .db file is read in its own QThreadPool worker (non-blocking).
+        The UI is refreshed exactly once after ALL workers have completed.
+        """
         from ..core.config import get_data_dir
+        from ..utils.db_worker import run_in_thread
         import glob
         import os
 
-        # Find all job_*.db files
         data_dir = get_data_dir()
-        db_files = glob.glob(os.path.join(data_dir, "job_*.db"))
-        # Sort by filename (which includes timestamp) descending
-        db_files.sort(reverse=True)
-        
-        jobs = []
-        for db_path in db_files[:6]: # Load up to last 6 metadata
-            try:
-                meta, _ = orchestrator._export.load_project(db_path)
-                if meta:
-                    from ..core.models import ScrapingStatus, SearchConfig
-                    # Reconstruct ScrapingJob from meta
-                    config_data = json.loads(meta.get("config_json", "{}"))
-                    from ..core.models import SourceType
-                    if config_data.get("source_type") and isinstance(config_data["source_type"], str):
-                        val = config_data["source_type"]
-                        if val == "google_maps": val = "maps"
-                        elif val == "ausbildung_de": val = "ausbildung"
-                        elif val == "aubiplus_de": val = "aubiplus"
-                        config_data["source_type"] = SourceType(val)
-                    
-                    job = ScrapingJob(
-                        config=SearchConfig(**{k: v for k, v in config_data.items() if k in SearchConfig.__dataclass_fields__}),
-                        status=ScrapingStatus(meta.get("status", "completed")),
-                    )
-                    job.id = meta.get("id", "unknown")
-                    job.created_at = meta.get("created_at")
-                    job.started_at = meta.get("started_at")
-                    job.completed_at = meta.get("completed_at")
-                    
-                    stats = json.loads(meta.get("stats_json", "{}"))
-                    job.total_found = stats.get("total_found", 0)
-                    job.total_emails = stats.get("total_emails", 0)
-                    job.total_websites = stats.get("total_websites", 0)
-                    job.total_errors = stats.get("total_errors", 0)
-                    
-                    jobs.append(job)
-            except Exception as e:
-                print(f"[DASHBOARD] Failed to load historical job {db_path}: {e}")
-        
-        if jobs:
-            self._jobs = jobs
-            self._refresh_stats()
-            self._refresh_job_list()
-        else:
-            # Fallback to current orchestrator job if any
+        db_files = sorted(
+            glob.glob(os.path.join(data_dir, "job_*.db")), reverse=True
+        )[:6]
+
+        if not db_files:
             active = orchestrator.current_job
             if active:
                 self._jobs = [active]
                 self._refresh_job_list()
+            return
+
+        # All on_result / on_finished callbacks land on the main thread via
+        # Qt queued connections, so no threading.Lock is needed here.
+        collected: list = []
+        remaining = [len(db_files)]  # one-element list gives us a mutable int
+
+        def _on_result(db_path: str, payload):
+            """Parse job metadata on the main thread (no I/O, fast)."""
+            meta = payload
+            if not meta:
+                return
+            try:
+                from ..core.models import ScrapingStatus, SearchConfig, SourceType, ScrapingJob  # noqa: F811
+                config_data = json.loads(meta.get("config_json", "{}"))
+                if config_data.get("source_type") and isinstance(config_data["source_type"], str):
+                    val = config_data["source_type"]
+                    if val == "google_maps":
+                        val = "maps"
+                    elif val == "ausbildung_de":
+                        val = "ausbildung"
+                    elif val == "aubiplus_de":
+                        val = "aubiplus"
+                    config_data["source_type"] = SourceType(val)
+
+                job = ScrapingJob(
+                    config=SearchConfig(
+                        **{k: v for k, v in config_data.items()
+                           if k in SearchConfig.__dataclass_fields__}
+                    ),
+                    status=ScrapingStatus(meta.get("status", "completed")),
+                )
+                job.id = meta.get("id", "unknown")
+                job.created_at = meta.get("created_at")
+                job.started_at = meta.get("started_at")
+                job.completed_at = meta.get("completed_at")
+
+                stats = json.loads(meta.get("stats_json", "{}"))
+                job.total_found = stats.get("total_found", 0)
+                job.total_emails = stats.get("total_emails", 0)
+                job.total_websites = stats.get("total_websites", 0)
+                job.total_errors = stats.get("total_errors", 0)
+
+                collected.append(job)
+            except Exception as exc:
+                print(f"[DASHBOARD] Failed to parse job from {db_path}: {exc}")
+
+        def _on_finished():
+            """Called on the main thread each time a worker exits."""
+            remaining[0] -= 1
+            if remaining[0] > 0:
+                return  # still waiting for other workers
+
+            # All workers done — refresh the UI exactly once
+            if collected:
+                self._jobs = collected
+                self._refresh_stats()
+                self._refresh_job_list()
+            else:
+                active = orchestrator.current_job
+                if active:
+                    self._jobs = [active]
+                    self._refresh_job_list()
+
+        # Fire one worker per file; they run concurrently in Qt's thread-pool
+        for db_path in db_files:
+            run_in_thread(
+                orchestrator._export.load_job_metadata,
+                db_path,
+                on_result=lambda meta, p=db_path: _on_result(p, meta),
+                on_error=lambda err, p=db_path: print(
+                    f"[DASHBOARD] DB load failed for {p}: {err}"
+                ),
+                on_finished=_on_finished,
+            )
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -585,8 +624,9 @@ class DashboardPage(QWidget):
 
     def _on_live_result(self, record):
         """Adds a live finding note to the activity log."""
-        if hasattr(record, "name") and record.name:
-            self._record_activity(tr("dashboard.activity.found", self._language).format(name=record.name[:40]))
+        name = getattr(record, "name", None) or getattr(record, "company_name", None)
+        if name:
+            self._record_activity(tr("dashboard.activity.found", self._language).format(name=str(name)[:40]))
 
     def _on_export_event(self, **kwargs):
         fmt = str(kwargs.get("format", "")).upper()

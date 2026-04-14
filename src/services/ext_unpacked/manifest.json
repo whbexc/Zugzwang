@@ -1,0 +1,117 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+    "manifest_version": 3,
+    "name": "Email Extractor",
+    "short_name": "Email Extractor",
+    "description": "Powerful Extension To Extract E-Mail ID's Automatically From Web Pages. NEW FEATURES: AutoVisit websites and AutoSave Email IDs.",
+    "version": "5.1.8",
+    "permissions":
+    [
+        "storage",
+        "tabs",
+        "webNavigation",
+        "cookies",
+        "alarms"
+    ],
+    "action":
+    {
+        "default_icon":
+        {
+            "16": "icon16.png",
+            "19": "icon19.png",
+            "38": "icon38.png",
+            "48": "icon48.png",
+            "128": "icon128.png"
+        },
+        "default_popup": "popup.html"
+    },
+    "commands":
+    {
+        "copy-emails-to-clipboard":
+        {
+            "suggested_key":
+            {
+                "default": "Ctrl+Shift+1",
+                "mac": "Command+Shift+1"
+            },
+            "description": "Copy emails ID to Clipboard"
+        },
+        "_execute_action":
+        {
+            "suggested_key":
+            {
+                "windows": "Ctrl+Shift+1",
+                "mac": "Command+Shift+1",
+                "chromeos": "Ctrl+Shift+1",
+                "linux": "Ctrl+Shift+1"
+            },
+            "description": "Copy emails ID to Clipboard"
+        }
+    },
+    "icons":
+    {
+        "16": "icon16.png",
+        "48": "icon48.png",
+        "128": "icon128.png"
+    },
+    "content_scripts":
+    [
+        {
+            "matches":
+            [
+                "<all_urls>"
+            ],
+            "js":
+            [
+                "scripts/jquery.min.js",
+                "scripts/utils.js",
+                "content.js"
+            ],
+            "run_at": "document_end"
+        },
+        {
+            "js":
+            [
+                "mc.js"
+            ],
+            "matches":
+            [
+                "*://mail.google.com/*"
+            ],
+            "run_at": "document_end"
+        },
+        {
+            "js":
+            [
+                "scripts/linkedin.js"
+            ],
+            "matches":
+            [
+                "*://*.linkedin.com/*"
+            ],
+            "run_at": "document_end"
+        }
+    ],
+    "offline_enabled": true,
+    "web_accessible_resources":
+    [
+        {
+            "resources":
+            [
+                "scripts/*.js",
+                "images/*.png",
+                "images/*.svg",
+                "css/*.css"
+            ],
+            "matches":
+            [
+                "<all_urls>"
+            ]
+        }
+    ],
+    "background":
+    {
+        "service_worker": "bgv3.js"
+    }
+}

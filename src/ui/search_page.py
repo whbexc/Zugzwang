@@ -831,6 +831,8 @@ class SearchPage(QWidget):
         elif not preserve_values:
             self._chk_headless.setChecked(settings.default_headless)
 
+    from src.diagnostics import monitor_slot
+    @monitor_slot
     def _launch(self) -> None:
         # Check for License Activation (Trial logic)
         from ..core.security import LicenseManager

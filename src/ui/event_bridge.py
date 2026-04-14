@@ -57,7 +57,6 @@ class EventBridge(QObject):
         event_bus.subscribe(event_bus.JOB_PAUSED, self._on_job_paused)
         event_bus.subscribe(event_bus.JOB_RESULT, self._on_job_result)
         event_bus.subscribe(event_bus.JOB_LOG, self._on_job_log)
-
         # System
         event_bus.subscribe(event_bus.DB_UPDATED, self._on_db_updated)
         event_bus.subscribe(event_bus.EXPORT_COMPLETED, self._on_export_completed)

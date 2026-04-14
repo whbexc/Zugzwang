@@ -1,14 +1,38 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 CHANGELOG = [
     {
-        "version": "1.0.6",
-        "date": "April 6, 2026",
+        "version": "1.0.7",
+        "date": "April 14, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Persistent Outreach Tracking—auto-skips duplicate emails across application restarts"
+            },
+            {
+                "type": "improved",
+                "text": "Broadcast Monitor UI—fully restored elegant card-based monitoring with console-style logs"
+            },
+            {
+                "type": "fixed",
+                "text": "Engine Stability—hardened background signals to prevent 'Signal deleted' crashes during I/O"
+            },
+            {
+                "type": "improved",
+                "text": "Activity Control—added clear-log and copy-log utilities for better troubleshooting"
+            },
+        ]
+    },
+    {
+        "version": "1.0.6",
+        "date": "April 6, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -168,10 +192,40 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.6",
-        "date": "6 أبريل 2026",
+        "version": "1.0.7",
+        "date": "14 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "تتبع التواصل المستمر — يتخطى تلقائيًا رسائل البريد الإلكتروني المكررة عبر إعادة تشغيل التطبيق"
+            },
+            {
+                "type": "improved",
+                "text": "واجهة مراقب البث — استعادة المراقبة الأنيقة القائمة على البطاقات مع سجلات بنمط الكونسول"
+            },
+            {
+                "type": "fixed",
+                "text": "استقرار المحرك — تحصين الإشارات الخلفية لمنع تعطل 'حذف الإشارة' أثناء الإدخال/الإخراج"
+            },
+            {
+                "type": "improved",
+                "text": "التحكم في النشاط — إمكانية مسح السجل ونسخه لتحسين استكشاف الأخطاء وإصلاحها"
+            },
+        ]
+    },
+    {
+        "version": "1.0.6",
+        "date": "6 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

@@ -8,6 +8,9 @@ import uuid
 import os
 from datetime import datetime
 from .config import config_manager
+from .logger import get_logger
+
+logger = get_logger(__name__)
 
 # Hashed security constants — original values are NEVER stored in the source code or binary.
 # Use hashlib.sha256(key.encode()).hexdigest() to verify/update these.
@@ -83,7 +86,10 @@ class LicenseManager:
             return False
         if settings.is_activated:
             # Re-verify locally to prevent simple JSON manipulation
-            return LicenseManager.validate_license(settings.license_key)
+            valid = LicenseManager.validate_license(settings.license_key)
+            logger.debug(f"License verification: {valid} (Key: {settings.license_key[:8]}...)")
+            return valid
+        logger.debug("License status: NOT ACTIVATED (Trial Mode)")
         return False
 
     @staticmethod
@@ -140,6 +146,7 @@ class LicenseManager:
             return True
             
         status = LicenseManager.get_trial_status()
+        logger.debug(f"Trial status check: {status['remaining']} remaining / {status['used']} used")
         return status["remaining"] > 0
 
     @staticmethod

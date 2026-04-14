@@ -16,7 +16,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -109,6 +109,10 @@ class ConfigManager:
             return AppSettings()
 
     def save(self) -> None:
+        from .db_worker import db_worker
+        db_worker.submit(self._save_sync)
+
+    def _save_sync(self) -> None:
         try:
             with open(self._settings_path, "w", encoding="utf-8") as f:
                 json.dump(asdict(self._settings), f, indent=2, ensure_ascii=False)
@@ -148,6 +152,11 @@ class ConfigManager:
 
     def save_search(self, job_title: str, city: str, source: str, offer_type: str, radius: int = 25) -> None:
         """Save a search entry to history, keeping at most 10 unsaved entries."""
+        from .db_worker import db_worker
+        db_worker.submit(self._save_search_sync, job_title, city, source, offer_type, radius)
+
+    def _save_search_sync(self, job_title: str, city: str, source: str, offer_type: str, radius: int = 25) -> None:
+        """Internal synchronous save method called by db_worker."""
         try:
             conn = self._get_db()
             with conn:
@@ -166,6 +175,7 @@ class ConfigManager:
             conn.close()
         except Exception as e:
             logger.warning(f"Failed to save search history: {e}")
+
 
     def get_search_history(self) -> list:
         """Return search history rows ordered by saved first, then timestamp desc."""

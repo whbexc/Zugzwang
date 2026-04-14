@@ -159,7 +159,7 @@ class _CustomTitleBar(TitleBar):
 
         right_area = QWidget()
         right_area.setStyleSheet("background: transparent;")
-        right_area.setFixedWidth(168)
+        right_area.setFixedWidth(46 * 3) # Exactly 3 buttons
         right_layout = QHBoxLayout(right_area)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
@@ -177,8 +177,6 @@ class _CustomTitleBar(TitleBar):
                 color: #AEAEB2;
                 font-size: {size}px;
                 font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', 'Segoe UI Symbol';
-                min-width: 46px; max-width: 46px;
-                min-height: 48px; max-height: 48px;
                 padding: 0;
             }}
             QPushButton:hover {{
@@ -193,6 +191,7 @@ class _CustomTitleBar(TitleBar):
 
         # Minimize  (ChromeMinimize \uE921)
         self._min_btn = QPushButton("\uE921", right_area)
+        self._min_btn.setFixedSize(46, 48)
         self._min_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
         self._min_btn.setCursor(Qt.ArrowCursor)
         self._min_btn.setToolTip("Minimize")
@@ -201,6 +200,7 @@ class _CustomTitleBar(TitleBar):
 
         # Maximize (ChromeMaximize \uE922)
         self._max_btn = QPushButton("\uE922", right_area)
+        self._max_btn.setFixedSize(46, 48)
         self._max_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
         self._max_btn.setCursor(Qt.ArrowCursor)
         self._max_btn.setToolTip("Maximize")
@@ -209,6 +209,7 @@ class _CustomTitleBar(TitleBar):
 
         # Close (ChromeClose \uE8BB)
         self._close_btn = QPushButton("\uE8BB", right_area)
+        self._close_btn.setFixedSize(46, 48)
         self._close_btn.setStyleSheet(_btn_style.format(size=12, hover="#C42B1C", pressed="#B8261A"))
         self._close_btn.setCursor(Qt.ArrowCursor)
         self._close_btn.setToolTip("Close")
@@ -235,7 +236,10 @@ class _CustomTitleBar(TitleBar):
         self._status_dot.setStyleSheet(f"background: {color}; border: {border}; border-radius: 4px;")
 
     def set_stats(self, count: int):
-        pass
+        if count > 0:
+            self._name.setText(f"{count} • ZUGZWANG")
+        else:
+            self._name.setText("ZUGZWANG")
 
     def eventFilter(self, obj, event):
         return super().eventFilter(obj, event)
@@ -289,6 +293,11 @@ class MainWindow(FramelessWindow):
         event_bridge.job_completed.connect(lambda: self.titleBar.set_status(False))
         event_bridge.job_failed.connect(lambda: self.titleBar.set_status(False))
         event_bridge.db_updated.connect(self._on_db_updated)
+        
+        # ── CATCH-UP SPRINT ───────────────────────────────────────────────
+        # If orchestrator's background thread finished before we connected,
+        # we sync manually once. If it's still loading, the signal will fire later.
+        QTimer.singleShot(500, self._catch_up_sync)
 
         # ── Feature: What's New Changelog Popup ───────────────────────────
         from ..changelog import APP_VERSION as changelog_version
@@ -367,8 +376,7 @@ class MainWindow(FramelessWindow):
         self._nav_layout.addWidget(self._support_btn)
 
         self._switch(0)
-        # Defer DB load until after the splash screen / main loop to ensure stability
-        QTimer.singleShot(800, self._restore_saved_results)
+        # Statistics page sync logic will happen via _on_db_updated
 
     def _switch(self, idx: int):
         # Lazy initialization
@@ -442,8 +450,7 @@ class MainWindow(FramelessWindow):
                     f"↓ {self._result_count} leads found",
                     source, toast_type="info", duration=2500
                 )
-            
-            # Milestone Celebration Toasts
+
             milestones = [20, 50, 100, 200, 300, 500, 1000, 2000, 5000, 10000]
             if self._result_count in milestones:
                 self._toast_manager.show(
@@ -606,6 +613,19 @@ class MainWindow(FramelessWindow):
         self._update_dialog.update_started.connect(self._on_update_started)
         self._update_dialog.show()
 
+    def _catch_up_sync(self):
+        """Checks if memory is already loaded and triggers UI sync if so."""
+        from ..services.orchestrator import orchestrator
+        records = orchestrator.get_app_memory_records()
+        if records:
+            print(f"[UI] Catch-up sync found {len(records)} records")
+            self._on_db_updated(records=records)
+        else:
+            # If still empty, maybe it's not loaded at all? 
+            # Force one background load attempt just in case.
+            print("[UI] Catch-up sync: memory empty, requesting background load")
+            self._restore_saved_results()
+
     def _on_update_started(self, url: str):
         """Handle 'Update Now' button click from dialog."""
         self.update_service.start_download(
@@ -619,12 +639,15 @@ class MainWindow(FramelessWindow):
         """Handle successful download."""
         self.update_service.apply_update(path)
 
-    def _restore_saved_results(self):
-        try:
-            records = orchestrator.load_app_memory()
-            self._on_db_updated(records=records or [])
-        except Exception: 
-            self._on_db_updated(records=[])
+    def _restore_saved_results(self) -> None:
+        """Load app_memory.db in a background thread via orchestrator."""
+        from ..utils.db_worker import run_in_thread
+        from ..services.orchestrator import orchestrator
+        run_in_thread(
+            orchestrator.load_app_memory,
+            on_result=lambda records: self._on_db_updated(records=records or []),
+            on_error=lambda err: logger.warning(f"[startup] DB load error: {err}"),
+        )
 
     def _on_db_updated(self, records=None, **kw):
         records = records or []

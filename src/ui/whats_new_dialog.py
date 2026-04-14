@@ -70,9 +70,8 @@ class WhatsNewDialog(QDialog):
 
     def paintEvent(self, event):
         # Draw the semi-transparent backdrop
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 166)) # ~0.65 opacity black
-        painter.end()
+        with QPainter(self) as painter:
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 166)) # ~0.65 opacity black
 
     def _build_ui(self):
         # ── 1. DIALOG CONTAINER ─────────────────────────────────────

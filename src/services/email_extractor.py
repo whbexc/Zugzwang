@@ -4,7 +4,6 @@ Pure extraction/parsing logic for finding emails in HTML content.
 All functions are side-effect-free and unit-testable.
 """
 
-from __future__ import annotations
 import html as html_lib
 import re
 from typing import Optional
@@ -14,12 +13,39 @@ from ..core.models import EmailSource
 from ..core.logger import get_logger
 
 logger = get_logger(__name__)
+ 
+# Performance Hardening: Cap processing size for CPU-intensive regex.
+# Most valid contact info lives at the head (meta/schema) and tail (footer/impressum).
+MAX_PROCESS_SIZE  = 120_000   # 120 KB total
+_HEAD_BYTES       =  80_000   # favour head where <meta> / JSON-LD live
+_TAIL_BYTES       =  40_000   # footer / Impressum contact info
 
-# RFC-5321 compliant email regex (practical subset)
+
+def _cap_html(html: str) -> str:
+    """Trim oversized HTML to head+tail, preserving UTF-8 character boundaries."""
+    encoded = html.encode("utf-8", errors="replace")
+    if len(encoded) <= MAX_PROCESS_SIZE:
+        return html
+    head = encoded[:_HEAD_BYTES]
+    tail = encoded[-_TAIL_BYTES:]
+    return (head + tail).decode("utf-8", errors="replace")
+
+# Robust email regex (handles encoded prefixes and common obfuscation)
+# Design notes:
+#   - Local part: explicit {1,64} length cap prevents catastrophic backtracking
+#   - Primary domain label: [a-zA-Z0-9\-] only (no dot) avoids quadratic
+#     backtracking when the dot-repeating group nests inside large HTML attributes
+#   - TLD: alpha-only [a-zA-Z]{2,10} eliminates numeric/extension false positives
+#   - Lookbehind/lookahead anchors reject embedded matches (e.g. CSS class names)
 EMAIL_PATTERN = re.compile(
-    r"(?<![a-zA-Z0-9._%+\-])"
-    r"([a-zA-Z0-9._%+\-]{1,64}@[a-zA-Z0-9\-]{1,63}(?:\.[a-zA-Z0-9\-]{1,63})*\.[a-zA-Z]{2,})"
-    r"(?![a-zA-Z0-9._%+\-])",
+    r"(?:\\u[\d\w]{4}|\\x[\d\w]{2}|\\f)?"
+    r"((?<![a-zA-Z0-9._%+\-])"
+    r"[a-zA-Z0-9._%+\-]{1,64}"
+    r"(?:@|\[at\]|\(at\)|\[ät\]|\[at\*\]|&#064;|&#x40;)"
+    r"[a-zA-Z0-9\-]{1,63}"                     # primary domain label — NO dot allowed here
+    r"(?:\.[a-zA-Z0-9\-]{1,63})*"              # optional sub-labels
+    r"\.[a-zA-Z]{2,10}"                         # TLD — alpha only, bounded to 10 chars
+    r"(?![a-zA-Z0-9._%+\-]))",
     re.IGNORECASE,
 )
 
@@ -41,6 +67,16 @@ EXCLUDED_EMAIL_DOMAINS = {
     "w3.org", "schema.org", "iana.org",
     # Common German false-positives from CMS footers
     "typo3.org", "contao.org", "joomla.org",
+    # Job Portals / Platforms (Do not want info@portal.de)
+    "arbeitsagentur.de", "stepstone.de", "stepstone.at", "stepstone.ch",
+    "heyjobs.co", "heyjobs.de", "indeed.com", "indeed.de", "monster.de", "monster.com",
+    "jobware.de", "stellenanzeigen.de", "meinestadt.de", "yourfirm.de", "yourfirm.com",
+    "absolventa.de", "azubi.de", "azubiyo.de", "ausbildung.de", "ausbildungsmarkt.de",
+    "ausbildungsatlas.de", "praktikum.de", "berufsstart.de", "bewerber.de",
+    "jobscout24.de", "kimeta.de", "joblift.de", "jobstairs.de", "jobmensa.de",
+    "karriere.de", "karriere.at", "jobs.de", "jobsuche.de", "experteer.de",
+    "softgarden.io", "softgarden.de", "personio.de", "personio.com",
+    "rexx-systems.com", "d.vinci.de", "jobteaser.com", "whatchado.com",
 }
 
 # Emails with these local-part prefixes are typically unmonitored
@@ -48,6 +84,13 @@ NOREPLY_PREFIXES = {
     "noreply", "no-reply", "no_reply",
     "donotreply", "do-not-reply", "do_not_reply",
     "mailer-daemon", "postmaster",
+}
+
+# Prefixes that indicate placeholder/fake emails
+PLACEHOLDER_PREFIXES = {
+    "johndoe", "john.doe", "jane.doe", "max", "mustermann", "max.mustermann",
+    "youremail", "username", "example", "test", "demo", "placeholder",
+    "user", "email", "mail", "contact_person",
 }
 
 # File extensions that are definitely not valid TLDs (false positive emails)
@@ -58,24 +101,20 @@ FALSE_POSITIVE_TLDS = {
     "woff", "woff2", "ttf", "eot", "map",
 }
 
-# Obfuscation patterns in HTML — ordered from most specific to least
+# Simplified obfuscation patterns for speed
 OBFUSCATION_PATTERNS = [
     (r"\[at\]", "@"),
     (r"\(at\)", "@"),
-    (r"\{at\}", "@"),
     (r"\[ät\]", "@"),
     (r"\[dot\]", "."),
     (r"\(dot\)", "."),
-    (r"\{dot\}", "."),
-    # Unicode full-width characters
+    (r"\[punkt\]", "."),
     (r"\uff20", "@"),   # ＠
     (r"\uff0e", "."),   # ．
-    # Spaced versions (only between word-like chars to avoid over-matching)
+    # Compact spaced version
+    (r"(?<=\w)\s*[\(\[]\s*at\s*[\)\]]\s*(?=\w)", "@"),
     (r"(?<=\w)\s+@\s+(?=\w)", "@"),
     (r"(?<=\w)\s+\.\s+(?=\w)", "."),
-    # Bare " at " / " dot " (last, most aggressive)
-    (r"\s+at\s+", "@"),
-    (r"\s+dot\s+", "."),
 ]
 
 # Pre-compiled patterns for HTML extraction
@@ -86,6 +125,10 @@ _JSONLD_CONTACT_PATTERN = re.compile(
 )
 _DATA_EMAIL_PATTERN = re.compile(
     r'data-(?:email|mail|contact)\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE
+)
+_ATTRIBUTE_EMAIL_PATTERN = re.compile(
+    r'(?:aria-label|title|value|content|data-[\w:-]+)\s*=\s*["\']([^"\']+)["\']',
+    re.IGNORECASE,
 )
 _META_EMAIL_PATTERN = re.compile(
     r'<meta[^>]+content\s*=\s*["\']([^"\']*@[^"\']*)["\'][^>]*/?>',
@@ -127,13 +170,24 @@ def extract_emails_from_text(text: str) -> list[str]:
     """Extract all valid, unique emails from a plain text string."""
     if not text:
         return []
+        
+    # Pre-process HTML entities if present in "plain" text
+    text = html_lib.unescape(text)
+    
     deobfuscated = _deobfuscate_text(text)
     found = EMAIL_PATTERN.findall(deobfuscated)
     seen: set[str] = set()
     result: list[str] = []
     for e in found:
-        key = e.lower()
-        if key not in seen and _is_valid_email(e):
+        # If the regex matched a group (the email itself), e will be the group
+        # If the regex has no groups, e will be the whole match
+        email = e if isinstance(e, str) else e[0]
+        # Final cleanup for the deobfuscated email
+        email = email.replace("[at]", "@").replace("(at)", "@").replace("{at}", "@").replace("[ät]", "@")
+        email = email.replace("[at*]", "@").replace("&#064;", "@").replace("&#x40;", "@")
+        
+        key = email.lower().strip()
+        if key not in seen and _is_valid_email(key):
             seen.add(key)
             result.append(key)
     return result
@@ -144,6 +198,13 @@ def extract_emails_from_html(html: str) -> list[str]:
     data-attributes, vCard markup, and text content."""
     if not html:
         return []
+        
+    # Performance: Trim massive HTML to avoid GIL starvation during regex.
+    # _cap_html() uses byte-safe slicing so we never split a multi-byte char.
+    if len(html.encode('utf-8', errors='replace')) > MAX_PROCESS_SIZE:
+        orig_len = len(html)
+        html = _cap_html(html)
+        logger.debug(f"Trimmed HTML payload from {orig_len} to {len(html)} chars")
 
     emails: set[str] = set()
 
@@ -170,6 +231,14 @@ def extract_emails_from_html(html: str) -> list[str]:
         email = match.group(1).strip().lower()
         if _is_valid_email(email):
             emails.add(email)
+
+    # 4b. Other common attribute payloads that often carry contact emails
+    for match in _ATTRIBUTE_EMAIL_PATTERN.finditer(html):
+        raw_value = html_lib.unescape(match.group(1).strip())
+        for candidate in EMAIL_PATTERN.findall(_deobfuscate_text(raw_value)):
+            email = candidate.strip().lower()
+            if _is_valid_email(email):
+                emails.add(email)
 
     # 5. <meta> tags with email-like content
     for match in _META_EMAIL_PATTERN.finditer(html):
@@ -217,20 +286,26 @@ def deduplicate_emails(emails: list[str]) -> list[str]:
     Prefers HR/career/contact prefixes over generic ones."""
     seen: set[str] = set()
     priority_prefixes = [
-        "info@", "contact@", "kontakt@",
-        "jobs@", "karriere@", "bewerbung@",
-        "hr@", "personal@", "stellenangebote@",
-        "recruiting@", "hiring@",
+        "karriere@", "bewerbung@", "jobs@", "hr@", "personal@", 
+        "recruiting@", "hiring@", "stellenangebote@",
+        "kontakt@", "contact@", "info@", 
     ]
     result = []
     for email in emails:
         key = email.lower()
-        if key not in seen:
+        if key not in seen and _is_valid_email(key):
             seen.add(key)
             result.append(email)
-    result.sort(key=lambda e: next(
-        (i for i, p in enumerate(priority_prefixes) if e.lower().startswith(p)), 999
-    ))
+            
+    # Sort by priority - higher precision (HR) first
+    def _get_priority(e: str) -> int:
+        lower = e.lower()
+        for i, p in enumerate(priority_prefixes):
+            if lower.startswith(p):
+                return i
+        return 999
+        
+    result.sort(key=_get_priority)
     return result
 
 
@@ -344,23 +419,50 @@ def _is_valid_email(email: str) -> bool:
     if local_lower in NOREPLY_PREFIXES:
         return False
 
+    # Reject placeholder names (e.g. Max Mustermann, John Doe)
+    if any(local_lower.startswith(p) for p in PLACEHOLDER_PREFIXES):
+        return False
+        
+    # Also check if domain contains portal keywords
+    portal_keywords = ("job", "karriere", "stellenanzeige", "bewerbung", "recruiting")
+    if any(kw in domain.lower() for kw in portal_keywords):
+        # Allow it only if it's not a known big portal (already handled by blocklist)
+        # but be conservative: if it's info@somejobboard.com, we probably don't want it.
+        if local_lower in ("info", "kontakt", "support", "office", "admin"):
+             return False
+
     return True
 
 
 def _strip_html_tags(html: str) -> str:
-    """Remove HTML tags and decode entities to get clean, searchable text."""
-    # Remove comments (may contain false-positive addresses)
-    text = re.sub(r"<!--.*?-->", " ", html, flags=re.DOTALL)
-    # Remove <style> blocks
-    text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
-    # Remove <script> blocks
-    text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.IGNORECASE)
-    # Remove <noscript> blocks (often tracking pixels with email-like URLs)
-    text = re.sub(r"<noscript[^>]*>.*?</noscript>", " ", text, flags=re.DOTALL | re.IGNORECASE)
-    # Strip remaining HTML tags
-    text = re.sub(r"<[^>]+>", " ", text)
-    # Decode HTML entities (&#64; → @, &#x40; → @, &amp; → &, etc.)
+    """Remove HTML tags and decode entities.
+
+    The input must already be capped by _cap_html() before calling this
+    function — we do NOT re-cap here to avoid a second encode/decode pass.
+    All patterns use explicit length bounds or [^<]+ guards so there is no
+    unbounded .*? with re.DOTALL that could stall the GIL on large inputs.
+    """
+    if not html:
+        return ""
+
+    # 1. Remove HTML comments (bounded: stop at first "-->")
+    text = re.sub(r"<!--[\s\S]{0,65536}?-->", " ", html)
+
+    # 2. Remove known zero-text block elements.
+    #    We match the opening tag then consume content as [^<]* runs separated
+    #    by non-closing tags, which avoids unbounded .*? with DOTALL.
+    _BLOCK_RE = re.compile(
+        r"<(script|style|noscript|svg|canvas|video|audio|iframe|object|embed)"
+        r"(?:[^>]*)>[\s\S]{0,200000}?</\1>",
+        re.IGNORECASE,
+    )
+    text = _BLOCK_RE.sub(" ", text)
+
+    # 3. Strip remaining HTML tags — [^>]+ is already non-catastrophic
+    text = re.sub(r"<[^>]{0,2048}>", " ", text)
+
+    # 4. Decode HTML entities and normalise whitespace
     text = html_lib.unescape(text)
-    # Collapse whitespace
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+

@@ -244,17 +244,12 @@ class ExportService:
             conn.close()
 
     def load_project(self, path: str) -> tuple[Optional[dict], list[LeadRecord]]:
-        """Load a project from SQLite file. Returns (job_meta, records)."""
-        logger.info(f"Loading project from: {path}")
+        """Load a full project (metadata + all leads). Returns (job_meta, records)."""
+        job_meta = self.load_job_metadata(path)
+        
         conn = sqlite3.connect(path)
         try:
-            self._init_db(conn)
-            job_row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-            job_meta = None
-            if job_row:
-                cols = [d[0] for d in conn.execute("SELECT * FROM jobs LIMIT 0").description]
-                job_meta = dict(zip(cols, job_row))
-
+            conn.execute("PRAGMA journal_mode=WAL")
             leads_rows = conn.execute(f"SELECT {','.join(EXPORT_COLUMNS)} FROM leads").fetchall()
             records = []
             seen_ids: set[str] = set()
@@ -274,7 +269,32 @@ class ExportService:
         finally:
             conn.close()
 
+    def load_job_metadata(self, path: str) -> Optional[dict]:
+        """Lightweight load of just the job metadata. Fast for dashboard list."""
+        if not os.path.exists(path):
+            return None
+        logger.debug(f"Loading job metadata from: {path}")
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            self._init_db(conn)
+            job_row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
+            if not job_row:
+                return None
+            cols = [d[0] for d in conn.execute("SELECT * FROM jobs LIMIT 0").description]
+            return dict(zip(cols, job_row))
+        except Exception as e:
+            logger.warning(f"Failed to load job metadata from {path}: {e}")
+            return None
+        finally:
+            conn.close()
+
     def _init_db(self, conn: sqlite3.Connection) -> None:
+        # Optimization: Check if tables exist before attempting creation to save MAIN thread time
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'")
+        if cursor.fetchone():
+            return
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
@@ -305,6 +325,8 @@ class ExportService:
         return prepared
 
     def _serialize_config(self, job: ScrapingJob) -> dict:
+        if not job.config:
+            return {}
         data = dict(job.config.__dict__)
         source_type = data.get("source_type")
         if source_type is not None and hasattr(source_type, "value"):

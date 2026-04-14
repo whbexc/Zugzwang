@@ -77,14 +77,27 @@ class RecipientDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(rect, 6, 6)
 
         email = index.data(Qt.DisplayRole)
-        # Use user role for status if needed, or query from the custom item
-        item = index.model().itemData(index) # This is a bit tricky, better to just let the list view handle it or retrieve item from listWidget
-        
-        # Text
+        if not email:
+            painter.restore()
+            return
+            
         painter.setPen(QColor("#FFFFFF"))
         font = option.font
         font.setFamily("SF Mono")
-        font.setPointSize(8.5)
+        font.setPointSize(9.0)
+        
+        # Cross out already sent
+        # Attempt to find history on the widget itself or its parent (EmailSenderPage)
+        history = []
+        if option.widget and hasattr(option.widget, "_successful_emails"):
+            history = option.widget._successful_emails
+        elif option.widget and option.widget.parent() and hasattr(option.widget.parent(), "_successful_emails"):
+            history = option.widget.parent()._successful_emails
+            
+        if email.lower() in history:
+            font.setStrikeOut(True)
+            painter.setPen(QColor("#32D74B")) # Green Success Color
+        
         painter.setFont(font)
         painter.drawText(rect.adjusted(36, 0, -80, 0), Qt.AlignLeft | Qt.AlignVCenter, email)
         
@@ -107,7 +120,7 @@ class RecipientListWidget(QListWidget):
                 background: #1A1A1A;
                 border: 1px solid #3A3A3C;
                 border-radius: 10px;
-                padding: 6px;
+                padding: 10px;
                 outline: none;
             }
             QListWidget::item { border-bottom: 1px solid #2C2C2E; }
@@ -190,7 +203,7 @@ class EmailSenderPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._attachments: list[str] = []
-        self._successful_emails: list[str] = []
+        self._successful_emails: list[str] = self._load_outreach_history()
         self._sending = False
         self._stop_requested = False
         self._active_server = None
@@ -210,6 +223,25 @@ class EmailSenderPage(QWidget):
         self._restore_fields()
         self._connect_buttons()
         self._is_restoring = False
+
+    def _load_outreach_history(self) -> list[str]:
+        # Persist across application restarts
+        try:
+            path = Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data" / "outreach_history.txt"
+            if not path.exists(): return []
+            with open(path, "r", encoding="utf-8") as f:
+                return [line.strip().lower() for line in f if line.strip()]
+        except Exception:
+            return []
+
+    def _append_outreach_history(self, email: str):
+        try:
+            path = Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data"
+            path.mkdir(parents=True, exist_ok=True)
+            with open(path / "outreach_history.txt", "a", encoding="utf-8") as f:
+                f.write(email.strip().lower() + "\n")
+        except Exception:
+            pass
 
     def import_emails(self, emails: list[str]):
         """Consolidated API to push leads into the recipient queue."""
@@ -381,8 +413,8 @@ class EmailSenderPage(QWidget):
         self._card2 = self._step_card("2", tr("send.step2.title", self._language), self._build_payload_section())
         self._card3 = self._step_card("3", tr("send.step3.title", self._language), self._build_monitor_section())
         
-        workflow_h.addWidget(self._card2, 65)
-        workflow_h.addWidget(self._card3, 35)
+        workflow_h.addWidget(self._card2, 40)
+        workflow_h.addWidget(self._card3, 60)
         body.addLayout(workflow_h, 1)
 
 
@@ -554,7 +586,7 @@ class EmailSenderPage(QWidget):
         self._interval_input.setFixedHeight(34)
         self._interval_input.setFixedWidth(52)
         
-        iv_lbl = self._field_label(tr("send.field.interval", self._language) + " (MIN: 15S | REC: 30S)")
+        iv_lbl = self._field_label("INTERVAL (S)")
         rec_h.addWidget(iv_lbl, 0, Qt.AlignVCenter)
         rec_h.addWidget(self._interval_input, 0, Qt.AlignVCenter)
         
@@ -590,14 +622,17 @@ class EmailSenderPage(QWidget):
         
         # Left: Recipients
         rec_col = QVBoxLayout()
-        rec_col.setSpacing(6)
+        rec_col.setContentsMargins(0, 0, 0, 0)
+        rec_col.setSpacing(12)
         
         lbl_rec_row = QHBoxLayout()
         lbl_rec_row.setSpacing(12)
-        lbl_rec = self._field_label("RECIPIENT QUEUE")
+        lbl_rec = self._field_label("QUEUE")
         lbl_rec.setFixedHeight(32)
         lbl_rec_row.addWidget(lbl_rec)
-        lbl_rec_row.addWidget(self._rec_count) # New position
+        
+        self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;")
+        lbl_rec_row.addWidget(self._rec_count)
         lbl_rec_row.addStretch(1)
         
         # Add Search Input
@@ -646,10 +681,10 @@ class EmailSenderPage(QWidget):
         
         from .components import EmptyStateWidget
         self._rec_empty = EmptyStateWidget(
-            FluentIcon.HELP,
+            FluentIcon.SEARCH,
             title="Queue is Empty",
-            description="Add emails manually, import from a file, or load directly from your lead database.",
-            button_text="Load from Leads",
+            description="Import emails, paste from clipboard, or load directly from your lead database.",
+            button_text="LOAD LEADS",
             button_callback=self._load_from_leads
         )
         
@@ -662,15 +697,18 @@ class EmailSenderPage(QWidget):
         
         # Right: Log Stack
         log_stack = QVBoxLayout()
-        log_stack.setSpacing(6)
+        log_stack.setContentsMargins(0, 0, 0, 0)
+        log_stack.setSpacing(12)
         
         log_header = QHBoxLayout()
         log_header.setSpacing(12)
-        lbl_log = self._field_label("BROADCAST ACTIVITY LOG")
+        lbl_log = self._field_label("LOG")
         lbl_log.setFixedHeight(32) # Perfectly vertically aligned with left side
         log_header.addWidget(lbl_log)
 
-        # Resumption Button (Continue) - Balanced same as delete button
+        log_header.addStretch(1)
+
+        # Resumption Button (Continue)
         self._btn_continue.setFixedSize(32, 32)
         self._btn_continue.setIconSize(QSize(16, 16))
         self._btn_continue.setToolTip("Continue / Resume Broadcast")
@@ -678,7 +716,25 @@ class EmailSenderPage(QWidget):
         self._btn_continue.setStyleSheet(self._btn_delete_menu.styleSheet())
         log_header.addWidget(self._btn_continue, 0, Qt.AlignVCenter)
         
-        log_header.addStretch(1)
+        # Copy Log Button
+        self._btn_copy_log = TransparentPushButton(FluentIcon.COPY.icon(color=QColor("#8E8E93")), "")
+        self._btn_copy_log.setFixedSize(32, 32)
+        self._btn_copy_log.setIconSize(QSize(16, 16))
+        self._btn_copy_log.setToolTip("Copy Activity Log")
+        self._btn_copy_log.setCursor(Qt.PointingHandCursor)
+        self._btn_copy_log.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_copy_log.clicked.connect(lambda: QGuiApplication.clipboard().setText(self._status_log.toPlainText()))
+        log_header.addWidget(self._btn_copy_log, 0, Qt.AlignVCenter)
+
+        # Clear Log Button
+        self._btn_clear_log = TransparentPushButton(FluentIcon.SYNC.icon(color=QColor("#8E8E93")), "")
+        self._btn_clear_log.setFixedSize(32, 32)
+        self._btn_clear_log.setIconSize(QSize(16, 16))
+        self._btn_clear_log.setToolTip("Clear Activity Log")
+        self._btn_clear_log.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_log.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_clear_log.clicked.connect(lambda: self._status_log.clear())
+        log_header.addWidget(self._btn_clear_log, 0, Qt.AlignVCenter)
         log_stack.addLayout(log_header)
         
         self._status_log.setStyleSheet("""
@@ -687,10 +743,10 @@ class EmailSenderPage(QWidget):
                 border: 1px solid #3A3A3C;
                 border-radius: 10px;
                 padding: 12px;
-                color: #48484A;
+                color: #8E8E93;
                 font-family: 'PT Root UI', monospace;
                 font-size: 12px;
-                line-height: 1.8;
+                line-height: 1.6;
             }
         """)
         # Remove fixed height to let it expand naturally with the recipient panel
@@ -938,7 +994,7 @@ class EmailSenderPage(QWidget):
             return
             
         current = self._get_recipients()
-        purged = [e for e in current if e not in self._successful_emails]
+        purged = [e for e in current if e.lower() not in self._successful_emails]
         
         self._set_recipients(purged)
         self._successful_emails = [] # Clear tracking after purge
@@ -1248,6 +1304,11 @@ class EmailSenderPage(QWidget):
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
             
+            # Strict Block - Prevents duplicates even from Manual Test Broadcasts
+            if rec.lower() in self._successful_emails:
+                self._log(f"Skipping {rec} (Already recorded as sent in history).", "WARNING")
+                continue
+            
             # ── Robust Sending Logic ──
             try:
                 msg = self._build_message(rec)
@@ -1268,7 +1329,10 @@ class EmailSenderPage(QWidget):
                 # Actual Transmission
                 self._active_server.send_message(msg)
                 sent += 1
-                self._successful_emails.append(rec)
+                if rec.lower() not in self._successful_emails:
+                    self._successful_emails.append(rec.lower())
+                    self._append_outreach_history(rec)
+                    
                 self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
 
             except Exception as e:
@@ -1304,7 +1368,7 @@ class EmailSenderPage(QWidget):
             
         all_recs = self._get_recipients()
         # Filter out those already successfully sent
-        remaining = [e for e in all_recs if e not in self._successful_emails]
+        remaining = [e for e in all_recs if e.lower() not in self._successful_emails]
         
         if not remaining:
             self._on_log("No unsent emails remaining in queue.", "SUCCESS")

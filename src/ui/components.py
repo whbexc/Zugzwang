@@ -672,24 +672,23 @@ class MacSwitch(QWidget):
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-
-        track_color = self._on_color if self._checked else QColor("#3A3A3C")
-        if not self.isEnabled():
-            track_color.setAlpha(128)
-        painter.setBrush(QBrush(track_color))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, w, h, h/2, h/2)
-
-        thumb_size = h - 4
-        thumb_rect = QRectF(self._thumb_x, 2, thumb_size, thumb_size)
-        painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
-        painter.drawEllipse(thumb_rect.translated(0, 1))
-        painter.setBrush(QBrush(QColor("#FFFFFF")))
-        painter.drawEllipse(thumb_rect)
-        painter.end()
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.Antialiasing)
+            w, h = self.width(), self.height()
+    
+            track_color = self._on_color if self._checked else QColor("#3A3A3C")
+            if not self.isEnabled():
+                track_color.setAlpha(128)
+            painter.setBrush(QBrush(track_color))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, h/2, h/2)
+    
+            thumb_size = h - 4
+            thumb_rect = QRectF(self._thumb_x, 2, thumb_size, thumb_size)
+            painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
+            painter.drawEllipse(thumb_rect.translated(0, 1))
+            painter.setBrush(QBrush(QColor("#FFFFFF")))
+            painter.drawEllipse(thumb_rect)
 
 
 class EmptyStateWidget(QWidget):

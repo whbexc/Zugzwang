@@ -290,9 +290,6 @@ class LogViewerPage(QWidget):
 
     # ── Log pipeline ──────────────────────────────────────────────────────────
 
-    def header_action_widgets(self) -> list[QWidget]:
-        return []
-
     def _receive_log(self, level: str, name: str, message: str) -> None:
         now = datetime.now()
         timestamp = now.strftime("%H:%M:%S")
@@ -338,7 +335,6 @@ class LogViewerPage(QWidget):
             content = log_file.read_text(encoding="utf-8")
             lines = content.splitlines()[-200:] # Last 200 lines
             for line in lines:
-                # Format: 2026-03-30 02:21:34 | INFO     | leadhunter.core.config         | message
                 parts = line.split("|", 3)
                 if len(parts) == 4:
                     ts_str = parts[0].strip()
@@ -416,7 +412,7 @@ class LogViewerPage(QWidget):
         )
 
     def _empty_state_html(self) -> str:
-        return """
+        return f"""
         <div style="display:flex; flex-direction:column; align-items:center;
                     justify-content:center; height:200px; text-align:center;
                     padding-top: 60px;">
@@ -445,7 +441,7 @@ class LogViewerPage(QWidget):
             self, "Export Logs", str(Path.home() / default_name), "Text Files (*.txt)"
         )
         if path:
-            lines = [f"{ts} | {lv} | {nm} | {msg}" for ts, lv, nm, msg in self._all_logs]
+            lines = [f"{ts} | {lv} | {nm} | {msg}" for _dt, ts, lv, nm, msg in self._all_logs]
             Path(path).write_text("\n".join(lines), encoding="utf-8")
 
     def _scroll_to_bottom(self):

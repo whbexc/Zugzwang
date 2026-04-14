@@ -5,13 +5,15 @@ thread isolation, asyncio event loop management,
 pause/resume/cancel, and result streaming to the UI.
 """
 
-from __future__ import annotations
 import asyncio
 from pathlib import Path
 import threading
+import time
 from dataclasses import replace
 from datetime import datetime
 from typing import Optional
+
+from PySide6.QtCore import QObject, QThread
 
 from .browser import BrowserSession
 from .maps_scraper import GoogleMapsScraper
@@ -20,6 +22,7 @@ from .ausbildung_scraper import AusbildungScraper
 from .aubiplus_scraper import AubiPlusScraper
 from .azubiyo_scraper import AzubiyoScraper
 from .export_service import ExportService
+from .import_service import ImportService
 from ..core.config import config_manager, get_data_dir, get_memory_db_path
 from ..core.events import event_bus
 from ..core.logger import get_logger
@@ -28,9 +31,52 @@ from ..core.models import LeadRecord, ScrapingJob, ScrapingStatus, SourceType, S
 logger = get_logger(__name__)
 
 
+class ScrapingWorker(QObject):
+    """
+    Worker object that encapsulates the Playwright asyncio loop.
+    Moves the execution into a PySide6 QThread to ensure UI responsiveness
+    while avoiding GIL collisions caused by raw Python threads.
+    """
+    def __init__(self, orchestrator_ref, job: ScrapingJob):
+        super().__init__()
+        self.orchestrator = orchestrator_ref
+        self.job = job
+
+    def run(self):
+        """Runs in a dedicated QThread. Creates its own asyncio event loop."""
+        # Lower thread priority so the Qt main event loop is never starved
+        # when Playwright drives the browser at full CPU.
+        from PySide6.QtCore import QThread
+        QThread.currentThread().setPriority(QThread.Priority.LowPriority)
+
+        self.orchestrator._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.orchestrator._loop)
+
+        # Load app memory in the background thread if not already loaded
+        if not self.orchestrator._known_record_ids:
+            try:
+                self.orchestrator.load_app_memory()
+            except Exception as e:
+                logger.warning(f"Background app memory load failed: {e}")
+
+        try:
+            self.orchestrator._loop.run_until_complete(self.orchestrator._run_job_async(self.job))
+        except Exception as e:
+            logger.error(f"Job thread crashed: {e}", exc_info=True)
+            self.job.fail(str(e))
+            event_bus.emit(event_bus.JOB_FAILED, job_id=self.job.id, error=str(e))
+        finally:
+            try:
+                self.orchestrator._loop.close()
+            except Exception:
+                pass
+            # Trigger clean QThread exit
+            if hasattr(self.orchestrator, '_thread') and self.orchestrator._thread:
+                self.orchestrator._thread.quit()
+
 class ScrapingOrchestrator:
     """
-    Coordinates scraping job execution in a dedicated background thread
+    Coordinates scraping job execution in a dedicated background QThread
     with an asyncio event loop. Provides thread-safe control (pause/resume/cancel).
     One instance per application session.
     """
@@ -42,15 +88,32 @@ class ScrapingOrchestrator:
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._export = ExportService()
+        self._import = ImportService()
         self._memory_lock = threading.Lock()
         self._known_record_ids: set[str] = set()
-        self._app_memory_records: list[LeadRecord] = []
+        # O(1) id-keyed dict; preserves insertion order (Python 3.7+)
+        self._app_memory_records: dict[str, LeadRecord] = {}
+        self._last_progress_emit_ts: float = 0.0
+        self._last_progress_found: int = -1
+        self._library_verify_count: int = 0
         
-        # Load existing history from disk on startup
-        try:
-            self.load_app_memory()
-        except Exception as e:
-            logger.warning(f"Initial app memory load failed: {e}")
+        # Load existing history from disk in a background thread so the main
+        # thread (and the UI it's about to render) is never stalled.
+        # ScrapingWorker.run() already re-checks _known_record_ids before each
+        # job, so there is no race: the worker will wait on its own load if
+        # this one hasn't finished yet.
+        def _bg_load_memory():
+            try:
+                records = self.load_app_memory()
+                event_bus.emit(event_bus.DB_UPDATED, records=records)
+            except Exception as e:
+                logger.warning(f"Initial app memory load failed: {e}")
+
+        threading.Thread(
+            target=_bg_load_memory,
+            daemon=True,
+            name="startup-memory-load",
+        ).start()
 
     @property
     def is_running(self) -> bool:
@@ -74,12 +137,11 @@ class ScrapingOrchestrator:
         job = ScrapingJob(config=config)
         self._current_job = job
 
-        self._thread = threading.Thread(
-            target=self._run_job_thread,
-            args=(job,),
-            daemon=True,
-            name=f"scraper-{job.id[:8]}",
-        )
+        self._thread = QThread()
+        self._worker = ScrapingWorker(self, job)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        
         self._thread.start()
         logger.info(f"Started scraping job {job.id} ({config.source_type.value})")
         return job
@@ -90,6 +152,7 @@ class ScrapingOrchestrator:
             if self._current_job:
                 self._current_job.status = ScrapingStatus.PAUSED
             event_bus.emit(event_bus.JOB_PAUSED, job_id=self._current_job.id if self._current_job else "")
+            self.persist_current_job()
             logger.info(f"Job paused: {self._current_job.id if self._current_job else ''}")
 
     def resume_job(self) -> None:
@@ -104,6 +167,7 @@ class ScrapingOrchestrator:
         if self._current_job:
             self._current_job.status = ScrapingStatus.CANCELLED
             event_bus.emit(event_bus.JOB_CANCELLED, job_id=self._current_job.id)
+            self.persist_current_job()
             logger.info(f"Job cancelled: {self._current_job.id}")
 
     def export_results(
@@ -140,6 +204,128 @@ class ScrapingOrchestrator:
         t = threading.Thread(target=_do_export, daemon=True, name="export-worker")
         t.start()
 
+    def remove_leads(self, lead_ids: list[str]) -> None:
+        """Remove leads from the global memory and persist the change."""
+        if not lead_ids:
+            return
+        
+        with self._memory_lock:
+            initial_count = len(self._app_memory_records)
+            # O(1) per id — dict.pop is constant time
+            for lid in lead_ids:
+                self._app_memory_records.pop(lid, None)
+                self._known_record_ids.discard(lid)
+            removed_count = initial_count - len(self._app_memory_records)
+
+        if removed_count > 0:
+            # Persist to disk
+            self.persist_current_job()
+            logger.info(f"Removed {removed_count} leads from global memory.")
+
+    def mark_as_contacted(self, emails: list[str]) -> None:
+        """Mark leads with matching emails as contacted and persist the change. 
+        Creates manual stub records for unseen emails."""
+        if not emails:
+            return
+            
+        email_set = {e.strip().lower() for e in emails}
+        from datetime import datetime as _dt
+        from ..core.models import LeadRecord, SourceType
+        now = _dt.utcnow().isoformat()
+        updated = 0
+        
+        with self._memory_lock:
+            # Build a reverse email→record map for O(1) lookup
+            email_to_record: dict[str, LeadRecord] = {
+                r.email.strip().lower(): r
+                for r in self._app_memory_records.values()
+                if r.email
+            }
+            found_emails: set[str] = set()
+            for target_email in email_set:
+                r = email_to_record.get(target_email)
+                if r:
+                    found_emails.add(target_email)
+                    r.is_contacted = True
+                    if not r.contacted_at:
+                        r.contacted_at = now
+                    updated += 1
+
+            # For any emails not in memory (e.g. pasted from clipboard),
+            # create a stub 'manual' lead to track the send persistently.
+            missing = email_set - found_emails
+            for m_email in missing:
+                stub = LeadRecord(
+                    source_type=SourceType.MANUAL,
+                    email=m_email,
+                    is_contacted=True,
+                    contacted_at=now,
+                    notes="Auto-generated stub from manual broadcast"
+                )
+                stub.id = stub.stable_id()
+                if stub.id not in self._known_record_ids:
+                    self._known_record_ids.add(stub.id)
+                    self._app_memory_records[stub.id] = stub
+                    updated += 1
+
+        if updated > 0:
+            self.persist_current_job()
+            logger.info(f"Marked {updated} lead(s) as contacted (including stubs for manual emails).")
+
+    def is_already_contacted(self, email: str) -> bool:
+        """Check if an email has already been contacted according to app memory."""
+        if not email:
+            return False
+        email_lower = email.strip().lower()
+        with self._memory_lock:
+            # O(N) list scan replaced with O(N) dict-values scan; still linear but
+            # avoids holding the lock across a worst-case O(N) random-access list.
+            # A secondary email→id index would make this O(1); add if needed.
+            for r in self._app_memory_records.values():
+                if r.email and r.email.strip().lower() == email_lower:
+                    return bool(r.is_contacted)
+        return False
+
+    def import_leads(self, file_path: Optional[str] = None, text: Optional[str] = None) -> None:
+        """Import leads from a file or raw text in a background thread."""
+        def _do_import():
+            try:
+                if file_path:
+                    event_bus.emit(event_bus.EXPORT_STARTED, format="import", path=file_path)
+                    records = self._import.import_from_file(file_path)
+                    source_name = Path(file_path).name
+                elif text:
+                    records = self._import.import_from_text(text)
+                    source_name = "Clipboard"
+                else:
+                    return
+
+                new_count = 0
+                with self._memory_lock:
+                    for record in records:
+                        record.id = record.stable_id()
+                        if record.id not in self._known_record_ids:
+                            self._known_record_ids.add(record.id)
+                            self._app_memory_records[record.id] = record
+                            new_count += 1
+                
+                if new_count > 0:
+                    self.persist_current_job()
+                
+                event_bus.emit(
+                    event_bus.EXPORT_COMPLETED,
+                    format="import",
+                    path=source_name,
+                    count=new_count,
+                )
+                logger.info(f"Import complete: {new_count} new leads from {source_name}")
+            except Exception as e:
+                logger.error(f"Import failed: {e}")
+                event_bus.emit(event_bus.EXPORT_FAILED, format="import", error=str(e))
+
+        t = threading.Thread(target=_do_import, daemon=True, name="import-worker")
+        t.start()
+
     def load_app_memory(self) -> list[LeadRecord]:
         memory_path = get_memory_db_path()
         if not memory_path.exists():
@@ -152,7 +338,8 @@ class ScrapingOrchestrator:
 
         with self._memory_lock:
             self._known_record_ids = {record.id for record in records}
-            self._app_memory_records = list(records)
+            # Rebuild O(1) dict; later records win if there are id collisions
+            self._app_memory_records = {record.id: record for record in records}
         return records
 
     def clear_app_memory(self) -> None:
@@ -167,51 +354,27 @@ class ScrapingOrchestrator:
         event_bus.emit(event_bus.DB_UPDATED, records=[])
 
     def get_app_memory_records(self) -> list[LeadRecord]:
-        """Return a thread-safe copy of all historical records."""
+        """Return a thread-safe snapshot of all historical records."""
         with self._memory_lock:
-            return list(self._app_memory_records)
+            return list(self._app_memory_records.values())
 
     def persist_current_job(self) -> None:
         """Persist the cumulative in-memory application records over time."""
-        try:
-            from ..core.models import ScrapingJob, ScrapingStatus
-            
-            with self._memory_lock:
-                all_records = list(self._app_memory_records)
-
-            dummy_job = ScrapingJob(
-                config=self._current_job.config if self._current_job else None,
-                results=all_records,
-                status=ScrapingStatus.COMPLETED
-            )
-            self._export.save_project(dummy_job, str(get_memory_db_path()))
-            event_bus.emit(event_bus.DB_UPDATED, records=all_records)
-        except Exception as e:
-            logger.warning(f"Could not persist current job snapshot: {e}")
-
-    def _run_job_thread(self, job: ScrapingJob) -> None:
-        """Runs in a dedicated thread. Creates its own asyncio event loop."""
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        from ..core.models import ScrapingJob, ScrapingStatus
         
-        # Load app memory in the background thread if not already loaded
-        if not self._known_record_ids:
-            try:
-                self.load_app_memory()
-            except Exception as e:
-                logger.warning(f"Background app memory load failed: {e}")
+        with self._memory_lock:
+            all_records = list(self._app_memory_records.values())
+            config = self._current_job.config if self._current_job else SearchConfig()
 
-        try:
-            self._loop.run_until_complete(self._run_job_async(job))
-        except Exception as e:
-            logger.error(f"Job thread crashed: {e}", exc_info=True)
-            job.fail(str(e))
-            event_bus.emit(event_bus.JOB_FAILED, job_id=job.id, error=str(e))
-        finally:
+        def _do_persist():
             try:
-                self._loop.close()
-            except Exception:
-                pass
+                dummy_job = ScrapingJob(config=config, results=all_records, status=ScrapingStatus.COMPLETED)
+                self._export.save_project(dummy_job, str(get_memory_db_path()))
+                event_bus.emit(event_bus.DB_UPDATED, records=all_records)
+            except Exception as e:
+                logger.warning(f"Background persistence failed: {e}")
+
+        threading.Thread(target=_do_persist, daemon=True, name="persist-worker").start()
 
     async def _run_job_async(self, job: ScrapingJob) -> None:
         """Async job runner. Creates browser session and delegates to scraper."""
@@ -249,30 +412,109 @@ class ScrapingOrchestrator:
                     break
                 record = record.normalize()
                 record.id = record.stable_id()
+                record.job_id = job.id
                 with self._memory_lock:
                     if record.id in current_job_ids:
-                        # Skip strictly internal duplicates to prevent UI jitter
+                        existing = self._app_memory_records.get(record.id)
+                        if existing:
+                            record.email = record.email or existing.email
+                            record.phone = record.phone or existing.phone
+                            record.website = record.website or existing.website
+                            record.address = record.address or existing.address
+                            record.contact_person = record.contact_person or existing.contact_person
+                            record.linkedin = record.linkedin or existing.linkedin
+                            record.twitter = record.twitter or existing.twitter
+                            record.instagram = record.instagram or existing.instagram
+                            record.is_duplicate = existing.is_duplicate
+                        self._app_memory_records[record.id] = record
+                        for idx, existing_job_record in enumerate(job.results):
+                            if existing_job_record.id == record.id:
+                                job.results[idx] = record
+                                break
+                        job._update_stats()
                         continue
                     
                     is_new_globally = record.id not in self._known_record_ids
                     if is_new_globally:
                         self._known_record_ids.add(record.id)
-                        self._app_memory_records.append(record)
+                        # O(1) dict insert — no list append/scan needed
+                        self._app_memory_records[record.id] = record
                     else:
                         logger.debug(f"Job {job.id}: Lead {record.id} already exists in global library.")
-                        event_bus.emit(
-                            event_bus.JOB_LOG,
-                            job_id=job.id,
-                            message=f"🔄 Already in library: {record.company_name or record.email}",
-                            level="INFO",
-                        )
+                        # O(1) dict lookup — replaces next(r for r in list if r.id == id)
+                        existing = self._app_memory_records.get(record.id)
+                        if existing:
+                            # Prefer existing contact info if incoming is missing
+                            record.email = record.email or existing.email
+                            record.phone = record.phone or existing.phone
+                            record.website = record.website or existing.website
+                            record.address = record.address or existing.address
+                            record.contact_person = record.contact_person or existing.contact_person
+                            record.linkedin = record.linkedin or existing.linkedin
+                            record.twitter = record.twitter or existing.twitter
+                            record.instagram = record.instagram or existing.instagram
+
+                        # Mark as duplicate and update in-place — O(1), no list scan or insert(0)
+                        record.is_duplicate = True
+                        record.scraped_at = datetime.utcnow().isoformat()
+                        self._app_memory_records[record.id] = record
+
+                        self._library_verify_count += 1
                     
+                    # Store result in this job and update dashboard stats
+                    job.results.append(record)
                     current_job_ids.add(record.id)
+                    job._update_stats()
+                    
+                    # Result is emitted natively by the scraper.
+                    # We just need to trigger the PROGRESS update.
 
-                job.results.append(record)
-                job._update_stats()
-                job.total_errors = getattr(self._scraper, "_total_errors", 0)
+                    now = time.monotonic()
+                    should_emit_progress = (
+                        job.total_found != self._last_progress_found
+                        and (
+                            job.total_found <= 3
+                            or (job.total_found % 5 == 0)
+                            or (now - self._last_progress_emit_ts >= 0.5)
+                        )
+                    )
+                    if should_emit_progress:
+                        self._last_progress_emit_ts = now
+                        self._last_progress_found = job.total_found
+                        event_bus.emit(
+                            event_bus.JOB_PROGRESS,
+                            job_id=job.id,
+                            total_found=job.total_found,
+                            total_emails=job.total_emails,
+                            total_websites=job.total_websites,
+                            total_errors=job.total_errors,
+                            completion=job.completion_rate,
+                        )
 
+
+            job.total_errors = getattr(self._scraper, "_total_errors", job.total_errors)
+            
+            # Auto-save current progress regardless of status (Completion, Cancellation, or Failure)
+            try:
+                if job.results:
+                    auto_save_path = str(get_data_dir() / self._export.generate_filename("job", "db"))
+                    self._export.save_project(job, auto_save_path)
+                    logger.info(f"Auto-saved job project ({len(job.results)} leads)")
+            except Exception as e:
+                logger.warning(f"Individual job auto-save failed: {e}")
+
+            # Always persist the global application memory
+            self.persist_current_job()
+
+            if job.status != ScrapingStatus.CANCELLED:
+                if self._library_verify_count:
+                    event_bus.emit(
+                        event_bus.JOB_LOG,
+                        job_id=job.id,
+                        message=f"Verified {self._library_verify_count} lead(s) from Library during this run.",
+                        level="INFO",
+                    )
+                job.complete()
                 event_bus.emit(
                     event_bus.JOB_PROGRESS,
                     job_id=job.id,
@@ -282,10 +524,6 @@ class ScrapingOrchestrator:
                     total_errors=job.total_errors,
                     completion=job.completion_rate,
                 )
-
-            job.total_errors = getattr(self._scraper, "_total_errors", job.total_errors)
-            if job.status != ScrapingStatus.CANCELLED:
-                job.complete()
                 event_bus.emit(
                     event_bus.JOB_COMPLETED,
                     job_id=job.id,
@@ -298,21 +536,16 @@ class ScrapingOrchestrator:
                     f"{job.total_emails} emails, {job.total_websites} websites"
                 )
 
-                # Auto-save to SQLite
-                try:
-                    auto_save_path = str(get_data_dir() / self._export.generate_filename("job", "db"))
-                    self._export.save_project(job, auto_save_path)
-                    # Use central persistence method to emit DB_UPDATED event
-                    self.persist_current_job()
-                    logger.info(f"Auto-saved project and updated global memory")
-                except Exception as e:
-                    logger.warning(f"Auto-save failed: {e}")
+                # (Self-cleaning redundant block)
 
         except Exception as e:
             logger.error(f"Job {job.id} failed: {e}", exc_info=True)
             job.fail(str(e))
             event_bus.emit(event_bus.JOB_FAILED, job_id=job.id, error=str(e))
         finally:
+            self._last_progress_emit_ts = 0.0
+            self._last_progress_found = -1
+            self._library_verify_count = 0
             await self._cleanup_job()
 
     async def _cleanup_job(self) -> None:

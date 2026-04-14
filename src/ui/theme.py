@@ -142,6 +142,11 @@ class Theme:
         return Theme.zugzwang_button()
 
     @staticmethod
+    def unified_button() -> str:
+        """Legacy alias kept for pages that still use the older button API."""
+        return Theme.zugzwang_button()
+
+    @staticmethod
     def zugzwang_danger_button() -> str:
         """Danger button — dark red-tinted bg, vivid red text, no border (CLEAN style)."""
         return f"""
@@ -213,6 +218,31 @@ class Theme:
     def success_button() -> str:
         """Alias → zugzwang_success_button() for backwards compatibility."""
         return Theme.zugzwang_success_button()
+
+    @staticmethod
+    def unified_icon_button() -> str:
+        """Legacy icon-button alias matching the neutral button family."""
+        return """
+            QPushButton {
+                background: #2C2C2E;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                color: #FFFFFF;
+                padding: 0;
+            }
+            QPushButton:hover {
+                background: #3A3A3C;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+            }
+            QPushButton:pressed {
+                background: #252525;
+            }
+            QPushButton:disabled {
+                color: #444444;
+                background: #252525;
+                border: 1px solid rgba(255, 255, 255, 0.04);
+            }
+        """
 
     @staticmethod
     def line_edit() -> str:
