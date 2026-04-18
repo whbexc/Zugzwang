@@ -287,6 +287,7 @@ class SearchConfig:
     extract_social_profiles: bool = False
     radius: int = 25  # Search radius in km (Jobsuche, Ausbildung, etc.)
     proxy: Optional[str] = None
+    browser_engine: Optional[str] = None # Fallback to app default if None
 
 
 @dataclass
@@ -360,6 +361,7 @@ class AppSettings:
     default_bypass_cache: bool = False
     default_extract_social_profiles: bool = False
     browser_channel: Optional[str] = "chrome"  # Default to chrome as requested
+    browser_engine: str = "chromium"  # choices: chromium, chrome, msedge
     last_search_radius: int = 200  # Default to 200km as requested
 
     # Email discovery keywords (editable in UI)
@@ -413,15 +415,15 @@ class AppSettings:
     column_visibility: str = ""       # JSON: ResultsPage column visibility
     last_seen_version: str = ""       # For "What's New" popup trigger
 
-    email_smtp_host: str = ""
+    email_smtp_host: str = "smtp.gmail.com"
     email_smtp_port: str = "587"
     email_smtp_user: str = ""
     email_smtp_pass: str = ""
     email_from_name: str = ""
     email_reply_to: str = ""
     email_smtp_auth: bool = True
-    email_smtp_ssl: bool = False
-    email_smtp_tls: bool = True
+    email_smtp_ssl: bool = False   # Implicit SSL — OFF for Gmail
+    email_smtp_tls: bool = True    # STARTTLS — ON for Gmail
     email_subject: str = ""
     email_body: str = ""
     email_body_html: bool = False
@@ -437,7 +439,8 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.6"
+    app_version: str = "1.0.7"
+
 
     # Free Trial Tracking
     trial_scraps_count: int = 0

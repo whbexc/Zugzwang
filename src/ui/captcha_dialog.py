@@ -70,7 +70,6 @@ class CaptchaDialog(QDialog):
         self._input = QLineEdit()
         self._input.setPlaceholderText("Type text here if required...")
         self._input.setFixedHeight(40)
-        self._input.setStyleSheet(Theme.line_edit())
         self._input.returnPressed.connect(self._send_text)
         
         self._btn_send = ToolButton(FluentIcon.SEND, self)

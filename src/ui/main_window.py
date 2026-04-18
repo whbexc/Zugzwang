@@ -159,7 +159,7 @@ class _CustomTitleBar(TitleBar):
 
         right_area = QWidget()
         right_area.setStyleSheet("background: transparent;")
-        right_area.setFixedWidth(46 * 3) # Exactly 3 buttons
+        right_area.setFixedWidth(220) # Match left_area for true centering
         right_layout = QHBoxLayout(right_area)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
@@ -322,6 +322,8 @@ class MainWindow(FramelessWindow):
         if config_manager.settings.auto_update_enabled:
             self.update_service.update_available.connect(self._show_update_dialog)
             QTimer.singleShot(5000, self.update_service.check)
+        
+        # Maximization is handled in showEvent for reliability
 
     def _build_shell(self):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
@@ -593,11 +595,44 @@ class MainWindow(FramelessWindow):
         # Ctrl+Shift+W → Show What's New Dialog
         QShortcut(QKeySequence("Ctrl+Shift+W"), self, activated=self._show_whats_new)
 
+        # Ctrl+Alt+D → Show UI Diagnostics Report
+        self._diag_shortcut = QShortcut(QKeySequence("Ctrl+Alt+D"), self)
+        self._diag_shortcut.activated.connect(self._show_ui_health_report)
+
+
     def _show_whats_new(self):
         from .whats_new_dialog import WhatsNewDialog
         from ..changelog import APP_VERSION
         dialog = WhatsNewDialog(current_version=APP_VERSION, parent=self)
         dialog.exec()
+
+    def _show_ui_health_report(self):
+        """Displays a real-time UI health diagnostic report."""
+        from ..diagnostics import get_ui_health_snapshot
+        snapshot = get_ui_health_snapshot()
+        
+        info = []
+        info.append(f"<b>System Uptime:</b> {snapshot['uptime']}")
+        info.append(f"<b>Font Integrity:</b> {snapshot['fonts']}")
+        info.append("<br><b>Screen Metrics:</b>")
+        for s in snapshot['screens']:
+            info.append(f"• {s}")
+        
+        if 'memory_rss_mb' in snapshot:
+            info.append(f"<br><b>Resource Usage:</b>")
+            info.append(f"• Memory (RSS): {snapshot['memory_rss_mb']:.1f} MB")
+            info.append(f"• CPU Load: {snapshot['cpu_percent']:.1f}%")
+            info.append(f"• Active Threads: {snapshot['threads']}")
+            
+        from .components import ZugzwangDialog
+        dialog = ZugzwangDialog(
+            "UI & System Health Report",
+            "<div style='line-height: 1.4;'>" + "<br>".join(info) + "</div>",
+            self
+        )
+        dialog.ok_btn.setText("DISMISS")
+        dialog.exec()
+
 
     def show_activation_dialog(self):
         """Centralized activation check with navigation support."""
@@ -651,15 +686,8 @@ class MainWindow(FramelessWindow):
 
     def _on_db_updated(self, records=None, **kw):
         records = records or []
-        # Update results page if it's already instantiated
-        results_page = self._page_instances.get(2)
-        if results_page:
-            self._sync_results_page(results_page, fallback_records=records)
-        
         self.titleBar.set_stats(len(records))
         self.dashboard_page.load_summary(len(records), sum(1 for r in records if r.email), sum(1 for r in records if r.website))
-        # Ensure Recent Jobs list matches the newly loaded context
-        self.dashboard_page._load_recent_jobs_from_disk()
 
     def _start_job(self, config: SearchConfig):
         if orchestrator.is_running: return
@@ -676,6 +704,19 @@ class MainWindow(FramelessWindow):
         sender_page = self._page_instances.get(4)
         if sender_page:
             sender_page.import_emails(emails)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Ensure window opens maximized on start
+        if not hasattr(self, "_was_maximized_once"):
+            self._was_maximized_once = True
+            # Small delay to allow Windows to register the window before maximizing
+            QTimer.singleShot(100, self.showMaximized)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            self.titleBar.updateMaximizeButton(self.isMaximized())
 
     def closeEvent(self, event):
         orchestrator.persist_current_job()

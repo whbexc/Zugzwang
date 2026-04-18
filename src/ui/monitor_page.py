@@ -32,7 +32,7 @@ class MetricTile(QFrame):
                  icon: FluentIcon = FluentIcon.INFO,
                  color: str = "#0A84FF"):
         super().__init__()
-        self.setMinimumHeight(100)
+        self.setMinimumHeight(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
         self.setStyleSheet("""
@@ -175,6 +175,7 @@ class MonitorPage(QWidget):
         self._timer.start()
 
     def _build_ui(self):
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("MonitorPage { background: #1C1C1E; }")
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 32)
@@ -444,6 +445,7 @@ class MonitorPage(QWidget):
         event_bridge.job_completed.connect(self._on_completed)
         event_bridge.job_failed.connect(self._on_failed)
         event_bridge.job_paused.connect(self._on_paused)
+        event_bridge.job_resumed.connect(self._on_resumed)
         event_bridge.job_cancelled.connect(self._on_cancelled)
         event_bridge.job_log.connect(self._on_log)
         event_bridge.trial_limit_reached.connect(self._on_trial_limit_reached)
@@ -478,25 +480,29 @@ class MonitorPage(QWidget):
         )
 
     def _on_result(self, record):
-        company = getattr(record, "company_name", None) or getattr(record, "job_title", None) or "Unnamed lead"
+        company = getattr(record, "company_name", None) or "Unnamed employer"
+        title = getattr(record, "job_title", None) or "-"
         city = getattr(record, "city", None) or getattr(record, "region", None) or getattr(record, "country", None) or "-"
+        
         email = bool(getattr(record, "email", None))
         phone = bool(getattr(record, "phone", None))
         website = bool(getattr(record, "website", None))
         duplicate = bool(getattr(record, "is_duplicate", False))
+        
         self._update_queue.put(
             (
                 "result",
                 {
                     "company": str(company).strip(),
+                    "title": str(title).strip(),
                     "city": str(city).strip(),
                     "email": email,
                     "phone": phone,
                     "website": website,
                     "duplicate": duplicate,
                 },
-                )
             )
+        )
 
     def _on_log(self, job_id: str = "", level: str = "INFO", message: str = "", *args, **kw):
         if self._active_job_id and job_id and job_id != self._active_job_id:
@@ -512,6 +518,9 @@ class MonitorPage(QWidget):
 
     def _on_paused(self, job_id: str = "", *args, **kw):
         self._update_queue.put(("paused", {}))
+
+    def _on_resumed(self, job_id: str = "", *args, **kw):
+        self._update_queue.put(("resumed", {}))
 
     def _on_cancelled(self, job_id: str = "", *args, **kw):
         self._update_queue.put(("cancelled", {}))
@@ -549,6 +558,8 @@ class MonitorPage(QWidget):
                 self._ui_failed(data.get("error", ""))
             elif event_type == "paused":
                 self._ui_paused()
+            elif event_type == "resumed":
+                self._ui_resumed()
             elif event_type == "cancelled":
                 self._ui_cancelled()
             elif event_type == "result":
@@ -715,6 +726,24 @@ class MonitorPage(QWidget):
         self._is_paused = True
         self._ui_log("WARNING", "=== Job paused ===")
 
+    def _ui_resumed(self):
+        self._status_line.setText(tr("monitor.status_line.running", self._language))
+        self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 12px;")
+        
+        self._status_badge.setText(tr("monitor.status.running", self._language))
+        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
+        self._session_state.setText("RUNNING")
+        self._session_state.setStyleSheet("color: #30D158; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
+
+        self._progress_label.setText("Resuming activity...")
+        self._btn_pause.setEnabled(True)
+        self._btn_resume.setEnabled(False)
+        self._btn_cancel.setEnabled(True)
+        self._is_paused = False
+        self._snapshot_event_value.setText("Job resumed.")
+        self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
+        self._ui_log("INFO", "=== Job resumed ===")
+
     def _ui_cancelled(self):
         self._status_line.setText(tr("monitor.status_line.cancelled", self._language))
         self._status_line.setStyleSheet("color: #FF9F0A; font-family: '-apple-system', sans-serif; font-size: 12px;")
@@ -794,7 +823,8 @@ class MonitorPage(QWidget):
         return line, summary
 
     def _prepare_result_line(self, data: dict) -> tuple[str, str]:
-        company = str(data.get("company") or "Unnamed lead").strip()
+        company = str(data.get("company") or "Unnamed employer").strip()
+        title = str(data.get("title") or "-").strip()
         city = str(data.get("city") or "-").strip()
         
         email_val = data.get("email")
@@ -813,42 +843,50 @@ class MonitorPage(QWidget):
         if data.get("duplicate"):
             duplicate_text = " | <span style='color: #FFD60A; font-weight: bold;'>LIBRARY</span>"
             
-        summary = company if len(company) <= 72 else company[:69].rstrip() + "..."
+        summary = f"{company} | {title}" if len(company) + len(title) <= 72 else f"{company[:30]}... | {title[:30]}..."
         
         timestamp = f"<span style='color: #636366;'>{time.strftime('%H:%M:%S')}</span>"
         tag = f"<span style='color: #30D158; font-weight: bold;'>[LEAD]</span>"
-        content = f"<span style='color: #FFFFFF; font-weight: 600;'>{company}</span> | <span style='color: #AEAEB2;'>{city}</span> | {email_text} | {phone_text} | {site_text}{duplicate_text}"
+        content = f"<span style='color: #FFFFFF; font-weight: 600;'>{company}</span> | <span style='color: #AEAEB2;'>{title}</span> | <span style='color: #636366;'>{city}</span> | {email_text} | {phone_text} | {site_text}{duplicate_text}"
         
         line = f"{timestamp} {tag} {content}"
         return line, summary
 
     def _apply_logs_batch(self, batch_lines: list[str], last_summary: str | None):
-        """Append a batch of log lines using fast plain-text insertion.
+        """Append a batch of log lines using fast batching.
 
-        QTextEdit.insertHtml() is extremely slow (it re-parses CSS on every
-        call) and easily blocks the main thread for 5+ seconds when the batch
-        is large.  We now use appendPlainText() which is an O(1) rope
-        operation, keeping each slot under 5 ms.
-
-        Color coding is preserved in _build_plain_line() by stripping the HTML
-        tags and building a [LEVEL] prefix instead.
+        Appends multiple lines and trims the document if it exceeds the limit.
+        Trimming is done in a single block operation to avoid multiple layout passes.
         """
+        if not batch_lines:
+            return
+
         if self._stream_stack.currentWidget() != self._log_tail:
             self._stream_stack.setCurrentWidget(self._log_tail)
 
-        for line in batch_lines:
-            if line:
-                self._log_tail.append(line)
+        # Disable updates for mass insertion
+        self._log_tail.setUpdatesEnabled(False)
+        try:
+            for line in batch_lines:
+                if line:
+                    self._log_tail.append(line)
 
-        # Keep the total line count bounded so the widget never grows >2000 lines
-        doc = self._log_tail.document()
-        MAX_LINES = 2000
-        while doc.blockCount() > MAX_LINES:
-            cursor = self._log_tail.textCursor()
-            cursor.movePosition(cursor.MoveOperation.Start)
-            cursor.select(cursor.SelectionType.BlockUnderCursor)
-            cursor.removeSelectedText()
-            cursor.deleteChar()  # remove trailing newline
+            # Cap the log size efficiently (bulk removal)
+            doc = self._log_tail.document()
+            MAX_LINES = 2000
+            TRIM_THRESHOLD = 200 # Only trim when 200 lines over, to avoid trimming every tick
+            
+            if doc.blockCount() > MAX_LINES + TRIM_THRESHOLD:
+                to_remove = doc.blockCount() - MAX_LINES
+                cursor = self._log_tail.textCursor()
+                cursor.movePosition(cursor.MoveOperation.Start)
+                # Select the first N blocks (lines)
+                for _ in range(to_remove):
+                    cursor.movePosition(cursor.MoveOperation.NextBlock, cursor.MoveMode.KeepAnchor)
+                # Remove them all in one go
+                cursor.removeSelectedText()
+        finally:
+            self._log_tail.setUpdatesEnabled(True)
 
         if last_summary:
             self._snapshot_event_value.setText(last_summary)
@@ -872,18 +910,7 @@ class MonitorPage(QWidget):
 
     def _resume(self):
         orchestrator.resume_job()
-        self._status_line.setText(tr("monitor.status_line.running", self._language))
-        self._status_line.setStyleSheet("color: #30D158; font-family: '-apple-system', sans-serif; font-size: 12px;")
-        
-        self._status_badge.setText(tr("monitor.status.running", self._language))
-        self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        
-        self._progress_label.setText("Resuming network activity...")
-        self._btn_pause.setEnabled(True)
         self._btn_resume.setEnabled(False)
-        self._btn_cancel.setEnabled(True)
-        self._is_paused = False
-        self._ui_log("INFO", "=== Job resumed ===")
 
     def _cancel(self):
         from .components import ZugzwangDialog

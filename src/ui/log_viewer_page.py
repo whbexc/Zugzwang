@@ -76,6 +76,7 @@ class LogViewerPage(QWidget):
     # ── UI Construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 20, 28, 20)
         root.setSpacing(0)

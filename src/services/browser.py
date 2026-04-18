@@ -11,6 +11,7 @@ import time
 from typing import Optional, AsyncGenerator
 from urllib.parse import urlparse
 
+import sys
 from ..core.config import config_manager, get_screenshots_dir
 from ..core.logger import get_logger
 from ..core.models import AppSettings, SourceType
@@ -108,39 +109,60 @@ class BrowserSession:
         from .browser_installer import configure_browsers_path, is_chromium_installed
         configure_browsers_path()
 
-        if not self.settings.browser_channel and not is_chromium_installed():
-            raise BrowserError(
-                "Chromium browser is not installed.\n\n"
-                "Go to the Dashboard and click 'Install Browser', or run:\n"
-                "  playwright install chromium"
-            )
+        engine = self.settings.browser_engine
+        
+        engine = self.settings.browser_engine
+        
+        # Validation
+        if engine in ["chromium", "chrome", "msedge"] and not self.settings.browser_channel:
+             # If using bundled chromium, check if installed
+             if engine == "chromium" and not is_chromium_installed():
+                raise BrowserError(
+                    "Chromium browser is not installed.\n\n"
+                    "Go to the Dashboard and click 'Install Browser', or run:\n"
+                    "  playwright install chromium"
+                )
 
-        logger.info(f"[{self.job_id}] Starting browser session (headless={self.settings.default_headless})")
+        logger.info(f"[{self.job_id}] Starting browser session (engine={engine}, headless={self.settings.default_headless})")
         self._playwright = await async_playwright().start()
 
-        launch_kwargs = {
-            "headless": self.settings.default_headless,
-            "args": [
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-renderer-backgrounding",
-                "--disable-features=Translate,BackForwardCache",
-                "--disable-extensions",
-                "--mute-audio",
-                "--start-maximized",
-            ],
-        }
 
 
-        if self.settings.browser_channel:
-            launch_kwargs["channel"] = self.settings.browser_channel
-            logger.info(f"[{self.job_id}] Using browser channel: {self.settings.browser_channel}")
+        if not self._browser:
+            logger.info(f"[{self.job_id}] Launching local {engine}...")
+            # Handle local browser launch (fallback cases or direct selection)
+            launch_kwargs = {
+                "headless": self.settings.default_headless,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-renderer-backgrounding",
+                    "--disable-features=Translate,BackForwardCache",
+                    "--disable-extensions",
+                    "--mute-audio",
+                    "--start-maximized",
+                    # RAM Optimization - Unified & Safer
+                    "--js-flags='--max-old-space-size=512'", # Limit JS heap
+                    "--disable-dev-shm-usage",
+                    "--disable-setuid-sandbox" if sys.platform != "win32" else "",
+                    "--no-zygote" if sys.platform != "win32" else "",
+                    "--single-process" if sys.platform != "win32" else "", # Experimental/Unstable on Win
+                ],
+            }
+            # Clean up empty strings
+            launch_kwargs["args"] = [a for a in launch_kwargs["args"] if a]
 
-        self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            if engine in ["chrome", "msedge"]:
+                launch_kwargs["channel"] = engine
+            elif self.settings.browser_channel:
+                launch_kwargs["channel"] = self.settings.browser_channel
+
+            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            logger.info(f"[{self.job_id}] Local {engine} launched.")
 
         user_agent = random.choice(self.settings.user_agents)
         
@@ -154,7 +176,6 @@ class BrowserSession:
         context_kwargs = {
             "user_agent": user_agent,
             "proxy": proxy_config,
-            "device_scale_factor": 1,
             "locale": "de-DE",
             "timezone_id": "Europe/Berlin",
             "java_script_enabled": True,
@@ -164,12 +185,19 @@ class BrowserSession:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
         }
+
+        # Handle viewport and scale factor consistency
         if not self.settings.default_headless:
             context_kwargs["no_viewport"] = True
-            context_kwargs.pop("device_scale_factor", None)
         else:
-            context_kwargs["viewport"] = {"width": 1366, "height": 900}
+            # Only use scale factor if we have a viewport (required by Playwright)
+            context_kwargs["device_scale_factor"] = 1
+
+
+
         context_kwargs["ignore_https_errors"] = True
+        
+        logger.debug(f"[{self.job_id}] Creating browser context...")
         self._context = await self._browser.new_context(**context_kwargs)
         await self._context.route("**/*", self._route_request)
 
@@ -180,7 +208,10 @@ class BrowserSession:
             window.chrome = {runtime: {}};
         """)
 
-        logger.debug(f"[{self.job_id}] Browser session ready with UA: {user_agent[:50]}...")
+        if not self._context:
+             raise BrowserError("Failed to initialize browser context.")
+
+        logger.info(f"[{self.job_id}] Browser session ready with UA: {user_agent[:50]}...")
 
     async def stop(self) -> None:
         """Gracefully close all browser resources."""
@@ -213,7 +244,7 @@ class BrowserSession:
         if not self._context:
             raise BrowserError("Browser session not started.")
         page = await self._context.new_page()
-        page.set_default_timeout(120_000)  # 120s — enough for slow SPAs like Google Maps
+        page.set_default_timeout(30_000)  # 30s (reduced from 120s for faster failure recovery)
         return page
 
     async def navigate(
@@ -221,7 +252,7 @@ class BrowserSession:
         page: "Page",
         url: str,
         wait_until: str = "domcontentloaded",
-        timeout: int = 30000,
+        timeout: int = 20000,
         retries: int = 3,
         ignore_rate_limit: bool = False,
     ) -> bool:
@@ -250,6 +281,12 @@ class BrowserSession:
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not get page content: {e}")
             return ""
+
+    async def get_markdown(self, page: "Page") -> str:
+        """
+        Get page content as Markdown.
+        """
+        return await self.get_page_content(page)
 
     async def fetch_url_content_fast(
         self, 

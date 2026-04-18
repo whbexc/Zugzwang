@@ -254,6 +254,39 @@ def main():
     # Normalizes underlying geometries across OS (crucial for custom stylesheets)
     app.setStyle("Fusion")
     
+    from PySide6.QtWidgets import QProxyStyle, QStyle
+    class ZugzwangStyle(QProxyStyle):
+        """
+        Thin proxy style that intercepts qfluentwidgets
+        painting for standard widgets and delegates to
+        the platform style instead.
+        This allows our QSS to take full effect.
+        """
+        def drawControl(self, element, option, painter, widget=None):
+            if element == QStyle.CE_PushButton:
+                if widget and widget.styleSheet():
+                    self.baseStyle().drawControl(element, option, painter, widget)
+                    return
+            super().drawControl(element, option, painter, widget)
+
+        def drawComplexControl(self, control, option, painter, widget=None):
+            if control == QStyle.CC_ComboBox:
+                if widget and widget.styleSheet():
+                    self.baseStyle().drawComplexControl(control, option, painter, widget)
+                    return
+            if control == QStyle.CC_ScrollBar:
+                if widget and widget.styleSheet():
+                    self.baseStyle().drawComplexControl(control, option, painter, widget)
+                    return
+            super().drawComplexControl(control, option, painter, widget)
+
+        def polish(self, widget):
+            from PySide6.QtWidgets import QPushButton
+            if isinstance(widget, QPushButton):
+                if widget.styleSheet():
+                    return  # skip fluent polish
+            super().polish(widget)
+    
     app.setApplicationName("ZUGZWANG")
     app.setApplicationVersion("1.0.4")
     app.setOrganizationName("ZUGZWANG")
@@ -297,8 +330,16 @@ def main():
         if not overlay.exec():
             sys.exit(0)
 
+    from src.ui.theme import Theme
+    app.setStyle(ZugzwangStyle(app.style()))
+    app.setStyleSheet(Theme.global_app_stylesheet())
+
+    from qfluentwidgets import setThemeColor
+    from PySide6.QtGui import QColor
+    setThemeColor(QColor("#0A84FF"))
+
     window = MainWindow()
-    window.showMaximized()
+    window.show() # Initialization-level maximization handled inside MainWindow.showEvent
 
     # 3. Dynamic Diagnostics (Freeze Watchdog & Contention Monitoring)
     try:

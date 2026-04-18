@@ -166,11 +166,11 @@ class JobsucheScraper:
                     return
 
             page = await self.session.new_page()
-            page.set_default_timeout(60_000)
+            page.set_default_timeout(30_000)
 
             # ── Open Jobsuche ─────────────────────────────────────
             success = await self.session.navigate(
-                page, JOBSUCHE_URL, timeout=60_000, retries=3,
+                page, JOBSUCHE_URL, timeout=30_000, retries=3,
                 wait_until="domcontentloaded",
             )
             if not success:
@@ -209,7 +209,7 @@ class JobsucheScraper:
 
             # ── Submit search ─────────────────────────────────────
             # Give UI a moment to settle after radius/field changes
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.1)
             
             search_btn = page.locator('button[id*="suchen"], button:has-text("Suche"), button:has-text("Jobs finden"), button[type="submit"]').first
             try:
@@ -260,7 +260,7 @@ class JobsucheScraper:
                     break
 
                 while self._paused and not self._cancelled:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
 
                 try:
                     logger.info(f"[{self.job_id}] Opening Jobsuche detail {index}/{len(hrefs)}")
@@ -307,7 +307,7 @@ class JobsucheScraper:
                         level="WARNING",
                     )
 
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(0.1)
                 await self.session.rate_limiter.wait()
 
 
@@ -347,7 +347,7 @@ class JobsucheScraper:
                 break
 
             while self._paused and not self._cancelled:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
             if self.crawler and not record.email:
                 await self._enrich_from_website_candidates(record)
@@ -518,7 +518,7 @@ class JobsucheScraper:
 
         while not self._cancelled and results_count < self.config.max_results:
             while self._paused and not self._cancelled:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
             cards = page.locator(RESULT_CARD_SEL)
             current_count = await cards.count()
@@ -579,7 +579,7 @@ class JobsucheScraper:
                 self._total_errors += 1
                 logger.warning(f"[{self.job_id}] Error on result card {card_index}: {e}")
 
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.1)
             await self.session.rate_limiter.wait()
 
     # ── Helper methods ────────────────────────────────────────────────────
@@ -590,7 +590,7 @@ class JobsucheScraper:
             await page.wait_for_load_state("networkidle", timeout=timeout)
         except Exception:
             # networkidle can be flaky on SPAs; fall back to a short pause
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
 
     async def _wait_for_results(self, page: Page) -> None:
         """Wait for search results to appear after form submission."""
@@ -601,11 +601,11 @@ class JobsucheScraper:
                 state="attached", 
                 timeout=20_000,
             )
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
         except Exception:
             # Results might take longer or there may be none
             logger.debug(f"[{self.job_id}] Results selector timeout - continuing")
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.1)
 
     async def _resync_results_after_captcha(self, page: Page) -> None:
         """Re-establish the split results view after a Jobsuche captcha reload."""
@@ -624,7 +624,7 @@ class JobsucheScraper:
             cookie_btn = page.locator('button:has-text("Alle Cookies akzeptieren")')
             if await cookie_btn.first.is_visible(timeout=4_000):
                 await cookie_btn.first.click()
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
         except Exception:
             pass
 
@@ -638,14 +638,14 @@ class JobsucheScraper:
             dropdown_btn = page.locator("button#angebotsart-dropdown-button")
             await dropdown_btn.wait_for(state="visible", timeout=10_000)
             await dropdown_btn.click()
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.1)
 
             option = page.locator(
                 f"#angebotsart-dropdownList li:has-text('{target}')"
             ).first
             await option.wait_for(state="visible", timeout=8_000)
             await option.click()
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.1)
             logger.info(f"[{self.job_id}] Angebotsart set to {target}")
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not set Angebotsart: {e}")
@@ -663,7 +663,7 @@ class JobsucheScraper:
                 return
 
             await dropdown_btn.click()
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.1)
 
             # Match exactly (e.g. "200 km")
             target_text = f"{radius} km"
@@ -675,14 +675,14 @@ class JobsucheScraper:
                 await option.wait_for(state="visible", timeout=5_000)
                 await option.click()
                 # Wait for dropdown to close and UI to reflect change
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 logger.info(f"[{self.job_id}] Radius set to {target_text}")
             else:
                 logger.warning(f"[{self.job_id}] Could not find radius option: {target_text}")
                 # Close the dropdown by clicking the button again or ESC if it's still open
                 if await dropdown_btn.get_attribute("aria-expanded") == "true":
                     await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not set Radius: {e}")
 
@@ -695,7 +695,7 @@ class JobsucheScraper:
             sort_btn = page.locator("button#sortierung-dropdown-button")
             await sort_btn.wait_for(state="visible", timeout=10_000)
             await sort_btn.click()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
 
             # 2. Select 'Neueste Veröffentlichung' (typically the second item)
             # Identifying by text is safer than by ID if IDs change
@@ -708,7 +708,7 @@ class JobsucheScraper:
             await latest_opt.click()
             
             # 3. Wait for the page to refresh results
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.25)
             await self._wait_for_results(page)
             logger.info(f"[{self.job_id}] Sorted by: Neueste Veröffentlichung")
             
@@ -733,7 +733,7 @@ class JobsucheScraper:
                     logger.info(f"[{self.job_id}] Detailansicht already active")
                     return
                 await button.click()
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
                 logger.info(f"[{self.job_id}] Switched to Detailansicht")
                 return
             except Exception:
@@ -760,14 +760,14 @@ class JobsucheScraper:
             
             # Use mouse wheel as a fallback to trigger lazy loading listeners
             await page.mouse.wheel(0, 3500)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
         except Exception as e:
             logger.debug(f"[{self.job_id}] Scroll failed: {e}")
             await page.mouse.wheel(0, 2500)
 
         # Fallback click if a "Mehr laden" button exists (Jobsuche sometimes shows one after many scrolls)
         clicked_more = await self._click_load_more(page)
-        await asyncio.sleep(0.5 if clicked_more else 0.25)
+        await asyncio.sleep(0.1 if clicked_more else 0.25)
 
         try:
             return await page.locator(RESULT_CARD_SEL).count() > previous_count
@@ -775,7 +775,7 @@ class JobsucheScraper:
             return False
 
         clicked_more = await self._click_load_more(page)
-        await asyncio.sleep(0.5 if clicked_more else 0.25)
+        await asyncio.sleep(0.1 if clicked_more else 0.25)
 
         try:
             return await page.locator(RESULT_CARD_SEL).count() > previous_count
@@ -785,7 +785,7 @@ class JobsucheScraper:
     async def _extract_result_card(self, page: Page, card: Any, card_index: int) -> Optional[LeadRecord]:
         """Click a left-side result card and extract data from the right detail panel."""
         await self._click_result_card(page, card, card_index, "initial")
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(0.1)
         captcha_seen = await self._handle_captcha(page)
         if captcha_seen:
             await self._resync_results_after_captcha(page)
@@ -793,7 +793,7 @@ class JobsucheScraper:
             if await refreshed_cards.count() >= card_index:
                 card = refreshed_cards.nth(card_index - 1)
                 await self._click_result_card(page, card, card_index, "post-captcha")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
         detail_url = await self._extract_card_href(card)
         card_text = ""
@@ -1364,7 +1364,7 @@ class JobsucheScraper:
                 await page.mouse.wheel(0, 1200 + attempt * 200)
             except Exception:
                 pass
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)
 
     async def _open_application_panel(self, page: Page) -> None:
         selectors = [
@@ -1407,7 +1407,7 @@ class JobsucheScraper:
                             await button.click(timeout=1000, force=True)
                         except Exception:
                             continue
-                    await asyncio.sleep(0.45)
+                    await asyncio.sleep(0.1)
                     return
                 except Exception:
                     continue
@@ -1415,7 +1415,7 @@ class JobsucheScraper:
                 await page.mouse.wheel(0, 900)
             except Exception:
                 pass
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
 
     async def _click_result_card(self, page: Page, card: Any, card_index: int, phase: str) -> None:
         try:
@@ -2005,7 +2005,7 @@ class JobsucheScraper:
             await field.wait_for(state="visible", timeout=8_000)
             await field.click()
             await field.fill(value)
-            await asyncio.sleep(0.08)
+            await asyncio.sleep(0.1)
             logger.info(f"[{self.job_id}] {field_name} field set to '{value}'")
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not fill {field_name}: {e}")
@@ -2021,14 +2021,14 @@ class JobsucheScraper:
 
         while not self._cancelled:
             while self._paused and not self._cancelled:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
             # Scroll bit-by-bit to trigger lazy loading more reliably
             for _ in range(3):
                 await page.mouse.wheel(0, 2000)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
             
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
 
             count = await page.locator(LISTING_SEL).count()
             
@@ -2091,7 +2091,7 @@ class JobsucheScraper:
             )
             if await more_btn.first.is_visible(timeout=1_500):
                 await more_btn.first.click()
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.25)
                 return True
         except Exception:
             pass
@@ -2179,7 +2179,7 @@ class JobsucheScraper:
             )
             clear_checks = 0
             for _ in range(120):
-                await asyncio.sleep(2)
+                await asyncio.sleep(0.5)
                 try:
                     if await self._is_security_challenge_error(page):
                         await self._recover_security_challenge(page)
@@ -2201,7 +2201,7 @@ class JobsucheScraper:
             and (time.time() - self._last_solver_completed_at) < 20
         ):
             logger.info(f"[{self.job_id}] Recent solver already completed for this page; waiting for browser state to settle...")
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(0.5)
             if not await self._is_security_challenge_present(page):
                 logger.info(f"[{self.job_id}] CAPTCHA cleared after settle wait; skipping duplicate solver request.")
                 return True
@@ -2240,7 +2240,7 @@ class JobsucheScraper:
                     self._last_solver_url = page.url
                     self._last_solver_completed_at = time.time()
                     logger.info(f"[{self.job_id}] Jobsuche solver cookies synced; resuming browser flow...")
-                    await asyncio.sleep(0.75)
+                    await asyncio.sleep(0.1)
                     logger.info(f"[{self.job_id}] CAPTCHA resolved via headed solver!")
                     return True
             except asyncio.TimeoutError:
@@ -2419,7 +2419,7 @@ class JobsucheScraper:
                     await retry_btn.click(timeout=3_000)
                 else:
                     await page.reload(wait_until="domcontentloaded", timeout=20_000)
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(0.5)
                 if not await self._is_security_challenge_error(page):
                     return True
             except Exception as e:
@@ -2428,7 +2428,7 @@ class JobsucheScraper:
                 )
                 try:
                     await page.reload(wait_until="domcontentloaded", timeout=20_000)
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(0.5)
                     if not await self._is_security_challenge_error(page):
                         return True
                 except Exception:

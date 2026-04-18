@@ -85,6 +85,12 @@ class ToastManager(QObject):
         super().__init__(parent_window)
         self._window = parent_window
         self._toasts: list[ToastWidget] = []
+        
+        # Debounce repositioning to prevent redundant layout passes
+        self._layout_timer = QTimer(self)
+        self._layout_timer.setSingleShot(True)
+        self._layout_timer.setInterval(20) # Batch repositioning every 20ms
+        self._layout_timer.timeout.connect(self._reposition_all_now)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -95,10 +101,12 @@ class ToastManager(QObject):
 
         toast = ToastWidget(title, subtitle, toast_type, duration, self._window)
         toast.dismissed.connect(lambda t=toast: self._remove_toast(t))
-        toast.show()
         self._toasts.append(toast)
-        self._reposition_all()
+        
+        # We must reposition immediately to get the correct target geometry for the slide-in animation
+        self._reposition_all_now()
         self._slide_in(toast)
+        toast.show()
 
     # ── Private ───────────────────────────────────────────────────────────────
 
@@ -108,8 +116,12 @@ class ToastManager(QObject):
             return
         self._slide_out(toast)
 
-    def _reposition_all(self) -> None:
-        """Place toasts stacked from the bottom-right corner up."""
+    def _reposition_all(self):
+        """Schedule a reposition pass."""
+        self._layout_timer.start()
+
+    def _reposition_all_now(self) -> None:
+        """Actually perform the repositioning of all toast cards."""
         win = self._window
         if not win:
             return

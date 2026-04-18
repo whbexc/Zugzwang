@@ -20,8 +20,9 @@ class EventBridge(QObject):
     job_progress = Signal(dict)         # stats dict
     job_completed = Signal(str, int, int) # job_id, results, emails
     job_failed = Signal(str, str)       # job_id, error
-    job_cancelled = Signal(str)         # job_id
     job_paused = Signal(str)            # job_id
+    job_resumed = Signal(str)           # job_id
+    job_cancelled = Signal(str)         # job_id
     job_result = Signal(object)         # LeadRecord
     job_log = Signal(str, str, str)     # job_id, level, message
     trial_limit_reached = Signal(str)   # job_id
@@ -53,8 +54,9 @@ class EventBridge(QObject):
         event_bus.subscribe(event_bus.JOB_PROGRESS, self._on_job_progress)
         event_bus.subscribe(event_bus.JOB_COMPLETED, self._on_job_completed)
         event_bus.subscribe(event_bus.JOB_FAILED, self._on_job_failed)
-        event_bus.subscribe(event_bus.JOB_CANCELLED, self._on_job_cancelled)
         event_bus.subscribe(event_bus.JOB_PAUSED, self._on_job_paused)
+        event_bus.subscribe(event_bus.JOB_RESUMED, self._on_job_resumed)
+        event_bus.subscribe(event_bus.JOB_CANCELLED, self._on_job_cancelled)
         event_bus.subscribe(event_bus.JOB_RESULT, self._on_job_result)
         event_bus.subscribe(event_bus.JOB_LOG, self._on_job_log)
         # System
@@ -86,6 +88,9 @@ class EventBridge(QObject):
 
     def _on_job_paused(self, job_id: str, **k):
         self.job_paused.emit(job_id)
+
+    def _on_job_resumed(self, job_id: str, **k):
+        self.job_resumed.emit(job_id)
 
     def _on_job_result(self, record, **k):
         self.job_result.emit(record)

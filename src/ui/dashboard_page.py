@@ -6,6 +6,7 @@ Premium Obsidian Core analytics and recent activity overview.
 from __future__ import annotations
 
 import json
+import time
 from collections import deque
 
 from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QEasingCurve, QSize
@@ -21,7 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 from qfluentwidgets import (
-    ScrollArea, 
     TransparentPushButton,
     ElevatedCardWidget,
     FluentIcon,
@@ -271,6 +271,8 @@ class DashboardPage(QWidget):
         self._activity_timer = QTimer(self)
         self._activity_timer.setSingleShot(True)
         self._activity_timer.setInterval(250)
+        self._last_stats_refresh = 0.0
+        self._last_job_list_refresh = 0.0
         self._build_ui()
         self._connect_events()
         # Historical jobs will be loaded explicitly by MainWindow once global memory is ready
@@ -373,26 +375,17 @@ class DashboardPage(QWidget):
             )
 
     def _build_ui(self):
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
         self.setObjectName("dashboardPage")
         self.setStyleSheet(f"QWidget#dashboardPage {{ background: {Theme.BG_OBSIDIAN}; }}")
 
-        # ZUGZWANG 5.0 - Static Dashboard (No scrolling allowed)
-        self.scrollArea = ScrollArea(self)
-        self.scrollArea.setWidgetResizable(True)
-        self.scrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scrollArea.verticalScrollBar().setFixedWidth(0)
-        # Fix: qfluentwidgets.ScrollArea might not have setWheelByMouse depending on version.
-        # We override the wheelEvent directly to ensure no scrolling is possible.
-        self.scrollArea.wheelEvent = lambda event: event.ignore()
-        self.scrollArea.setFocusPolicy(Qt.NoFocus) # Prevent keyboard scrolling
-        self.scrollArea.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar { width: 0px; height: 0px; }")
-        root.addWidget(self.scrollArea)
-
+        # Content host — fills viewport, no scrolling
         content = QWidget()
-        self.scrollArea.setWidget(content)
+        content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        root.addWidget(content, 1)
 
         body = QVBoxLayout(content)
         body.setContentsMargins(32, 24, 32, 32)
@@ -578,7 +571,7 @@ class DashboardPage(QWidget):
         event_bridge.job_log.connect(self._on_job_log)
         event_bridge.export_completed.connect(self._on_export_event)
         event_bridge.export_failed.connect(self._on_export_event)
-        event_bridge.job_progress.connect(lambda _: self._refresh_stats())
+        event_bridge.job_progress.connect(self._throttled_refresh_stats)
         event_bridge.job_result.connect(self._on_live_result)
 
         self.newSearchBtn.clicked.connect(self.navigate_to_search.emit)
@@ -590,6 +583,14 @@ class DashboardPage(QWidget):
         self._activity_items.appendleft(text)
         if not self._activity_timer.isActive():
             self._activity_timer.start()
+
+    def _throttled_refresh_stats(self, *args):
+        now = time.time()
+        if not hasattr(self, "_last_stats_refresh"):
+            self._last_stats_refresh = 0
+        if now - self._last_stats_refresh >= 2.0: # 2s throttle
+            self._last_stats_refresh = now
+            self._refresh_stats()
 
     def _on_job_started(self, job_id: str, config=None):
         label = getattr(config, "job_title", "") if config else ""
@@ -613,8 +614,12 @@ class DashboardPage(QWidget):
             if active not in self._jobs:
                 self._jobs.insert(0, active)
         
-        QTimer.singleShot(0, self._refresh_stats)
-        QTimer.singleShot(0, self._refresh_job_list)
+        # Throttle refreshes to 5s for job lifecycle changes
+        now = time.time()
+        if now - self._last_job_list_refresh >= 5.0:
+            self._last_job_list_refresh = now
+            QTimer.singleShot(100, self._refresh_stats)
+            QTimer.singleShot(200, self._refresh_job_list)
 
     def _on_job_log(self, job_id: str, level: str, message: str):
         level = str(level).upper()
@@ -708,6 +713,16 @@ class DashboardPage(QWidget):
             self.heroSubtitle.setText(tr("dashboard.subtitle.welcome", self._language))
 
     def _refresh_job_list(self):
+        # Sort by completion date or creation date if not completed
+        self._jobs.sort(key=lambda j: j.completed_at or j.created_at, reverse=True)
+        recent = self._jobs[:4]
+        
+        # Check if we actually need to rebuild (simple ID-based check)
+        recent_ids = [j.id for j in recent]
+        if hasattr(self, "_last_recent_ids") and self._last_recent_ids == recent_ids:
+            return
+        self._last_recent_ids = recent_ids
+
         while self.jobsFrame.count():
             item = self.jobsFrame.takeAt(0)
             if item.widget():
@@ -725,11 +740,6 @@ class DashboardPage(QWidget):
             self.jobsFrame.addWidget(empty)
             return
 
-        # Sort by completion date or creation date if not completed
-        self._jobs.sort(key=lambda j: j.completed_at or j.created_at, reverse=True)
-        
-        # Take the top 4 (most recent)
-        recent = self._jobs[:4]
         for job in recent:
             row = JobTableRow(job, self._language)
             row.rerun_requested.connect(self.rerun_requested.emit)

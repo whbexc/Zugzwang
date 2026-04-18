@@ -46,14 +46,14 @@ class AzubiyoScraper:
             if not success:
                 raise BrowserError("Failed to load Azubiyo portal")
             
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.5)
             
             # Dismiss cookies if present
             try:
                 cookie_btn = page.locator('button:has-text("Akzeptieren"), button:has-text("Zustimmen")')
                 if await cookie_btn.first.is_visible(timeout=3000):
                     await cookie_btn.first.click()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.25)
             except Exception:
                 pass
 
@@ -63,12 +63,12 @@ class AzubiyoScraper:
             # 1. Fill Job Title ('Was')
             if self.config.job_title:
                 await page.fill('input#text, input[name="text"]', self.config.job_title)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 
             # 2. Fill Location ('Wo')
             if location_val:
                 await page.fill('input#location-query, input[name="location"]', location_val)
-                await asyncio.sleep(1.0) # Wait for autocomplete/dropdown to stabilize
+                await asyncio.sleep(0.25) # Wait for autocomplete/dropdown to stabilize
                 
             # 3. Click "Freie Stellen finden"
             submit_btn = page.locator('button[type="submit"]:has-text("Freie Stellen finden")')
@@ -77,7 +77,7 @@ class AzubiyoScraper:
                 
             await submit_btn.first.click()
             await page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(0.5)
 
             # Step 2: Harvest cards and paginate
             yielded_count = 0
@@ -85,7 +85,7 @@ class AzubiyoScraper:
             
             while not self._cancelled and yielded_count < self.config.max_results:
                 while self._paused and not self._cancelled:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
                 if self._cancelled:
                     break
                 
@@ -126,6 +126,11 @@ class AzubiyoScraper:
                             continue
                         
                         if (record.company_name or record.email or record.job_title):
+                            # Pause check between yielding batch items
+                            while self._paused and not self._cancelled:
+                                await asyncio.sleep(0.1)
+                            if self._cancelled: break
+
                             if not LicenseManager.can_extract():
                                 logger.warning(f"[{self.job_id}] Free trial limit reached.")
                                 event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.", level="WARNING")
@@ -147,7 +152,7 @@ class AzubiyoScraper:
                 next_btn = await page.query_selector('a.page-link[aria-label="Weiter"], a:has-text("Nächste"), li.next a')
                 if next_btn:
                     await next_btn.click()
-                    await asyncio.sleep(2.5)
+                    await asyncio.sleep(0.5)
                 else:
                     break
                     

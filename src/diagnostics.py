@@ -14,6 +14,8 @@ except ImportError:
     HAS_PSUTIL = False
 
 from PySide6.QtCore import QTimer, QCoreApplication
+from PySide6.QtGui import QGuiApplication, QFontDatabase
+
 
 
 LOG_DIR = Path.cwd() / "logs"
@@ -207,7 +209,61 @@ def _resource_snapshot_loop():
         time.sleep(10)
 
 
+# ── 6. UI METRICS & FONTS ────────────────────────────────────────────────
+def _get_ui_metrics():
+    """Captures screen resolution, scaling, and DPI data."""
+    metrics = []
+    try:
+        screens = QGuiApplication.screens()
+        for i, screen in enumerate(screens):
+            geom = screen.geometry()
+            dpr = screen.devicePixelRatio()
+            logical_dpi = screen.logicalDotsPerInch()
+            physical_dpi = screen.physicalDotsPerInch()
+            metrics.append(
+                f"Screen {i}: {geom.width()}x{geom.height()} | DPR: {dpr:.2f} | DPI: L={logical_dpi:.1f}/P={physical_dpi:.1f}"
+            )
+    except Exception as e:
+        metrics.append(f"Error collecting screen metrics: {e}")
+    return metrics
+
+def _check_font_integrity():
+    """Verifies that the required PT Root UI font is available."""
+    db = QFontDatabase()
+    families = db.families()
+    target = "PT Root UI"
+    if target in families:
+        return f"Font '{target}' is LOADED and available."
+    else:
+        # Check for partial matches or common fallback names
+        matches = [f for f in families if "PT Root" in f]
+        if matches:
+            return f"Font '{target}' NOT found. Closest matches: {', '.join(matches)}"
+        return f"Font '{target}' is MISSING (Fallback expected)."
+
+def get_ui_health_snapshot():
+    """Returns a dictionary summary of the current UI and system health."""
+    snapshot = {
+        "timestamp": datetime.now().isoformat(),
+        "screens": _get_ui_metrics(),
+        "fonts": _check_font_integrity(),
+        "uptime": f"{time.time() - _last_heartbeat:.1f}s since heartbeat",
+    }
+    
+    if HAS_PSUTIL:
+        try:
+            p = psutil.Process()
+            snapshot.update({
+                "memory_rss_mb": p.memory_info().rss / (1024 * 1024),
+                "cpu_percent": p.cpu_percent(),
+                "threads": p.num_threads()
+            })
+        except: pass
+        
+    return snapshot
+
 # ── ENTRY POINT ──────────────────────────────────────────────────────────
+
 _timer = None
 
 def install_diagnostics(app: QCoreApplication):
@@ -239,4 +295,13 @@ def install_diagnostics(app: QCoreApplication):
         _log("WARNING", "INIT", "psutil not found. Resource snapshots (CPU/Memory) are disabled.")
 
     
+    # 3. UI Metrics Logging
+    try:
+        ui_info = " | ".join(_get_ui_metrics())
+        font_status = _check_font_integrity()
+        _log("INFO", "UI", f"{ui_info} | {font_status}", "ui_diagnostics.log")
+    except Exception as e:
+        _log("ERROR", "UI", f"Failed to log initial UI metrics: {e}", "ui_diagnostics.log")
+
     _log("INFO", "INIT", "ZUGZWANG Diagnostics installed successfully.")
+

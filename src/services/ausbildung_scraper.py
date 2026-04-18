@@ -1,516 +1,443 @@
 """
 ZUGZWANG - Ausbildung.de Scraper
-Translated from Chrome Extension JS logic to native async Playwright.
+Lightweight scraper using in-page fetch() for detail pages.
+ONE browser page stays open for the entire session.
+All detail pages are fetched via JS fetch() — no new tabs opened.
+HTML is parsed with BeautifulSoup in Python memory.
 """
 
+from __future__ import annotations
 import asyncio
 import re
-import urllib.parse
 from typing import AsyncGenerator
 
-from .browser import BrowserSession, BrowserError
-from .website_crawler import WebsiteEmailCrawler
-from ..core.security import LicenseManager
-from ..core.events import event_bus
+from bs4 import BeautifulSoup
+
+from .browser import BrowserSession
 from ..core.logger import get_logger
 from ..core.models import LeadRecord, SearchConfig, SourceType
 
 logger = get_logger(__name__)
 
+SEARCH_URL = "https://www.ausbildung.de/suche/"
+
 
 class AusbildungScraper:
-    def __init__(self, session: BrowserSession, config: SearchConfig, job_id: str):
+    """
+    Scrapes ausbildung.de job listings.
+
+    Architecture:
+    - One Playwright page is opened for the entire session.
+    - Detail pages are fetched via in-page JS fetch() — no new tabs.
+    - HTML is parsed with BeautifulSoup in Python memory.
+    - Resource blocking (images, fonts) reduces memory and network overhead.
+    """
+
+    def __init__(
+        self,
+        session: BrowserSession,
+        config: SearchConfig,
+        job_id: str,
+    ):
         self.session = session
         self.config = config
         self.job_id = job_id
         self._cancelled = False
         self._paused = False
-        self._total_errors = 0
-        self.crawler = WebsiteEmailCrawler(session) if config.scrape_emails else None
 
-    def cancel(self):
+    def cancel(self) -> None:
         self._cancelled = True
 
-    def pause(self):
+    def pause(self) -> None:
         self._paused = True
 
-    def resume(self):
+    def resume(self) -> None:
         self._paused = False
 
-    async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
-        logger.info(f"[{self.job_id}] Ausbildung scrape: '{self.config.job_title}' in '{self.config.city or self.config.country}'")
-        
-        location_val = self.config.city or ""
-        if not location_val and self.config.country and self.config.country != "Germany":
-            location_val = self.config.country
-            
-        radius_val = getattr(self.config, 'radius', 25)
+    # ──────────────────────────────────────────────────────────────
+    # Public entry point
+    # ──────────────────────────────────────────────────────────────
 
-        # Build search URL using the precise verified format
-        if location_val:
-            query_encoded = urllib.parse.quote(self.config.job_title)
-            loc_encoded = urllib.parse.quote(location_val)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}%7C{loc_encoded}&radius={radius_val}"
-        else:
-            query_encoded = urllib.parse.quote(self.config.job_title)
-            url = f"https://www.ausbildung.de/suche/?search={query_encoded}&radius={radius_val}"
-        
-        event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Starting Ausbildung.de search for '{self.config.job_title}' in '{location_val}' (Radius: {radius_val}km)", level="INFO")
-        
+    async def scrape(self) -> AsyncGenerator[LeadRecord, None]:
+        """Async generator that yields LeadRecord objects one by one."""
         page = await self.session.new_page()
         try:
-            success = await self.session.navigate(page, url, wait_until="domcontentloaded")
-            if not success:
-                raise BrowserError("Failed to load Ausbildung portal")
+            # Block heavy assets — faster page loads, lower RAM
+            await page.route(
+                "**/*.{png,jpg,jpeg,gif,svg,woff,woff2}",
+                lambda route, _req: route.abort(),
+            )
 
-            await self._accept_cookies(page)
-            
-            # Step 1: Apply filters if configured
-            if self.config.offer_type and "Ausbildung" in self.config.offer_type:
-                await self._apply_filters(page)
-            
-            # Step 1.5: Expand radius if location was provided
-            if location_val:
-                await self._expand_radius(page)
-            
+            # ── Step 1: Navigate to search page ──
+            logger.info(f"[{self.job_id}] Navigating to {SEARCH_URL}")
+            await page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=30_000)
+
+            # Dismiss cookie consent if present
+            await self._dismiss_cookies(page)
+            await asyncio.sleep(0.25)
+
+            # ── Step 2: Fill search inputs via JS (bypasses autocomplete) ──
+            await page.evaluate(
+                """(args) => {
+                    const what  = document.querySelector('[data-testid="search-input-what"]');
+                    const where = document.querySelector('[data-testid="search-input-where"]');
+                    const nativeSet = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ).set;
+                    if (what) {
+                        nativeSet.call(what, args.title);
+                        what.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                    if (where && args.city) {
+                        nativeSet.call(where, args.city);
+                        where.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                }""",
+                {"title": self.config.job_title, "city": self.config.city or ""},
+            )
+
+            await asyncio.sleep(0.1)
+            await page.keyboard.press("Enter")
             await asyncio.sleep(0.5)
-            
-            # Step 2: Infinite scroll and harvest cards
+
+            logger.info(
+                f"[{self.job_id}] Search submitted: "
+                f'"{self.config.job_title}" in "{self.config.city or "all"}"'
+            )
+
+            processed_urls: set[str] = set()
             yielded_count = 0
-            retries = 0
-            processed_urls = set()
-            
-            while not self._cancelled and yielded_count < self.config.max_results:
+
+            # ── Main pagination loop ──
+            while not self._cancelled:
+                # Pause / cancel check
                 while self._paused and not self._cancelled:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
+                if self._cancelled: break
+
+                # ── Step 3: Harvest card links from current page ──
+                all_links: list[str] = await page.evaluate(
+                    """() => {
+                        const cards = document.querySelectorAll('a[href*="/stellen/"]');
+                        const seen = new Set();
+                        const results = [];
+                        for (const a of cards) {
+                            const href = a.href;
+                            if (
+                                href
+                                && !seen.has(href)
+                                && href.includes('/stellen/')
+                                && !href.includes('/suche/')
+                            ) {
+                                seen.add(href);
+                                results.push(href);
+                            }
+                        }
+                        return results;
+                    }"""
+                )
+
+                # Only process URLs we haven't visited yet
+                new_links = [u for u in all_links if u not in processed_urls]
+                logger.info(
+                    f"[{self.job_id}] Found {len(all_links)} card(s), "
+                    f"{len(new_links)} new"
+                )
+
+                if not new_links:
+                    # Could be a load-more that hasn't injected cards yet —
+                    # only stop if this is truly the first harvest (no cards at all).
+                    if not processed_urls:
+                        logger.info(f"[{self.job_id}] No links found on first harvest — stopping.")
+                        break
+                    # Otherwise the loop will fall through to the has_more check.
+                    logger.debug(f"[{self.job_id}] No new links this pass (all already processed).")
+
+                # ── Steps 4–6: Fetch + parse + yield ──
+                # --- Step 4 & 5: Process Detail Links in Batches ---
+                if new_links:
+                    # Process in batches of 5 for speed boost
+                    BATCH_SIZE = 5
+                    for i in range(0, len(new_links), BATCH_SIZE):
+                        # Pause / cancel check
+                        while self._paused and not self._cancelled:
+                            await asyncio.sleep(0.1)
+                        if self._cancelled:
+                            break
+
+                        batch = new_links[i : i + BATCH_SIZE]
+                        tasks = [self._fetch_and_parse(page, link) for link in batch]
+                        batch_results = await asyncio.gather(*tasks)
+                        
+                        for lead in batch_results:
+                            # Pause check between yielding batch items
+                            while self._paused and not self._cancelled:
+                                await asyncio.sleep(0.1)
+                            if self._cancelled: break
+                            
+                            if lead:
+                                if yielded_count >= self.config.max_results:
+                                    break
+                                
+                                # Step 6: Yield if conditions met
+                                if self.config.scrape_emails and not lead.email:
+                                    logger.debug(f"[{self.job_id}] Skipping lead (no email found): {lead.company_name}")
+                                    continue
+
+                                processed_urls.add(lead.source_url)
+                                yield lead
+                                yielded_count += 1
+
+                        # Incremental scroll to trigger next batch/pagination
+                        await page.evaluate("window.scrollBy(0, 800)")
+                        await asyncio.sleep(0.1)
+
                 if self._cancelled:
                     break
 
-                cards = await self._query_result_cards(page)
+                if yielded_count >= self.config.max_results:
+                    break
 
-                event_bus.emit(
-                    event_bus.JOB_LOG,
-                    job_id=self.job_id,
-                    message=f"Scanning page: found {len(cards)} total job cards.",
-                    level="INFO",
-                )
+                # Pause check before pagination
+                while self._paused and not self._cancelled:
+                    await asyncio.sleep(0.1)
+                if self._cancelled: break
 
-                urls_to_visit = []
-                for card in cards:
-                    href = await card.get_attribute("href")
-                    if href and href not in processed_urls:
-                        urls_to_visit.append(href)
-                        processed_urls.add(href)
-                
-                if not urls_to_visit:
-                    # Try to load more
-                    logger.debug(f"[{self.job_id}] Trying to load more results. Currently have {len(processed_urls)}.")
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Loading more results from Ausbildung.de...", level="INFO")
-                    loaded_more = await self._load_more(page)
-                    if not loaded_more:
-                        retries += 1
-                        if retries > 3:
-                            logger.info(f"[{self.job_id}] No more cards to load.")
-                            break
-                    else:
-                        retries = 0
-                        # FIX #3: DOM Settling wait
-                        await asyncio.sleep(1.0)
-                    continue
-                
-                # Step 3: Visit URLs in parallel batches of 5
-                async for record in self._fetch_batch(urls_to_visit):
-                    if self._cancelled or yielded_count >= self.config.max_results:
-                        break
-                    if record is None:
-                        continue
-                    if not (record.company_name or record.email or record.address):
-                        continue
-                    if not LicenseManager.can_extract():
-                        logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
-                        event_bus.emit(
-                            event_bus.JOB_LOG,
-                            job_id=self.job_id,
-                            message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
-                            level="WARNING",
-                        )
-                        event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
-                        return
-
-                    yielded_count += 1
-                    event_bus.emit(
-                        event_bus.JOB_RESULT,
-                        job_id=self.job_id,
-                        record=record,
-                        count=yielded_count,
-                    )
-                    LicenseManager.record_extraction()
-                    yield record
-
-            logger.info(f"[{self.job_id}] Scrape finished. Yielded {yielded_count} records.")
-            
-        except Exception as e:
-            logger.error(f"[{self.job_id}] Fatal error during scrape: {e}", exc_info=True)
-            self._total_errors += 1
-            event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, level="ERROR", message=f"Ausbildung scan aborted: {str(e)}")
-
-    async def _fetch_batch(self, hrefs: list[str]) -> AsyncGenerator[LeadRecord | None, None]:
-        """Fetch detail pages sequentially to prevent UI thread flooding."""
-        for href in hrefs:
-            if self._cancelled:
-                return
-
-            while self._paused and not self._cancelled:
-                await asyncio.sleep(0.3)
-            
-            full = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
-            event_bus.emit(
-                event_bus.JOB_LOG,
-                job_id=self.job_id,
-                message=f"Inspecting detail page: {full}",
-                level="INFO",
-            )
-            try:
-                record = await self._extract_job_detail(full)
-                # Small yield to let UI and DB pipeline breathe one-by-one.
+                # ── Step 7: Load-more pagination ──
+                # Scroll to bottom to trigger the Intersection Observer
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.keyboard.press("End")
                 await asyncio.sleep(0.1)
-                yield record
-            except Exception as e:
-                logger.warning(f"[{self.job_id}] Detail task failed for {full}: {e}")
-                yield None
 
-    async def _apply_filters(self, page):
-        try:
-            # Try original ID first, then fallback to any toggle named Filter
-            filter_btn = await page.query_selector("#_R_d6cpav5tpflb_")
-            if not filter_btn:
-                buttons = await page.query_selector_all("button")
-                for btn in buttons:
-                    text = await btn.inner_text()
-                    if "Filter" in text:
-                        filter_btn = btn
-                        break
-                        
-            if filter_btn:
-                await filter_btn.evaluate("el => el.click()")
-                await asyncio.sleep(0.5)  # Give the SPA more time to render the filter menu
-                
-            # Find div id: "klassische-duale-berufsausbildung-label" and check it
-            check_label = await page.query_selector("#klassische-duale-berufsausbildung-label")
-            if check_label:
-                await check_label.evaluate("el => el.click()")
-            else:
-                check_icon = await page.query_selector(".CheckboxItem-module__P4--Qq__checkmark")
-                if check_icon:
-                    await check_icon.evaluate("el => el.click()")
-            await asyncio.sleep(0.5)
-            logger.info(f"[{self.job_id}] Applied Ausbildung dual-vocational filter")
-        except Exception as e:
-            logger.warning(f"[{self.job_id}] Could not apply filters: {e}")
+                await self._dismiss_cookies(page)
 
-    async def _expand_radius(self, page):
-        """Maximize search radius to configured value to guarantee matching leads."""
-        try:
-            radius = getattr(self.config, 'radius', 25)
-            # FIX #2: Radius normalization
-            target_text = f"{radius} km"
-            
-            radius_toggle = await page.query_selector("[data-testid='radius-filter']")
-            if not radius_toggle:
-                # Fallback for dynamic ID
-                radius_toggle = await page.query_selector("button[id*='toggle-button'][aria-label='Radiusauswahl']")
-            
-            if radius_toggle:
-                curr_text = (await radius_toggle.inner_text()).replace("\xa0", " ").strip()
-                if target_text in curr_text:
-                    logger.info(f"[{self.job_id}] Radius is already {target_text}.")
-                    return
+                prev_count = len(all_links)
 
-                await radius_toggle.evaluate("el => el.click()")
-                # FIX #2: Jitter and load wait
-                await asyncio.sleep(1.5)
-                
-                # Look for the target option in the dropdown
-                options = await page.query_selector_all("li[role='option'], .RadiusFilter-module__5FLedG__menuItem")
-                for opt in options:
-                    text = (await opt.inner_text()).replace("\xa0", " ").strip()
-                    if target_text in text:
-                        await opt.evaluate("el => el.click()")
-                        await asyncio.sleep(1.5)
-                        try:
-                            await page.wait_for_load_state("networkidle", timeout=5000)
-                        except Exception:
-                            pass
-                        logger.info(f"[{self.job_id}] Expanded search radius to {target_text}.")
-                        return
-                
-                # Second fallback: look for text directly
-                max_radius_btn = await page.query_selector(f"text='{target_text}'")
-                if max_radius_btn:
-                    await max_radius_btn.evaluate("el => el.click()")
-                    await asyncio.sleep(1.5)
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=5000)
-                    except Exception:
-                        pass
-                    logger.info(f"[{self.job_id}] Expanded search radius to {target_text} (text fallback).")
-        except Exception as e:
-            logger.debug(f"[{self.job_id}] Could not expand radius: {e}")
+                # Use JS click and return diagnostic info
+                diag = await page.evaluate(
+                    """() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        const btn = buttons.find(b => {
+                            const txt = b.textContent.trim().toLowerCase();
+                            return txt === 'mehr ergebnisse laden';
+                        });
 
-    async def _load_more(self, page) -> bool:
-        try:
-            # Scroll down
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(0.5)
-
-            # FIX #1: Resilient structural selectors
-            spinner_selector = "button[class*='spinnerContainer'], [class*='spinnerContainer'] button, button[class*='loadMore'], button[class*='load-more']"
-            spinner_btn = await page.query_selector(spinner_selector)
-            if spinner_btn:
-                await spinner_btn.evaluate("el => el.click()")
-                # FIX #1: Increased sleep and selector wait
-                await asyncio.sleep(2.5)
-                try:
-                    await page.wait_for_selector("a[href*='/stellen/']", state="attached", timeout=4000)
-                    return True
-                except Exception:
-                    return False
-
-            load_more_btns = await page.query_selector_all("button")
-            for btn in load_more_btns:
-                text = await btn.inner_text()
-                txt_lower = text.lower()
-                if any(x in txt_lower for x in ["mehr ergebnisse laden", "load more", "mehr laden", "weitere"]):
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message="Clicked 'Mehr Ergebnisse laden' button.", level="INFO")
-                    await btn.evaluate("el => el.click()")
-                    # FIX #1: Increased sleep and selector wait
-                    await asyncio.sleep(2.5)
-                    try:
-                        await page.wait_for_selector("a[href*='/stellen/']", state="attached", timeout=4000)
-                        return True
-                    except Exception:
-                        # Maybe new cards didn't load but we don't want to fail if it was just a slow DOM
-                        return False
-            return False
-        except Exception as e:
-            logger.debug(f"[{self.job_id}] Load more failed: {e}")
-            return False
-
-    async def _accept_cookies(self, page) -> None:
-        try:
-            buttons = await page.query_selector_all("button")
-            for btn in buttons:
-                try:
-                    text = (await btn.inner_text()).strip().lower()
-                except Exception:
-                    continue
-                if "alles akzeptieren" in text or "accept all" in text:
-                    await btn.evaluate("el => el.click()")
-                    await asyncio.sleep(0.6)
-                    return
-        except Exception as e:
-            logger.debug(f"[{self.job_id}] Cookie accept skipped: {e}")
-
-    async def _query_result_cards(self, page):
-        selectors = [
-            ".JobPostingCard-module__RpcvXq__cardWrapper a[href]",  # From user script
-            "[class*='JobPostingCard-module__'][class*='cardWrapper'] a[href]",
-            "article[data-testid='jp-card'] a[href]",
-            "a[href*='/stellen/']",
-        ]
-        seen = set()
-        nodes = []
-        for selector in selectors:
-            try:
-                found = await page.query_selector_all(selector)
-            except Exception:
-                continue
-            for node in found:
-                try:
-                    href = await node.get_attribute("href")
-                except Exception:
-                    continue
-                if not href or "/stellen/" not in href:
-                    continue
-                key = href if href.startswith("http") else f"https://www.ausbildung.de{href}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                nodes.append(node)
-        return nodes
-
-    def _parse_detail_html(self, html: str) -> dict:
-        from bs4 import BeautifulSoup
-
-        doc = BeautifulSoup(html, "html.parser")
-        company_name = ""
-        company_name_el = doc.select_one(".jp-c-header__corporation-link")
-        if company_name_el:
-            company_name = company_name_el.get_text(" ", strip=True).replace("Arbeitgeber:", "").strip()
-
-        address = ""
-        contact_person = ""
-        detail_addr_el = doc.select_one("#detail-bewerbung-adresse")
-        if detail_addr_el:
-            lines = [line.strip() for line in detail_addr_el.get_text("\n", strip=True).splitlines() if line.strip()]
-            lines = [line for line in lines if line.lower().rstrip(":") != "arbeitgeber"]
-            if len(lines) >= 3:
-                if "herr " in lines[1].lower() or "frau " in lines[1].lower() or any(x in lines[1].lower() for x in ["dir. ", "dr. "]):
-                    if not company_name:
-                        company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                    contact_person = lines[1]
-                    address = ", ".join(lines[2:])
-                else:
-                    if not company_name:
-                        company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                    address = ", ".join(lines[1:])
-            elif len(lines) == 2:
-                if not company_name:
-                    company_name = lines[0].replace("Arbeitgeber:", "").strip()
-                address = lines[1]
-            elif len(lines) == 1:
-                address = lines[0]
-
-        if not address:
-            address_el = doc.select_one(".jp-title__address")
-            if address_el:
-                address = address_el.get_text(" ", strip=True).replace("📍", "").strip()
-
-        phone = ""
-        phone_el = doc.select_one("#detail-bewerbung-telefon-Telefon") or doc.select_one('a[href^="tel:"]')
-        if phone_el:
-            phone_href = phone_el.get("href", "")
-            phone = phone_href.replace("tel:", "").strip() if phone_href else phone_el.get_text(" ", strip=True).strip()
-
-        email = ""
-        for a in doc.select('a[href^="mailto:"]'):
-            href = a.get("href", "")
-            if href and "@" in href:
-                email = href.replace("mailto:", "").split("?")[0].strip()
-                break
-
-        website = ""
-        website_selectors = [
-            "#detail-bewerbung-url",
-            "a[href*='homepage']",
-            "a[href*='internetseite']",
-            "a[href*='website']",
-            "a[target='_blank'][href^='http']",
-        ]
-        for selector in website_selectors:
-            for a in doc.select(selector):
-                href = (a.get("href") or "").strip()
-                if not href:
-                    continue
-                lower_href = href.lower()
-                if lower_href.startswith(("mailto:", "tel:")):
-                    continue
-                if "ausbildung.de" in lower_href:
-                    continue
-                website = href
-                break
-            if website:
-                break
-
-        body_text = doc.get_text("\n", strip=True)
-        start_date = ""
-        date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})|(\d{8})", body_text)
-        if date_match:
-            start_date = date_match.group(0)
-
-        postal_code = ""
-        extracted_city = ""
-        if address:
-            city_pc_match = re.search(r"(\d{5})\s+([^,]+)", address)
-            if city_pc_match:
-                postal_code = city_pc_match.group(1)
-                extracted_city = city_pc_match.group(2).strip()
-
-        return {
-            "company_name": company_name,
-            "address": address,
-            "contact_person": contact_person,
-            "phone": phone,
-            "email": email,
-            "website": website,
-            "start_date": start_date,
-            "postal_code": postal_code,
-            "extracted_city": extracted_city,
-        }
-
-    async def _extract_job_detail(self, url: str) -> LeadRecord | None:
-        try:
-            html = await self.session.fetch_url_content_fast(url, ignore_rate_limit=True)
-            
-            if not html:
-                logger.debug(f"[{self.job_id}] Fast fetch empty for {url}, falling back to tab navigation.")
-                async with self.session.page_lock:
-                    detail_page = await self.session.new_page()
-                    try:
-                        success = await self.session.navigate(detail_page, url, wait_until="domcontentloaded", timeout=30000)
-                        if not success:
-                            return None
-                        await asyncio.sleep(0.5)
-                        html = await detail_page.content()
-                    except Exception as e:
-                        logger.warning(f"[{self.job_id}] Tab navigation failed for {url}: {e}")
-                        return None
-                    finally:
-                        await detail_page.close()
-
-            if not html:
-                return None
-
-            fields = self._parse_detail_html(html)
-            company_name = fields["company_name"]
-            address = fields["address"]
-            contact_person = fields["contact_person"]
-            phone = fields["phone"]
-            email = fields["email"]
-            website = fields["website"]
-            start_date = fields["start_date"]
-            postal_code = fields["postal_code"]
-            extracted_city = fields["extracted_city"]
-            city = self.config.city
-            if extracted_city and (not city or city.lower() == "ort"):
-                city = extracted_city
-
-            if email:
-                event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Found email: {email}", level="INFO")
-
-            if self.crawler and website and (not email or not phone):
-                crawled_email, crawled_phone, source_page, _socials = await self.crawler.find_contact_info(
-                    website,
-                    company_name=company_name,
-                    job_id=self.job_id,
+                        if (btn) {
+                            const info = {
+                                found: true,
+                                text: btn.textContent.trim(),
+                                disabled: btn.disabled,
+                            };
+                            btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            btn.click();
+                            return info;
+                        }
+                        return { found: false };
+                    }"""
                 )
-                if crawled_email and not email:
-                    email = crawled_email
-                    event_bus.emit(event_bus.JOB_LOG, job_id=self.job_id, message=f"Found email: {email}", level="INFO")
-                if crawled_phone and not phone:
-                    phone = crawled_phone
-                if source_page and not website:
-                    website = source_page
-                    
+
+                if not diag.get("found"):
+                    # Button not in DOM yet — wait 2s for lazy-render, then give up
+                    logger.debug(f"[{self.job_id}] Load-more button not visible, waiting for lazy-render…")
+                    await asyncio.sleep(0.5)
+                    lazy_count: int = await page.evaluate(
+                        """() => {
+                            const seen = new Set();
+                            document.querySelectorAll('a[href*="/stellen/"]').forEach(a => {
+                                if (a.href && !a.href.includes('/suche/')) seen.add(a.href);
+                            });
+                            return seen.size;
+                        }"""
+                    )
+                    if lazy_count <= prev_count:
+                        logger.info(f"[{self.job_id}] No more results — pagination complete ({prev_count} cards total).")
+                        break
+                    else:
+                        logger.info(f"[{self.job_id}] Lazy-loaded {lazy_count - prev_count} new cards without button click.")
+                elif diag.get("disabled"):
+                    logger.warning(f"[{self.job_id}] Load-more button is DISABLED — end of results.")
+                    break
+                else:
+                    logger.info(f"[{self.job_id}] JS Click: '{diag.get('text')}'")
+
+                # Poll every 200 ms for up to 8 s
+                found_new = False
+                for _ in range(40):
+                    await asyncio.sleep(0.1)
+                    candidate_count: int = await page.evaluate(
+                        """() => {
+                            const seen = new Set();
+                            document.querySelectorAll('a[href*="/stellen/"]').forEach(a => {
+                                if (a.href && !a.href.includes('/suche/')) seen.add(a.href);
+                            });
+                            return seen.size;
+                        }"""
+                    )
+                    if candidate_count > prev_count:
+                        found_new = True
+                        break
+
+                if not found_new:
+                    logger.info(f"[{self.job_id}] No new cards after 8s — pagination complete.")
+                    break
+                else:
+                    logger.info(
+                        f"[{self.job_id}] Load-more success: {candidate_count} total cards (+{candidate_count - prev_count})"
+                    )
+
+        except Exception as exc:
+            logger.error(
+                f"[{self.job_id}] Ausbildung scraper error: {exc}",
+                exc_info=True,
+            )
+        finally:
+            await page.close()
+
+    async def _dismiss_cookies(self, page) -> None:
+        """Robustly dismiss cookie banners via JS."""
+        await page.evaluate(
+            """() => {
+                const selectors = [
+                    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                    'button[id*="accept"]',
+                    'button[id*="cookie"]',
+                    '.cookie-banner__accept',
+                    '.uc-accept-all'
+                ];
+                for (const sel of selectors) {
+                    const btn = document.querySelector(sel);
+                    if (btn) {
+                        btn.click();
+                        return;
+                    }
+                }
+                // Fallback: find any button containing 'Akzeptieren' or 'Zustimmen'
+                const btns = Array.from(document.querySelectorAll('button'));
+                const confirm = btns.find(b => {
+                    const t = b.textContent.toLowerCase();
+                    return t.includes('akzeptieren') || t.includes('alle akzeptieren') || t.includes('zustimmen');
+                });
+                if (confirm) confirm.click();
+            }"""
+        )
+
+    # ──────────────────────────────────────────────────────────────
+    # Detail page parser
+    # ──────────────────────────────────────────────────────────────
+
+    async def _fetch_and_parse(self, page, url: str) -> Optional[LeadRecord]:
+        """Fetch detail page HTML via in-page fetch() and parse it."""
+        try:
+            html = await page.evaluate(
+                """async (url) => {
+                    const resp = await fetch(url);
+                    return await resp.text();
+                }""",
+                url
+            )
+            return self._parse_detail(html, url)
         except Exception as e:
-            logger.warning(f"[{self.job_id}] Error extracting {url}: {e}")
-            self._total_errors += 1
+            logger.debug(f"[{self.job_id}] Concurrent fetch failed for {url}: {e}")
             return None
 
-        record = LeadRecord(
+    def _parse_detail(self, html: str, url: str) -> Optional[LeadRecord]:
+        """
+        Extract all fields from a detail page's raw HTML.
+        Returns LeadRecord with None for any field not found.
+        Never raises — all selectors are guarded.
+        """
+        doc = BeautifulSoup(html, "html.parser")
+
+        # ── Email ──
+        email: str | None = None
+        el = doc.select_one(
+            "a#t-link-email-contact, "
+            "a.job-posting-contact-person__link[href^='mailto:']"
+        )
+        if el and el.get("href"):
+            email = el["href"].replace("mailto:", "").strip() or None
+        
+        if not email:
+            # Fallback: regex search through whole HTML
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', html)
+            if email_match:
+                candidate = email_match.group(0).lower()
+                # Blacklist common false positives
+                if not any(x in candidate for x in ["info@ausbildung.de", "support@", "cookie"]):
+                    email = candidate
+
+        # ── Phone ──
+        phone: str | None = None
+        el = doc.select_one(
+            "a.job-posting-contact-person__link[href^='tel:']"
+        )
+        if el:
+            phone = el.get_text(strip=True) or None
+
+        # ── Contact person ──
+        contact: str | None = None
+        el = doc.select_one(".job-posting-contact-person__name")
+        if el:
+            contact = el.get_text(strip=True) or None
+
+        # ── Company name ──
+        company: str | None = None
+        el = doc.select_one(".jp-c-header__corporation-link")
+        if el:
+            company = el.get_text(strip=True) or None
+
+        # ── Address / location ──
+        address: str | None = None
+        city: str | None = None
+        el = doc.select_one(".jp-title__address")
+        if el:
+            # Strip emoji and whitespace
+            raw = el.get_text(separator=" ", strip=True)
+            # Remove the emoji character if present
+            raw = "".join(c for c in raw if c.isprintable() and not c in "\U0001F000-\U0001FFFF").strip()
+            # Remove any leading pin emoji
+            raw = raw.lstrip("\U0001F4CD").strip()
+            address = raw or None
+            # City is the last word (after the zip code)
+            if raw:
+                city = raw.split()[-1] or None
+        
+        # Fallback: old selector
+        if not address:
+            el = doc.select_one(
+                ".job-posting-vacancy-select__vacancy .selectize-input .item"
+            )
+            if el:
+                address = el.get_text(strip=True) or None
+
+        # ── Start date (Frühester Beginn) ──
+        start_date: str | None = None
+        for fact in doc.select(".fact__content"):
+            label = fact.select_one(".label")
+            if label and "Beginn" in label.get_text():
+                val = fact.select_one(".value")
+                start_date = val.get_text(strip=True) if val else None
+                break
+
+        # ── Job type (Ausbildungsberuf) ──
+        job_type: str | None = None
+        for fact in doc.select(".fact__content"):
+            label = fact.select_one(".label")
+            if label and "Ausbildungsberuf" in label.get_text():
+                val = fact.select_one(".value")
+                job_type = val.get_text(strip=True) if val else None
+                break
+
+        return LeadRecord(
             source_type=SourceType.AUSBILDUNG_DE,
             source_url=url,
             search_query=self.config.job_title,
-            city=city,
-            postal_code=postal_code,
-            company_name=company_name,
+            city=city or self.config.city or None,
+            company_name=company,
             address=address,
-            website=website,
-            phone=phone,
             email=email,
-            contact_person=contact_person,
-            job_title=self.config.job_title,
+            phone=phone,
+            contact_person=contact,
+            job_title=job_type,
             publication_date=start_date,
-        ).normalize()
-        
-        return record
+        )

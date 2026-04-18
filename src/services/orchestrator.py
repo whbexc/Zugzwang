@@ -94,7 +94,9 @@ class ScrapingOrchestrator:
         # O(1) id-keyed dict; preserves insertion order (Python 3.7+)
         self._app_memory_records: dict[str, LeadRecord] = {}
         self._last_progress_emit_ts: float = 0.0
-        self._last_progress_found: int = -1
+        self._last_db_save_ts: float = 0.0
+        self._persistence_lock = threading.Lock()
+        self._is_persisting = False
         self._library_verify_count: int = 0
         
         # Load existing history from disk in a background thread so the main
@@ -159,6 +161,7 @@ class ScrapingOrchestrator:
         if self._scraper and self._current_job and self._current_job.status == ScrapingStatus.PAUSED:
             self._scraper.resume()
             self._current_job.status = ScrapingStatus.RUNNING
+            event_bus.emit(event_bus.JOB_RESUMED, job_id=self._current_job.id)
             logger.info(f"Job resumed: {self._current_job.id}")
 
     def cancel_job(self) -> None:
@@ -373,7 +376,17 @@ class ScrapingOrchestrator:
                 event_bus.emit(event_bus.DB_UPDATED, records=all_records)
             except Exception as e:
                 logger.warning(f"Background persistence failed: {e}")
+            finally:
+                with self._persistence_lock:
+                    self._is_persisting = False
 
+        # Ensure only one persistence thread runs at a time to prevent SQLite locks
+        with self._persistence_lock:
+            if self._is_persisting:
+                logger.debug("Persistence already in progress, skipping batch.")
+                return
+            self._is_persisting = True
+            
         threading.Thread(target=_do_persist, daemon=True, name="persist-worker").start()
 
     async def _run_job_async(self, job: ScrapingJob) -> None:
@@ -383,6 +396,7 @@ class ScrapingOrchestrator:
             default_headless=job.config.headless,
             default_delay_min=job.config.delay_min,
             default_delay_max=job.config.delay_max,
+            browser_engine=job.config.browser_engine or config_manager.settings.browser_engine
         )
 
         self._session = BrowserSession(settings, job_id=job.id, source_type=job.config.source_type)
@@ -405,8 +419,11 @@ class ScrapingOrchestrator:
             else:
                 raise ValueError(f"Unsupported source type: {job.config.source_type}")
 
-            # Stream results
+            # Stream results in batches to prevent UI signal flooding
             current_job_ids: set[str] = set()
+            result_batch: list[LeadRecord] = []
+            last_batch_emit: float = time.monotonic()
+
             async for record in self._scraper.scrape():
                 if job.status == ScrapingStatus.CANCELLED:
                     break
@@ -465,22 +482,18 @@ class ScrapingOrchestrator:
                     job.results.append(record)
                     current_job_ids.add(record.id)
                     job._update_stats()
-                    
-                    # Result is emitted natively by the scraper.
-                    # We just need to trigger the PROGRESS update.
 
-                    now = time.monotonic()
-                    should_emit_progress = (
-                        job.total_found != self._last_progress_found
-                        and (
-                            job.total_found <= 3
-                            or (job.total_found % 5 == 0)
-                            or (now - self._last_progress_emit_ts >= 0.5)
-                        )
-                    )
-                    if should_emit_progress:
+                # Add to batch and emit periodically
+                result_batch.append(record)
+                now = time.monotonic()
+                if len(result_batch) >= 10 or (now - last_batch_emit >= 1.0):
+                    for r in result_batch:
+                        event_bus.emit(event_bus.JOB_RESULT, job_id=job.id, record=r)
+                    result_batch.clear()
+                    
+                    # Throttled Progress update (emit on batch or min 1s)
+                    if (now - self._last_progress_emit_ts >= 1.0):
                         self._last_progress_emit_ts = now
-                        self._last_progress_found = job.total_found
                         event_bus.emit(
                             event_bus.JOB_PROGRESS,
                             job_id=job.id,
@@ -490,21 +503,10 @@ class ScrapingOrchestrator:
                             total_errors=job.total_errors,
                             completion=job.completion_rate,
                         )
+                    last_batch_emit = now
 
-
+            # All results and progress emitted via batch logic above.
             job.total_errors = getattr(self._scraper, "_total_errors", job.total_errors)
-            
-            # Auto-save current progress regardless of status (Completion, Cancellation, or Failure)
-            try:
-                if job.results:
-                    auto_save_path = str(get_data_dir() / self._export.generate_filename("job", "db"))
-                    self._export.save_project(job, auto_save_path)
-                    logger.info(f"Auto-saved job project ({len(job.results)} leads)")
-            except Exception as e:
-                logger.warning(f"Individual job auto-save failed: {e}")
-
-            # Always persist the global application memory
-            self.persist_current_job()
 
             if job.status != ScrapingStatus.CANCELLED:
                 if self._library_verify_count:

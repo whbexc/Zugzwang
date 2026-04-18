@@ -42,22 +42,9 @@ class Theme:
     BORDER_ULTRA_LIGHT = BORDER_SUBTLE
     
     # ── Design Tokens ────────────────────────────────────────────────────────
-    RADIUS_MODAL   = 16
     RADIUS_CARD    = 14
     RADIUS_BUTTON  = 10
-    ANIMATION_FAST = 200
-    ANIMATION_SLOW = 450
-    
-    # ── Utilities ────────────────────────────────────────────────────────
-    @staticmethod
-    def elevated_card(radius: int = None) -> str:
-        r = radius if radius is not None else Theme.RADIUS_CARD
-        return f"""
-            background: {Theme.BG_ZINC};
-            border: 1px solid {Theme.BORDER_LIGHT};
-            border-radius: {r}px;
-        """
-        
+
     @staticmethod
     def borderless_card() -> str:
         return f"""
@@ -96,7 +83,7 @@ class Theme:
                 border: none;
                 border-radius: {Theme.RADIUS_BUTTON}px;
                 color: #FFFFFF;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-weight: 600;
                 font-size: 12px;
                 letter-spacing: 1.6px;
@@ -119,7 +106,7 @@ class Theme:
                 border: none;
                 border-radius: {Theme.RADIUS_BUTTON}px;
                 color: #FFFFFF;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-weight: 600;
                 font-size: 12px;
                 letter-spacing: 1.6px;
@@ -155,7 +142,7 @@ class Theme:
                 border: none;
                 border-radius: 10px;
                 color: #FF453A;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-weight: 700;
                 font-size: 12px;
                 letter-spacing: 1.8px;
@@ -181,7 +168,7 @@ class Theme:
                 border: none;
                 border-radius: 10px;
                 color: #FF9F0A;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-weight: 700;
                 font-size: 12px;
                 letter-spacing: 1.8px;
@@ -202,7 +189,7 @@ class Theme:
                 border: none;
                 border-radius: 10px;
                 color: #30D158;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-weight: 700;
                 font-size: 12px;
                 letter-spacing: 1.8px;
@@ -253,7 +240,7 @@ class Theme:
                 border-radius: 8px;
                 color: #FFFFFF;
                 padding: 4px 12px;
-                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-family: 'PT Root UI';
                 font-size: 14px;
             }}
             LineEdit:focus {{
@@ -298,5 +285,157 @@ class Theme:
                 border: 1px solid {Theme.ACCENT_PRIMARY};
                 border-bottom: 1px solid {Theme.ACCENT_PRIMARY};
                 background: #323234;
+            }}
+        """
+
+    @staticmethod
+    def global_app_stylesheet() -> str:
+        """
+        Global application stylesheet targeting standard Qt/qfluentwidgets primitives.
+        This provides a unified baseline across the entire app, allowing us to
+        remove redundant setStyleSheet() calls from individual widgets.
+        """
+        return f"""
+            /* Base Widgets */
+            QLabel {{
+                background: transparent;
+                border: none;
+            }}
+
+            /* Standard Push Buttons */
+            QPushButton {{
+                background: #2C2C2E;
+                border: none;
+                border-radius: {Theme.RADIUS_BUTTON}px;
+                color: #FFFFFF;
+                font-family: "PT Root UI", "-apple-system", sans-serif;
+                font-weight: 600;
+                font-size: 12px;
+                letter-spacing: 1.6px;
+                text-transform: uppercase;
+                padding: 0 18px;
+            }}
+            QPushButton:hover {{
+                background: #3A3A3C;
+            }}
+            QPushButton:pressed {{ 
+                background: #252525; 
+            }}
+            QPushButton:disabled {{ 
+                color: #444444; 
+                background: #252525; 
+            }}
+
+            /* Primary Action Button Specifier (if applied via property or class) */
+            PrimaryPushButton {{
+                background: #0A84FF;
+                border: none;
+                border-radius: {Theme.RADIUS_BUTTON}px;
+                color: #FFFFFF;
+                font-weight: 600;
+                font-size: 12px;
+                letter-spacing: 1.6px;
+                text-transform: uppercase;
+            }}
+            PrimaryPushButton:hover {{ background: #409CFF; }}
+            PrimaryPushButton:pressed {{ background: #005CC8; }}
+            PrimaryPushButton:disabled {{ background: #1C3D6B; color: #636366; }}
+
+            /* Text Inputs */
+            LineEdit, QLineEdit {{
+                background: #1C1C1E;
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                padding: 0 12px;
+                font-size: 13px;
+                font-family: 'PT Root UI';
+                selection-background-color: {Theme.ACCENT_PRIMARY};
+            }}
+            LineEdit:focus, QLineEdit:focus {{
+                border: 1px solid {Theme.ACCENT_PRIMARY};
+                background: #1C1C1E;
+            }}
+            LineEdit:disabled, QLineEdit:disabled {{
+                background: #2C2C2E;
+                color: #636366;
+                border: 1px solid #3A3A3C;
+            }}
+
+            /* Multi-line Text Inputs */
+            TextEdit, PlainTextEdit, QTextEdit, QPlainTextEdit {{
+                background: {Theme.BG_ZINC};
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: #FFFFFF;
+                font-size: 13px;
+                font-family: 'PT Root UI';
+                selection-background-color: {Theme.ACCENT_PRIMARY};
+            }}
+            TextEdit:focus, PlainTextEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
+                border: 1px solid {Theme.ACCENT_PRIMARY};
+                background: #323234;
+            }}
+
+            /* Combo Boxes */
+            ComboBox, EditableComboBox, QComboBox {{
+                background: #1C1C1E;
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                padding: 0 12px;
+                font-size: 13px;
+                font-family: 'PT Root UI';
+            }}
+            ComboBox:hover, EditableComboBox:hover, QComboBox:hover {{
+                background: #2C2C2E;
+            }}
+            ComboBox:focus, EditableComboBox:focus, QComboBox:focus {{
+                border: 1px solid {Theme.ACCENT_PRIMARY};
+            }}
+            ComboBox::drop-down, EditableComboBox::drop-down, QComboBox::drop-down {{
+                border: none;
+                background: transparent;
+            }}
+
+            /* Scrollbars */
+            QScrollBar:vertical {{
+                border: none;
+                background: transparent;
+                width: 6px;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background: #48484A;
+                min-height: 20px;
+                border-radius: 3px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: #636366;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                border: none;
+                background: none;
+            }}
+            QScrollBar:horizontal {{
+                border: none;
+                background: transparent;
+                height: 6px;
+                margin: 0;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: #48484A;
+                min-width: 20px;
+                border-radius: 3px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: #636366;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+                border: none;
+                background: none;
             }}
         """

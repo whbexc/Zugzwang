@@ -11,6 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import QObject, Signal
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -66,11 +67,12 @@ def get_screenshots_dir() -> Path:
     return d
 
 
-class ConfigManager:
+class ConfigManager(QObject):
     """
     Singleton-style settings manager.
     Reads/writes AppSettings to a JSON file in the user's AppData folder.
     """
+    history_updated = Signal()
 
     _instance: "ConfigManager | None" = None
     _settings_path: Path
@@ -83,21 +85,32 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        if self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
+        super().__init__()
         self._settings_path = get_app_data_dir() / "settings.json"
         self._settings = self._load()
+        self._search_history_cache = []
         self._initialized = True
+        
+        # Initial history load in background
+        from .db_worker import db_worker
+        db_worker.submit(self._refresh_history_cache_sync)
 
     def _load(self) -> AppSettings:
         if self._settings_path.exists():
             try:
                 with open(self._settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                return self._merge_with_defaults(data)
+                settings = self._merge_with_defaults(data)
+                
+
+                
+                settings.app_version = "1.0.7"
+                return settings
             except Exception as e:
                 logger.warning(f"Failed to load settings, using defaults: {e}")
-        return AppSettings()
+        return AppSettings(app_version="1.0.7")
 
     def _merge_with_defaults(self, data: dict) -> AppSettings:
         """Merge saved settings with defaults to handle new fields after upgrades."""
@@ -177,46 +190,56 @@ class ConfigManager:
             logger.warning(f"Failed to save search history: {e}")
 
 
-    def get_search_history(self) -> list:
-        """Return search history rows ordered by saved first, then timestamp desc."""
+    def _refresh_history_cache_sync(self) -> None:
+        """Internal refresh called by background worker."""
         try:
             conn = self._get_db()
             cursor = conn.execute(
                 "SELECT id, job_title, city, source, offer_type, radius, is_saved FROM search_history "
                 "ORDER BY is_saved DESC, timestamp DESC LIMIT 20"
             )
-            rows = cursor.fetchall()
+            self._search_history_cache = cursor.fetchall()
             conn.close()
-            return rows
+            # Signal UI that data changed
+            self.history_updated.emit()
         except Exception as e:
-            logger.warning(f"Failed to load search history: {e}")
-            return []
+            logger.warning(f"Failed to refresh history cache: {e}")
 
-    def toggle_saved(self, history_id: int) -> bool:
-        """Toggle is_saved for given history id. Returns new saved state."""
+    def get_search_history(self) -> list:
+        """Return cached search history (non-blocking)."""
+        return list(self._search_history_cache)
+
+    def toggle_saved(self, history_id: int) -> None:
+        """Toggle is_saved for given history id in background."""
+        from .db_worker import db_worker
+        db_worker.submit(self._toggle_saved_sync, history_id)
+
+    def _toggle_saved_sync(self, history_id: int) -> None:
         try:
             conn = self._get_db()
             cursor = conn.execute("SELECT is_saved FROM search_history WHERE id = ?", (history_id,))
             row = cursor.fetchone()
-            if row is None:
-                conn.close()
-                return False
-            new_val = 0 if row[0] else 1
-            with conn:
-                conn.execute("UPDATE search_history SET is_saved = ? WHERE id = ?", (new_val, history_id))
+            if row:
+                new_val = 0 if row[0] else 1
+                with conn:
+                    conn.execute("UPDATE search_history SET is_saved = ? WHERE id = ?", (new_val, history_id))
             conn.close()
-            return bool(new_val)
+            self._refresh_history_cache_sync()
         except Exception as e:
             logger.warning(f"Failed to toggle saved: {e}")
-            return False
 
     def clear_unsaved_history(self) -> None:
-        """Delete all unsaved search history entries."""
+        """Delete all unsaved search history entries in background."""
+        from .db_worker import db_worker
+        db_worker.submit(self._clear_unsaved_history_sync)
+
+    def _clear_unsaved_history_sync(self) -> None:
         try:
             conn = self._get_db()
             with conn:
                 conn.execute("DELETE FROM search_history WHERE is_saved = 0")
             conn.close()
+            self._refresh_history_cache_sync()
         except Exception as e:
             logger.warning(f"Failed to clear history: {e}")
 

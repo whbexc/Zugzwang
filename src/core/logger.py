@@ -25,7 +25,6 @@ _NOISY_INFO_LOGGERS = (
     "src.services.ausbildung_scraper",
     "src.services.aubiplus_scraper",
     "src.services.azubiyo_scraper",
-    "src.services.browser",
 )
 
 

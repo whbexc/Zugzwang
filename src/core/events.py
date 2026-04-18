@@ -23,6 +23,7 @@ class EventBus:
     JOB_COMPLETED = "job.completed"
     JOB_FAILED = "job.failed"
     JOB_PAUSED = "job.paused"
+    JOB_RESUMED = "job.resumed"
     JOB_CANCELLED = "job.cancelled"
     JOB_LOG = "job.log"
     CAPTCHA_CHALLENGE = "captcha.challenge"

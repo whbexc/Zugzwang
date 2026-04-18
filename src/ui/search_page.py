@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, Property, QEasingCurve, QEvent, QTimer
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QColor
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QGraphicsDropShadowEffect
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QSizePolicy
 
 from qfluentwidgets import (
     ComboBox,
@@ -415,13 +415,15 @@ class SearchPage(QWidget):
 
     def _build_ui(self) -> None:
         self.setObjectName("searchPage")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet(f"QWidget#searchPage {{ background: {Theme.BG_OBSIDIAN}; }}")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         host = QWidget()
-        root.addWidget(host)
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        root.addWidget(host, 1)
 
         body = QVBoxLayout(host)
         body.setContentsMargins(32, 20, 32, 20)
@@ -772,10 +774,10 @@ class SearchPage(QWidget):
         return label
 
     def _style_combo(self, combo: QWidget) -> None:
-        combo.setStyleSheet(Theme.combo_box())
+        pass
 
     def _style_input(self, widget: QWidget) -> None:
-        widget.setStyleSheet(Theme.line_edit())
+        pass
 
     def _clear_validation_error(self) -> None:
         self._title_error.setVisible(False)

@@ -210,9 +210,11 @@ class ExportService:
     def save_project(self, job: ScrapingJob, path: str) -> None:
         """Save a scraping job (with results) to SQLite project file."""
         logger.info(f"Saving project to: {path}")
-        conn = sqlite3.connect(path)
+        # Increase timeout to 30s to avoid 'database is locked' during concurrent access
+        conn = sqlite3.connect(path, timeout=30.0)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL") # Faster and safe enough with WAL
             self._init_db(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO jobs (id, config_json, status, stats_json, created_at, started_at, completed_at) VALUES (?,?,?,?,?,?,?)",

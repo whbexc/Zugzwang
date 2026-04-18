@@ -1046,9 +1046,11 @@ class ResultsPage(QWidget):
         self._columns_auto_resized = False
 
         self._drain_timer = QTimer(self)
-        self._drain_timer.setInterval(150)
+        self._drain_timer.setInterval(250) # Increased interval
         self._drain_timer.timeout.connect(self._drain_queue)
         self._drain_timer.start()
+        
+        self._last_count_update: float = 0
 
         self._build_ui()
         self._connect_events()
@@ -1057,6 +1059,7 @@ class ResultsPage(QWidget):
         self._show_placeholder_state()
 
     def _build_ui(self):
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.mainLayout = QVBoxLayout(self)
         self.mainLayout.setContentsMargins(20, 16, 20, 16)
         self.mainLayout.setSpacing(12)
@@ -1074,7 +1077,6 @@ class ResultsPage(QWidget):
         self._search_box.textChanged.connect(self._apply_text_filter)
         self._search_box.setFixedWidth(180)
         self._search_box.setFixedHeight(34)
-        self._search_box.setStyleSheet(Theme.line_edit())
         topRow.addWidget(self._search_box)
 
         self._btn_clear_all = QPushButton(tr("results.button.clear", self._language).upper())
@@ -1664,6 +1666,7 @@ class ResultsPage(QWidget):
             # no dataChanged / rowsInserted reaches the proxy during the batch,
             # so filterAcceptsRow is NEVER triggered per-row.
             # After all inserts, emit layoutChanged once → one O(n) filter pass.
+            self.mainLayout.parentWidget().setUpdatesEnabled(False)
             self._model.blockSignals(True)
             try:
                 self._model.add_records(batch)
@@ -1672,11 +1675,23 @@ class ResultsPage(QWidget):
                 log.error(f"Failed to render batch in drain_queue: {e}", exc_info=True)
             finally:
                 self._model.blockSignals(False)
-                # Tell the proxy the layout changed so it can rebuild its mapping
-                self._proxy.invalidate()
+                self.mainLayout.parentWidget().setUpdatesEnabled(True)
+                
+                # Throttled invalidation: Only invalidate the proxy if it's been > 1s
+                # since the last pass, or if we just finished the whole queue.
+                now = time.monotonic()
+                if now - getattr(self, "_last_proxy_invalidation", 0) > 1.0 or self._record_queue.empty():
+                    self._proxy.invalidate()
+                    self._last_proxy_invalidation = now
 
         if added:
-            self._update_count_label()
+            now = time.monotonic()
+            # Only update stats every 2 seconds to keep UI fluid
+            if now - self._last_count_update > 2.0:
+                self._update_count_label()
+                self._last_count_update = now
+            
+            # Heavy column resizing only when nearly empty
             if not self._columns_auto_resized and self._model.rowCount() >= 3:
                 self._columns_auto_resized = True
                 self._table.resizeColumnsToContents()

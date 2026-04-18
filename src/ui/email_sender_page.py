@@ -22,14 +22,14 @@ from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QLineEdit, QTextEdit, QFileDialog, QSizePolicy, QStackedWidget, QTextBrowser,
-    QPlainTextEdit, QScrollArea
+    QPlainTextEdit, QScrollArea, QPushButton
 )
 from .components import StatCard, SectionCard, MacSwitch
 from qfluentwidgets import (
     InfoBadge, ProgressBar,
     PushButton, PrimaryPushButton, TransparentPushButton, ToolButton,
     ElevatedCardWidget, FluentIcon, LineEdit, PlainTextEdit,
-    ScrollArea, RoundMenu, Action
+    ScrollArea, RoundMenu, Action, IconWidget
 )
 from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
 
@@ -273,7 +273,7 @@ class EmailSenderPage(QWidget):
         self._subject = LineEdit(); self._subject.setPlaceholderText(tr("send.placeholder.subject", self._language))
         
         self._body_stack = QStackedWidget()
-        self._body_stack.setMinimumHeight(150)
+        self._body_stack.setMinimumHeight(80)
         self._body_text = PlainTextEdit()
         self._body_text.setPlaceholderText(tr("send.placeholder.body", self._language))
         self._body_stack.addWidget(self._body_text)
@@ -294,7 +294,7 @@ class EmailSenderPage(QWidget):
         self._rec_count = QLabel(tr("send.badge.emails", self._language).format(count=0))
         
         self._recipient_list = RecipientListWidget()
-        self._recipient_list.setMinimumHeight(150)
+        self._recipient_list.setMinimumHeight(0)
         self._recipient_list.items_changed.connect(self._on_recipients_changed)
         
         self._status_log = QTextBrowser()
@@ -324,7 +324,7 @@ class EmailSenderPage(QWidget):
         self._search_input.setClearButtonEnabled(True)
         self._search_input.setFixedWidth(150)
         
-        self._btn_continue = TransparentPushButton(FluentIcon.SYNC, "")
+
         
         # Simple Delete Button (Neutral Square)
         self._btn_delete_menu = TransparentPushButton(FluentIcon.DELETE.icon(color=QColor("#8E8E93")), "")
@@ -350,12 +350,14 @@ class EmailSenderPage(QWidget):
 
     def _build_ui(self):
         self.setObjectName("emailPage")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         host = QWidget()
         host.setObjectName("emailPageHost")
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         host.setStyleSheet("QWidget#emailPageHost { background: #1C1C1E; }")
         root.addWidget(host)
         
@@ -366,6 +368,7 @@ class EmailSenderPage(QWidget):
         # ── Header Section ───────────────────────────────────────────────────
         header_widget = QWidget()
         header_widget.setFixedHeight(52)
+        header_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         header_h = QHBoxLayout(header_widget)
         header_h.setContentsMargins(0, 0, 0, 0)
         header_h.setSpacing(12)
@@ -400,22 +403,44 @@ class EmailSenderPage(QWidget):
         self._btn_send_all.setStyleSheet(Theme.zugzwang_primary_button())
         header_h.addWidget(self._btn_send_all)
 
-        body.addWidget(header_widget)
+        body.addWidget(header_widget, 0)
         
 
-        # ── Step 1: Identity & Credentials ───────────────────────────────────
-        body.addWidget(self._step_card("1", tr("send.step1.title", self._language), self._build_identity_section(), compact=True))
+        # ── Two-column layout ─────────────────────────────────────────────────
+        content_row_widget = QWidget()
+        content_row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        content_row = QHBoxLayout(content_row_widget)
+        content_row.setSpacing(12)
+        content_row.setContentsMargins(0, 0, 0, 0)
 
-        # ── Main Side-by-Side Area ──────────────────────────────────────────
-        workflow_h = QHBoxLayout()
-        workflow_h.setSpacing(10)
-        
+        # Left column (40%): Section 1 + Section 2 stacked
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(0)
+        left_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_widget.setStyleSheet("background: transparent; border: none;")
+        left_col = QVBoxLayout(left_widget)
+        left_col.setSpacing(12)
+        left_col.setContentsMargins(0, 0, 0, 0)
+
+        self._card1 = self._build_identity_section()
+        self._card1.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        left_col.addWidget(self._card1, 0)
+
         self._card2 = self._step_card("2", tr("send.step2.title", self._language), self._build_payload_section())
+        self._card2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._card2.setMinimumHeight(0)
+        left_col.addWidget(self._card2, 1)
+
+        content_row.addWidget(left_widget, 2)
+
+        # Right column (60%): Section 3 full height
         self._card3 = self._step_card("3", tr("send.step3.title", self._language), self._build_monitor_section())
-        
-        workflow_h.addWidget(self._card2, 40)
-        workflow_h.addWidget(self._card3, 60)
-        body.addLayout(workflow_h, 1)
+        self._card3.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._card3.setMinimumWidth(0)
+        self._card3.setMinimumHeight(0)
+        content_row.addWidget(self._card3, 3)
+
+        body.addWidget(content_row_widget, 1)
 
 
 
@@ -427,8 +452,8 @@ class EmailSenderPage(QWidget):
         card.setMinimumHeight(0)
         card.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(6)
 
         hdr = QHBoxLayout()
         hdr.setSpacing(12)
@@ -453,54 +478,159 @@ class EmailSenderPage(QWidget):
         return card
 
     def _build_identity_section(self) -> QWidget:
-        container = QWidget()
-        container.setFixedHeight(90)
-        container.setStyleSheet("QWidget { background: transparent; border: none; }")
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 5, 0, 0)
-        layout.setSpacing(10)
+        from ..core.config import config_manager
+        import logging
+        s = config_manager.settings
 
+        container = QFrame()
+        container.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(8)
+
+        # 1. Header row
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        badge = QLabel("1")
+        badge.setFixedSize(20, 20)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-weight: 700; font-size: 11px;")
+        header.addWidget(badge)
+
+        ttl = QLabel("ZUGZWANG IDENTITY")
+        ttl.setStyleSheet("color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
+        header.addWidget(ttl)
+        header.addStretch(1)
+
+        settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setStyleSheet("QPushButton { color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none; } QPushButton:hover { color: #AEAEB2; }")
+        settings_btn.clicked.connect(lambda: self.window()._switch(5))
+        header.addWidget(settings_btn)
+        layout.addLayout(header)
+
+        # 2. Hairline divider
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet("background: #3A3A3C; border: none;")
+        layout.addSpacing(8)
+        layout.addWidget(div)
+        layout.addSpacing(8)
+
+        # 3. SMTP status row
+        status_row = QHBoxLayout()
+        status_row.setSpacing(6)
+
+        status_dot = QLabel("●")
+        is_configured = bool(s.email_smtp_user)
+        status_color = "#28B84E" if is_configured else "#636366"
+        status_dot.setStyleSheet(f"color: {status_color}; font-size: 14px; margin-bottom: 2px; background: transparent; border: none;")
+        status_row.addWidget(status_dot)
+
+        srv_label = QLabel(f"{s.email_smtp_host}:{s.email_smtp_port}".upper())
+        srv_label.setMinimumWidth(200)
+        srv_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        srv_label.setStyleSheet("color: #8E8E93; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: transparent; border: none;")
+        status_row.addWidget(srv_label)
+        status_row.addStretch()
+
+        txt_status = QLabel("Connected" if is_configured else "Not configured")
+        txt_status.setStyleSheet(f"color: {'#28B84E' if is_configured else '#FF453A'}; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none;")
+        status_row.addWidget(txt_status)
+
+        test_btn = QPushButton("Test Connection")
+        test_btn.setCursor(Qt.PointingHandCursor)
+        test_btn.setStyleSheet("QPushButton { color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; background: transparent; border: none; margin-left: 12px; } QPushButton:hover { color: #0A84FF; }")
+        test_btn.clicked.connect(self._test_connection)
+        status_row.addWidget(test_btn)
+
+        # Embed status row directly (no wrapper widget)
+        layout.addLayout(status_row)
+        layout.addSpacing(8)
+
+        # 4. Two-column input grid
         grid = QGridLayout()
-        grid.setSpacing(10)
-        
-        self._style_input(self._smtp_host)
-        self._style_input(self._smtp_port)
-        self._style_input(self._smtp_user)
-        self._style_input(self._smtp_pass)
-        
-        grid.addWidget(self._field_label(tr("send.field.smtp", self._language)), 0, 0)
-        grid.addWidget(self._field_label(tr("send.field.port", self._language)), 0, 1)
-        grid.addWidget(self._field_label(tr("send.field.user", self._language)), 0, 2)
-        grid.addWidget(self._field_label(tr("send.field.pass", self._language)), 0, 3)
-        
-        grid.addWidget(self._smtp_host, 1, 0)
-        grid.addWidget(self._smtp_port, 1, 1)
-        grid.addWidget(self._smtp_user, 1, 2)
-        grid.addWidget(self._smtp_pass, 1, 3)
-        grid.setColumnStretch(0, 3)
-        grid.setColumnStretch(2, 3)
-        grid.setColumnStretch(3, 3)
-        
-        layout.addLayout(grid, 1)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(4)
 
-        v_opt = QVBoxLayout()
-        v_opt.setSpacing(14)
-        v_opt.addLayout(self._make_switch_row("AUTHENTICATE", self._auth_switch, "#0A84FF"))
-        v_opt.addLayout(self._make_switch_row("SECURE SSL", self._ssl_switch, "#3A3A3C"))
-        v_opt.addLayout(self._make_switch_row("TLS HANDSHAKE", self._tls_switch, "#0A84FF"))
-        layout.addLayout(v_opt)
+        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: -2px; background: transparent; border: none;"
+        inp_style = "QLineEdit { background: #1C1C1E; border: 1px solid #3A3A3C; border-radius: 8px; color: #F2F2F7; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; padding: 0 12px; } QLineEdit:focus { border: 1px solid #0A84FF; }"
+
+        lbl_usr = QLabel("SENDER IDENTITY")
+        lbl_usr.setStyleSheet(lbl_style)
+        self._smtp_user.setFixedHeight(36)
+        self._smtp_user.setStyleSheet(inp_style)
+        grid.addWidget(lbl_usr, 0, 0)
+        grid.addWidget(self._smtp_user, 1, 0)
+
+        lbl_pass = QLabel("APP PASSWORD")
+        lbl_pass.setStyleSheet(lbl_style)
+        self._smtp_pass.setFixedHeight(36)
+        self._smtp_pass.setStyleSheet(inp_style)
+        self._smtp_pass.setEchoMode(QLineEdit.Password)
+        grid.addWidget(lbl_pass, 0, 1)
+        grid.addWidget(self._smtp_pass, 1, 1)
+
+        # Optional: reconnect save events if disconnected in previous step
+        try: self._smtp_user.textChanged.disconnect()
+        except: pass
+        try: self._smtp_pass.textChanged.disconnect()
+        except: pass
+        self._smtp_user.textChanged.connect(self._save_fields)
+        self._smtp_pass.textChanged.connect(self._save_fields)
+
+        layout.addLayout(grid)
+
+        # 5. SMTP detail strip
+        det_row = QHBoxLayout()
+        det_row.setSpacing(16)
+        det_row.setContentsMargins(0, 8, 0, 4)
+
+        det_widget = QWidget()
+        det_widget.setStyleSheet("background: transparent; border: none;")
+        det_widget.setLayout(det_row)
+
+        def add_det(lbl, val, val_color="#8E8E93"):
+            l = QLabel(lbl)
+            l.setStyleSheet("color: #48484A; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 9px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; background: transparent; border: none;")
+            v = QLabel(val)
+            v.setStyleSheet(f"color: {val_color}; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; background: transparent; border: none;")
+            h = QHBoxLayout()
+            h.setSpacing(5)
+            h.addWidget(l)
+            h.addWidget(v)
+            det_row.addLayout(h)
+
+        def add_sep():
+            sep = QFrame()
+            sep.setFixedSize(1, 12)
+            sep.setStyleSheet("background: #3A3A3C; border: none;")
+            det_row.addWidget(sep)
+
+        add_det("SMTP", s.email_smtp_host)
+        add_sep()
+        add_det("PORT", str(s.email_smtp_port))
+        add_sep()
+        add_det("TLS", "Enabled", "#28B84E")
+        add_sep()
+        add_det("AUTH", "Activated", "#28B84E")
+        det_row.addStretch()
+
+        layout.addWidget(det_widget)
+
         return container
 
     def _build_payload_section(self) -> QWidget:
         container = QWidget()
         container.setMinimumHeight(0)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         container.setStyleSheet("QWidget { background: transparent; border: none; }")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 5, 0, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
         
         send_widget = QWidget()
-        send_widget.setFixedHeight(62)
+        send_widget.setFixedHeight(54)
         send_row = QHBoxLayout(send_widget)
         send_row.setContentsMargins(0, 0, 0, 0)
         send_row.setSpacing(10)
@@ -512,7 +642,7 @@ class EmailSenderPage(QWidget):
 
         self._style_input(self._subject)
         sub_container = QWidget()
-        sub_container.setFixedHeight(62)
+        sub_container.setFixedHeight(54)
         sub_layout = QVBoxLayout(sub_container)
         sub_layout.setContentsMargins(0, 0, 0, 0)
         sub_layout.setSpacing(4)
@@ -525,7 +655,7 @@ class EmailSenderPage(QWidget):
         col_body.setSpacing(4)
 
         lbl_row_host = QWidget()
-        lbl_row_host.setFixedHeight(32)
+        lbl_row_host.setFixedHeight(24)
         lbl_row = QHBoxLayout(lbl_row_host)
         lbl_row.setContentsMargins(0, 0, 0, 0)
         lbl_row.setSpacing(8)
@@ -562,7 +692,9 @@ class EmailSenderPage(QWidget):
         lbl_row.addWidget(self._type_toggle)
         col_body.addWidget(lbl_row_host)
  
-        self._body_stack.setMinimumHeight(0)
+        self._body_stack.setMinimumHeight(80)
+        self._body_stack.setMinimumWidth(0)
+        self._body_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._style_plaintext(self._body_text)
         col_body.addWidget(self._body_stack, 1)
         layout.addLayout(col_body, 1)
@@ -571,6 +703,7 @@ class EmailSenderPage(QWidget):
     def _build_monitor_section(self) -> QWidget:
         container = QWidget()
         container.setMinimumHeight(0)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         container.setStyleSheet("QWidget { background: transparent; border: none; }")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 5, 0, 0)
@@ -636,7 +769,8 @@ class EmailSenderPage(QWidget):
         lbl_rec_row.addStretch(1)
         
         # Add Search Input
-        self._search_input.setFixedWidth(180)
+        self._search_input.setMaximumWidth(180)
+        self._search_input.setMinimumWidth(100)
         self._search_input.setFixedHeight(32)
         self._search_input.setPlaceholderText("Find recipient...")
         self._search_input.setStyleSheet("""
@@ -708,13 +842,7 @@ class EmailSenderPage(QWidget):
 
         log_header.addStretch(1)
 
-        # Resumption Button (Continue)
-        self._btn_continue.setFixedSize(32, 32)
-        self._btn_continue.setIconSize(QSize(16, 16))
-        self._btn_continue.setToolTip("Continue / Resume Broadcast")
-        self._btn_continue.setCursor(Qt.PointingHandCursor)
-        self._btn_continue.setStyleSheet(self._btn_delete_menu.styleSheet())
-        log_header.addWidget(self._btn_continue, 0, Qt.AlignVCenter)
+
         
         # Copy Log Button
         self._btn_copy_log = TransparentPushButton(FluentIcon.COPY.icon(color=QColor("#8E8E93")), "")
@@ -749,6 +877,11 @@ class EmailSenderPage(QWidget):
                 line-height: 1.6;
             }
         """)
+        self._status_log.setLineWrapMode(QTextBrowser.WidgetWidth)
+        self._status_log.setMinimumWidth(0)
+        self._status_log.setMinimumHeight(0)
+        self._status_log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
         # Remove fixed height to let it expand naturally with the recipient panel
         log_stack.addWidget(self._status_log, 1)
         
@@ -807,50 +940,9 @@ class EmailSenderPage(QWidget):
 
     def _style_input(self, widget: QWidget) -> None:
         widget.setFixedHeight(34)
-        widget.setStyleSheet("""
-            QLineEdit {
-                background: #1C1C1E;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                color: white;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 13px;
-                padding: 0 12px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #0A84FF;
-            }
-        """)
 
     def _style_plaintext(self, widget: QWidget) -> None:
-        widget.setStyleSheet("""
-            QPlainTextEdit, QTextEdit {
-                background: #1A1A1A;
-                border: 1px solid #3A3A3C;
-                border-radius: 10px;
-                padding: 12px;
-                color: #8E8E93;
-                font-family: 'PT Root UI', monospace;
-                font-size: 12px;
-            }
-            QPlainTextEdit:focus, QTextEdit:focus {
-                border: 1px solid #0A84FF;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: transparent;
-                width: 4px;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #3A3A3C;
-                min-height: 20px;
-                border-radius: 2px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
+        pass
 
     def _make_switch_row(self, text: str, switch: MacSwitch, on_color: str) -> QHBoxLayout:
         h = QHBoxLayout()
@@ -879,7 +971,7 @@ class EmailSenderPage(QWidget):
         self._btn_stop.clicked.connect(self._on_stop)
         self._btn_purge_sent.clicked.connect(self._on_purge_sent)
         self._btn_export.clicked.connect(self._on_export)
-        self._btn_continue.clicked.connect(self._on_continue)
+
         # self._recipients_text is replaced by self._recipient_list
         # The list widget handles changes via items_changed which is already connected in _init_widgets
         
@@ -1257,7 +1349,7 @@ class EmailSenderPage(QWidget):
         self._btn_send_all.setEnabled(not sending)
         self._btn_send_one.setEnabled(not sending)
         self._btn_stop.setEnabled(sending)
-        self._btn_continue.setEnabled(not sending)
+
         self._status_badge.setText("SENDING" if sending else "READY")
 
     def _log(self, text: str, level: str = "INFO"):
@@ -1276,7 +1368,24 @@ class EmailSenderPage(QWidget):
 
         try:
             self._log("Initializing SMTP Handshake...")
-            self._active_server = self._create_smtp_connection()
+            last_err = None
+            for attempt in range(1, 4):  # 3 retries with exponential backoff
+                try:
+                    self._active_server = self._create_smtp_connection()
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    if self._stop_requested:
+                        break
+                    if attempt < 3:
+                        wait = 2 ** attempt  # 2s, 4s
+                        self._log(f"Handshake attempt {attempt}/3 failed: {e}. Retrying in {wait}s...", "WARNING")
+                        time.sleep(wait)
+            
+            if last_err:
+                raise last_err
+                
             if self._stop_requested:
                 try: self._active_server.quit()
                 except: pass
@@ -1288,7 +1397,7 @@ class EmailSenderPage(QWidget):
             if self._stop_requested:
                 self._signals.finished.emit(0, 0, True)
             else:
-                self._signals.error.emit(f"Handshake Failed: {e}")
+                self._signals.error.emit(f"Handshake Failed after 3 attempts: {e}")
                 self._signals.finished.emit(0, 0, False)
             return
 
@@ -1317,17 +1426,67 @@ class EmailSenderPage(QWidget):
                 # Proactively ensure connection BEFORE sending
                 try:
                     self._ensure_smtp_connection()
-                except (smtplib.SMTPServerDisconnected, socket.error):
+                except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
                     self._log(f"Connection lost. Reconnecting for {rec}...", "WARNING")
                     if self._active_server:
                         try: self._active_server.close()
                         except: pass
-                    time.sleep(2) # Prevent rapid-fire reconnection
-                    self._active_server = self._create_smtp_connection()
-                    self._log("Reconnected successfully.", "SUCCESS")
+                    try:
+                        time.sleep(2)
+                        self._active_server = self._create_smtp_connection()
+                        self._log("Reconnected successfully.", "SUCCESS")
+                    except Exception as reconn_err:
+                        self._log(f"Reconnection failed for {rec}: {reconn_err}", "ERROR")
+                        failed += 1
+                        self._error_vault[rec] = f"Reconnection failed: {reconn_err}"
+                        self._signals.progress.emit(i+1, total)
+                        if i < total - 1 and not self._stop_requested:
+                            time.sleep(interval)
+                        continue
 
                 # Actual Transmission
-                self._active_server.send_message(msg)
+                try:
+                    self._active_server.send_message(msg)
+                except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
+                    self._log(f"Connection dropped during transmission. Retrying {rec}...", "WARNING")
+                    if self._active_server:
+                        try: self._active_server.close()
+                        except: pass
+                    try:
+                        time.sleep(2)
+                        self._active_server = self._create_smtp_connection()
+                        self._log("Reconnected successfully. Retrying transmission...", "SUCCESS")
+                        self._active_server.send_message(msg)
+                    except Exception as retry_err:
+                        self._log(f"Retry failed for {rec}: {retry_err}", "ERROR")
+                        failed += 1
+                        self._error_vault[rec] = f"Retry failed: {retry_err}"
+                        self._active_server = None  # Force re-init on next loop
+                        self._signals.progress.emit(i+1, total)
+                        if i < total - 1 and not self._stop_requested:
+                            time.sleep(interval)
+                        continue
+                except smtplib.SMTPResponseException as rate_err:
+                    if rate_err.smtp_code in (421, 452):
+                        self._log(f"Rate-limited by server (code {rate_err.smtp_code}). Waiting 60s before retrying {rec}...", "WARNING")
+                        time.sleep(60)
+                        try:
+                            if self._active_server:
+                                try: self._active_server.close()
+                                except: pass
+                            self._active_server = self._create_smtp_connection()
+                            self._active_server.send_message(msg)
+                        except Exception as rl_err:
+                            failed += 1
+                            self._error_vault[rec] = f"Rate-limit retry failed: {rl_err}"
+                            self._active_server = None
+                            self._signals.progress.emit(i+1, total)
+                            if i < total - 1 and not self._stop_requested:
+                                time.sleep(interval)
+                            continue
+                    else:
+                        raise  # Re-raise non-rate-limit SMTP errors
+                    
                 sent += 1
                 if rec.lower() not in self._successful_emails:
                     self._successful_emails.append(rec.lower())
@@ -1338,15 +1497,13 @@ class EmailSenderPage(QWidget):
             except Exception as e:
                 if self._stop_requested: break
                 
-                # If we fail here, the connection might be truly dead or the recipient is invalid
                 failed += 1
                 self._error_vault[rec] = str(e)
                 err_short = str(e).splitlines()[0][:60] + "..." if len(str(e)) > 60 else str(e)
                 
-                # Check if it was a disconnection we couldn't recover from in time
-                if "Server not connected" in err_short or "closed" in err_short.lower():
+                if "server not connected" in err_short.lower() or "closed" in err_short.lower():
                     self._log(f"Connection error for {rec}: {err_short}. Re-initializing for next recipient.", "ERROR")
-                    self._active_server = None # Force re-init on next loop
+                    self._active_server = None
                 else:
                     self._on_log(f"Error for {rec}: <a href='err:{rec}' style='color: #FF453A; text-decoration: underline;'>{err_short} (Details)</a>", "ERROR")
             
@@ -1361,23 +1518,7 @@ class EmailSenderPage(QWidget):
         self._active_server = None
         self._signals.finished.emit(sent, failed, self._stop_requested)
 
-    def _on_continue(self):
-        if self._sending:
-            self._on_log("Broadcast already in progress.", "WARNING")
-            return
-            
-        all_recs = self._get_recipients()
-        # Filter out those already successfully sent
-        remaining = [e for e in all_recs if e.lower() not in self._successful_emails]
-        
-        if not remaining:
-            self._on_log("No unsent emails remaining in queue.", "SUCCESS")
-            return
-            
-        msg = f"Resuming broadcast. Skipping {len(all_recs) - len(remaining)} sent. {len(remaining)} pending."
-        self._on_log(msg, "INFO")
-        self._set_sending_state(True)
-        threading.Thread(target=self._worker_send, args=(remaining,), daemon=True).start()
+
 
     def _build_message(self, recipient: str) -> MIMEMultipart:
         msg = MIMEMultipart()
@@ -1414,72 +1555,99 @@ class EmailSenderPage(QWidget):
         return msg
 
     def _create_smtp_connection(self):
-        host = self._smtp_host.text().strip()
+        from ..core.config import config_manager
+        s = config_manager.settings
+
+        # Prefer config values, fall back to any UI fields still present
+        host = (getattr(s, "email_smtp_host", "") or self._smtp_host.text()).strip()
+        port_txt = (getattr(s, "email_smtp_port", "587") or self._smtp_port.text()).strip()
+        user = (getattr(s, "email_smtp_user", "") or self._smtp_user.text()).strip()
+        pwd  = (getattr(s, "email_smtp_pass", "") or self._smtp_pass.text()).strip()
+
         if not host:
-            raise ValueError("SMTP Host is required. Please check your settings.")
-            
-        port_txt = self._smtp_port.text().strip()
+            raise ValueError(
+                "SMTP Host not configured. Go to Settings → Email to enter your SMTP server."
+            )
         try:
             port = int(port_txt)
         except ValueError:
             raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
-            
+
         timeout = 60
+        # Auto-select protocol: port 465 = Implicit SSL; everything else = plain+STARTTLS
+        use_implicit_ssl = (port == 465)
         try:
-            if self._ssl_switch.isChecked():
+            if use_implicit_ssl:
                 self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
-                # Port 465 usually
                 server = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=timeout)
                 server.ehlo()
             else:
-                self._signals.log.emit(f"Connecting to {host}:{port}...", "INFO")
+                self._signals.log.emit(f"Connecting to {host}:{port} with STARTTLS...", "INFO")
                 server = smtplib.SMTP(host, port, timeout=timeout)
                 server.ehlo()
-                if self._tls_switch.isChecked():
-                    self._signals.log.emit("Upgrading to STARTTLS...", "INFO")
-                    # Port 587/25 usually
-                    server.starttls(context=ssl.create_default_context())
-                    server.ehlo()
-                    
-            if self._auth_switch.isChecked():
-                user = self._smtp_user.text().strip()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+
+            if user:
                 self._signals.log.emit(f"Authenticating as {user}...", "INFO")
-                server.login(user, self._smtp_pass.text().strip())
-                
+                server.login(user, pwd)
+
             return server
-            
+
         except socket.timeout:
             raise Exception("Connection timed out. Check your host/port and firewall settings.")
         except ssl.SSLError as e:
-            raise Exception(f"SSL/TLS Handshake failed: {e}. Ensure you are using the correct port for the selected security protocol.")
+            raise Exception(f"SSL/TLS Handshake failed: {e}. For Gmail use port 587 (STARTTLS) or 465 (SSL).")
         except ConnectionRefusedError:
-            raise Exception(f"Connection refused. Ensure the SMTP server is reachable and the port is open.")
+            raise Exception("Connection refused. Ensure the SMTP server is reachable and the port is open.")
+        except socket.gaierror as e:
+            raise Exception(f"DNS resolution failed for '{host}': {e}. Check your internet connection and server hostname.")
+        except OSError as e:
+            raise Exception(f"Network error: {e}. Check your internet connection.")
         except smtplib.SMTPConnectError as e:
             raise Exception(f"Failed to connect to SMTP server: {e}")
         except smtplib.SMTPAuthenticationError as e:
             raise Exception(f"Authentication failed: {e}")
         except Exception as e:
-            # Fallback for other errors like 'Connection unexpectedly closed'
-            err_msg = str(e)
-            if not err_msg:
-                err_msg = type(e).__name__
-            raise Exception(f"{err_msg}")
+            err_msg = str(e) or type(e).__name__
+            raise Exception(err_msg)
 
     def _ensure_smtp_connection(self):
         """Verify the connection is still alive, otherwise raise SMTPServerDisconnected."""
         if not self._active_server:
             raise smtplib.SMTPServerDisconnected("No active connection")
         try:
-            # noop() is the standard way to check if the session is still valid
+            # Use a shorter timeout for the liveness check
+            old_timeout = self._active_server.timeout
+            self._active_server.timeout = 10
             status = self._active_server.noop()
+            self._active_server.timeout = old_timeout
             if not (isinstance(status, tuple) and status[0] and 200 <= int(status[0]) < 400):
                 raise smtplib.SMTPServerDisconnected(f"SMTP session invalid (status {status[0]})")
         except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError) as e:
-            # Explicitly catch socket and SSL errors as they imply a dead connection
             raise smtplib.SMTPServerDisconnected(str(e))
         except Exception as e:
-            # Fallback for other potential issues
             raise smtplib.SMTPServerDisconnected(f"Session check failed: {e}")
+
+    def _test_connection(self):
+        """Run a one-off connection test in a background thread."""
+        self._on_log("Testing SMTP connection...", "INFO")
+        
+        def run_test():
+            try:
+                server = self._create_smtp_connection()
+                try: server.quit()
+                except: pass
+                # Using lambda to avoid direct UI calls from thread
+                self._signals.log.emit("Connection test successful! Your credentials are valid.", "SUCCESS")
+                from .event_bridge import event_bus
+                event_bus.emit("toast.show", title="SMTP Success", subtitle="Connection verified successfully.", type="success")
+            except Exception as e:
+                self._signals.error.emit(f"Connection test failed: {e}")
+                from .event_bridge import event_bus
+                event_bus.emit("toast.show", title="SMTP Failed", subtitle=str(e), type="error")
+
+        threading.Thread(target=run_test, daemon=True).start()
 
     def _save_fields(self):
         if getattr(self, '_is_restoring', False):

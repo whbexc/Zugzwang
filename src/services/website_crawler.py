@@ -164,23 +164,18 @@ class WebsiteEmailCrawler:
             if not html:
                 continue
 
-            if idx == 0:
-                discovered = self._discover_paths_from_html(url, html)
-                if discovered:
-                    merged = candidate_urls + discovered
-                    seen_urls = set()
-                    candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+            # Offload heavy regex and discovery to background thread
+            data = await asyncio.to_thread(self._extract_page_data, url, html, idx == 0, extract_social)
+            
+            if idx == 0 and data.get("discovered"):
+                merged = candidate_urls + data["discovered"]
+                seen_urls = set()
+                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
 
-            await asyncio.sleep(0)
-            emails = self._extract_contact_block_emails(html)
-            if not emails:
-                emails = self._extract_priority_emails(html)
-            if not emails:
-                emails = deduplicate_emails(extract_emails_from_html(html))
-            phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
-
+            emails = data["emails"]
+            phone = data["phone"]
             if extract_social:
-                socials.update(self._extract_socials(html))
+                socials.update(data["socials"])
 
             if not emails and not phone:
                 continue
@@ -236,25 +231,19 @@ class WebsiteEmailCrawler:
             if not html:
                 continue
 
-            if idx == 0:
-                discovered = self._discover_paths_from_html(url, html)
-                if discovered:
-                    merged = candidate_urls + discovered
-                    seen_urls = set()
-                    candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+            # Offload heavy regex and discovery to background thread
+            data = await asyncio.to_thread(self._extract_page_data, url, html, idx == 0, extract_social)
 
-            await asyncio.sleep(0)
-            emails = self._extract_contact_block_emails(html)
-            if not emails:
-                emails = self._extract_priority_emails(html)
-            if not emails:
-                emails = deduplicate_emails(extract_emails_from_html(html))
+            if idx == 0 and data.get("discovered"):
+                merged = candidate_urls + data["discovered"]
+                seen_urls = set()
+                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+
+            emails = data["emails"]
             emails = self._filter_usable_emails(emails)
-
-            phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
-
+            phone = data["phone"]
             if extract_social:
-                socials.update(self._extract_socials(html))
+                socials.update(data["socials"])
 
             if not emails and not phone:
                 continue
@@ -278,6 +267,32 @@ class WebsiteEmailCrawler:
         result = (best_emails, best_phone, best_source, socials)
         self._all_contact_cache[cache_key] = (list(best_emails), best_phone, best_source, dict(socials))
         return result
+
+    def _extract_page_data(self, url: str, html: str, discover: bool, extract_social: bool) -> dict:
+        """Synchronous helper for background thread offloading.
+        Performs all regex and parsing for a single page.
+        """
+        discovered = self._discover_paths_from_html(url, html) if discover else []
+        
+        emails = self._extract_contact_block_emails(html)
+        if not emails:
+            emails = self._extract_priority_emails(html)
+        if not emails:
+            from .email_extractor import extract_emails_from_html, deduplicate_emails
+            emails = deduplicate_emails(extract_emails_from_html(html))
+            
+        phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
+        
+        socials = {}
+        if extract_social:
+            socials = self._extract_socials(html)
+            
+        return {
+            "discovered": discovered,
+            "emails": emails,
+            "phone": phone,
+            "socials": socials
+        }
 
     async def _crawl_page(
         self,

@@ -128,17 +128,15 @@ class SettingsPage(QWidget):
         return s
 
     def _style_combo(self, combo: QWidget) -> None:
-        combo.setStyleSheet(Theme.combo_box())
+        pass
 
     def _style_input(self, widget: QWidget) -> None:
-        if isinstance(widget, (TextEdit, TextEdit)): # TextEdit needs padding etc
-             widget.setStyleSheet(Theme.text_edit())
-        else:
-             widget.setStyleSheet(Theme.line_edit())
+        pass
 
     # ── Main Layout ──────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 20, 28, 20) # FIX 3: Exact padding
         root.setSpacing(0) # Spacing handled by internal components
@@ -188,6 +186,16 @@ class SettingsPage(QWidget):
         vl.addWidget(self._row(tr("settings.headless.title", self._language), self._chk_headless))
         vl.addWidget(self._row(tr("settings.robots.title", self._language),    self._chk_robots))
 
+        # Browser Engine Selection
+        self._engine_combo = ComboBox()
+        self._engine_combo.setFixedWidth(200)
+        self._engine_combo.addItem("Chromium (Bundled)", "chromium")
+        self._engine_combo.addItem("Google Chrome (System)", "chrome")
+        self._engine_combo.addItem("Microsoft Edge (System)", "msedge")
+        vl.addWidget(self._row("Scraping Engine", self._engine_combo, "Change the underlying browser."))
+
+        self._engine_combo.currentIndexChanged.connect(self._on_engine_changed)
+
         # Inputs (LineEdits = 0 Arrows)
         self._delay_min   = LineEdit(); self._delay_min.setFixedHeight(40); self._delay_min.setMinimumWidth(84)
         self._delay_max   = LineEdit(); self._delay_max.setFixedHeight(40); self._delay_max.setMinimumWidth(84)
@@ -198,17 +206,7 @@ class SettingsPage(QWidget):
         
         self._delay_min.setValidator(dv); self._delay_max.setValidator(dv); self._max_results.setValidator(iv)
         for widget in [self._delay_min, self._delay_max, self._max_results]: 
-            widget.setStyleSheet("""
-                LineEdit {
-                    background: #1C1C1E;
-                    border: 1px solid #3A3A3C;
-                    border-radius: 8px;
-                    color: white;
-                    font-family: 'PT Root UI', monospace;
-                    font-size: 13px;
-                    padding: 8px;
-                }
-            """)
+            pass
 
         spin_frame = QFrame()
         spin_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
@@ -229,35 +227,64 @@ class SettingsPage(QWidget):
 
     def _build_email(self) -> QWidget:
         container = QWidget(); container.setStyleSheet("background: transparent;")
-        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(6)
+        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(12)
 
-        self._chk_scrape_emails       = self._sw()
-        self._chk_debug_screenshots   = self._sw()
-        vl.addWidget(self._row(tr("settings.deep_scan.title", self._language),    self._chk_scrape_emails))
-        vl.addWidget(self._row(tr("settings.debug.title", self._language), self._chk_debug_screenshots))
+        # ── ROW 1: Toggle rows ───────────────────────────────────────────────
+        self._chk_scrape_emails = self._sw()
+        self._chk_debug_screenshots = self._sw()
+        
+        toggles_layout = QVBoxLayout()
+        toggles_layout.setSpacing(4)
+        toggles_layout.addWidget(self._row("Deep Scan", self._chk_scrape_emails,
+                               "Visit company websites to find hidden emails"))
+        toggles_layout.addWidget(self._row("Debug Output", self._chk_debug_screenshots,
+                               "Save screenshots for troubleshooting"))
+        vl.addLayout(toggles_layout)
 
-        vl.addWidget(self._section_label(tr("settings.discovery.title", self._language)))
-        self._discovery_paths = TextEdit()
-        # FIX 5: flex scroll behavior
-        self._discovery_paths.setMinimumHeight(0) 
-        self._discovery_paths.setPlaceholderText("impressum\nkontakt\nkarriere\njobs")
-        self._discovery_paths.setStyleSheet("""
-            QTextEdit {
-                background: #1A1A1A;
-                color: #8E8E93;
-                font-family: 'PT Root UI', monospace;
-                font-size: 12px;
-                line-height: 1.8;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                padding: 10px 12px;
-            }
-            QScrollBar:vertical { width: 4px; background: transparent; }
-            QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-        """)
-        vl.addWidget(self._discovery_paths, 1) # flex factor 1
+        # ── ROW 2: Discovery Paths ───────────────────────────────────────────
+        paths_title = QLabel("DISCOVERY PATHS (COMMA SEPARATED)")
+        paths_title.setStyleSheet(
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 10px; font-weight: 600; letter-spacing: 1.3px; "
+            "text-transform: uppercase; background: transparent; border: none;"
+        )
+        vl.addWidget(paths_title)
+
+        self._discovery_paths_edit = TextEdit()
+        self._discovery_paths_edit.setFixedHeight(50)
+        self._discovery_paths_edit.setPlaceholderText("impressum, kontakt, karriere...")
+        vl.addWidget(self._discovery_paths_edit)
+
+        # ── ROW 3: SMTP Credentials ──────────────────────────────────────────
+        smtp_title = QLabel("SMTP SERVER")
+        smtp_title.setStyleSheet(
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 10px; font-weight: 600; letter-spacing: 1.3px; "
+            "text-transform: uppercase; background: transparent; border: none;"
+        )
+        vl.addWidget(smtp_title)
+
+        smtp_row = QHBoxLayout()
+        smtp_row.setContentsMargins(0, 0, 0, 0)
+        smtp_row.setSpacing(12)
+
+        self._smtp_host_cfg = LineEdit()
+        self._smtp_host_cfg.setFixedHeight(36)
+        self._smtp_host_cfg.setPlaceholderText("Server Host (e.g., smtp.gmail.com)")
+        
+        self._smtp_port_cfg = LineEdit()
+        self._smtp_port_cfg.setFixedHeight(36)
+        self._smtp_port_cfg.setFixedWidth(80)
+        self._smtp_port_cfg.setPlaceholderText("Port")
+
+        smtp_row.addWidget(self._smtp_host_cfg, 1)
+        smtp_row.addWidget(self._smtp_port_cfg, 0)
+        vl.addLayout(smtp_row)
+
         return container
+
+    # ── Discovery Paths management removed (handled entirely via TextEdit value) ──
+
 
     def _build_network(self) -> QWidget:
         container = QWidget(); container.setStyleSheet("background: transparent;")
@@ -280,21 +307,7 @@ class SettingsPage(QWidget):
         self._user_agents = TextEdit()
         # FIX 4: flex scroll behavior
         self._user_agents.setMinimumHeight(0)
-        self._user_agents.setStyleSheet("""
-            QTextEdit {
-                background: #1A1A1A;
-                color: #8E8E93;
-                font-family: 'PT Root UI', monospace;
-                font-size: 11px;
-                line-height: 1.7;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                padding: 10px 12px;
-            }
-            QScrollBar:vertical { width: 4px; background: transparent; }
-            QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-        """)
+        self._user_agents.setMinimumHeight(0)
         vl.addWidget(self._user_agents, 1) # flex factor 1
         return container
 
@@ -344,14 +357,14 @@ class SettingsPage(QWidget):
         # Timeout Row
         self._request_timeout = LineEdit(); self._request_timeout.setFixedSize(70, 30)
         self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
-        self._request_timeout.setStyleSheet("LineEdit { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; font-family: 'PT Root UI', monospace; font-size: 12px; padding: 0 8px; } LineEdit:focus { border-color: #0A84FF; }")
+        self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
         conf_vl.addWidget(_setting_row(FluentIcon.SETTING, tr("settings.timeout.title", self._language), tr("settings.timeout.desc", self._language), self._request_timeout))
 
         div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
         conf_vl.addWidget(div)
 
         self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
-        self._language_combo.setStyleSheet("ComboBox { background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 6px; color: white; padding: 0 8px; font-size: 12px; } ComboBox:hover { background: #3A3A3C; }")
+        self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
         for code, label in SUPPORTED_LANGUAGES.items():
             self._language_combo.addItem(label, userData=code)
         conf_vl.addWidget(_setting_row(FluentIcon.LANGUAGE, tr("settings.language.title", self._language), tr("settings.language.desc", self._language), self._language_combo))
@@ -456,8 +469,7 @@ class SettingsPage(QWidget):
         # PIN controls merged for density
         pin_ctrls = QWidget()
         ph = QHBoxLayout(pin_ctrls); ph.setContentsMargins(0,0,0,0); ph.setSpacing(8)
-        self._btn_set_pin = PushButton(tr("settings.button.change_license", self._language).replace("LICENSE", "PIN")) # Reuse or new key? Let's use a dynamic replace or add a new key if needed. Actually I'll use a direct key for clarity.
-        self._btn_set_pin.setStyleSheet(Theme.secondary_button())
+        self._btn_set_pin = PushButton(tr("settings.button.change_license", self._language).replace("LICENSE", "PIN")) # Reuse or new key? Let's use a direct key for clarity.
         self._btn_set_pin.setFixedHeight(36)
         self._chk_security_enabled = self._sw()
         ph.addWidget(self._btn_set_pin); ph.addWidget(self._chk_security_enabled)
@@ -473,17 +485,7 @@ class SettingsPage(QWidget):
         uh = QHBoxLayout(url_frame); uh.setContentsMargins(12, 0, 12, 0); uh.setSpacing(10)
         self._git_repo_url = LineEdit(); self._git_repo_url.setFixedHeight(34)
         self._git_repo_url.setPlaceholderText(tr("settings.repo.placeholder", self._language))
-        self._git_repo_url.setStyleSheet("""
-            LineEdit {
-                background: #1C1C1E;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                color: white;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 13px;
-                padding: 0 10px;
-            }
-        """)
+        self._git_repo_url.setPlaceholderText(tr("settings.repo.placeholder", self._language))
         uh.addWidget(self._git_repo_url)
         vl.addWidget(url_frame)
 
@@ -495,9 +497,9 @@ class SettingsPage(QWidget):
         self._lic_desc = QLabel(tr("settings.license.activating", self._language)); self._lic_desc.setStyleSheet("background: transparent; border: none;")
         lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
         
-        self._btn_activate = PushButton(tr("settings.button.activate", self._language)); self._btn_activate.setStyleSheet(Theme.primary_button())
+        self._btn_activate = PrimaryPushButton(tr("settings.button.activate", self._language))
         self._btn_activate.setFixedHeight(36)
-        self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language)); self._btn_deactivate.setStyleSheet(Theme.secondary_button())
+        self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language))
         self._btn_deactivate.setFixedHeight(36)
         self._btn_deactivate.clicked.connect(self._reset_to_trial)
         
@@ -507,6 +509,10 @@ class SettingsPage(QWidget):
 
         vl.addStretch()
         return container
+
+    def _on_engine_changed(self):
+        engine = self._engine_combo.currentData()
+        self._mark_dirty()
 
     # ── Logic ─────────────────────────────────────────────────────────────
 
@@ -687,15 +693,16 @@ class SettingsPage(QWidget):
         return []
 
     def _connect_change_tracking(self):
-        for chk in [self._chk_headless, self._chk_robots, self._chk_scrape_emails,
-                    self._chk_debug_screenshots, self._chk_proxy,
-                    self._chk_security_enabled, self._chk_auto_update]:
+        for chk in [self._chk_headless, self._chk_robots, self._chk_proxy,
+                    self._chk_security_enabled, self._chk_auto_update,
+                    self._chk_scrape_emails, self._chk_debug_screenshots]:
             chk.checkedChanged.connect(self._mark_dirty)
         self._chk_security_enabled.checkedChanged.connect(self._on_security_toggled)
         self._btn_activate.clicked.connect(self._open_activation)
         self._btn_set_pin.clicked.connect(self._change_pin)
-        for te in [self._discovery_paths, self._user_agents, self._delay_min, 
-                    self._delay_max, self._max_results, self._request_timeout]:
+        for te in [self._user_agents, self._delay_min, 
+                    self._delay_max, self._max_results, self._request_timeout,
+                    self._discovery_paths_edit, self._smtp_host_cfg, self._smtp_port_cfg]:
             te.textChanged.connect(self._mark_dirty)
         self._proxy_url.textChanged.connect(self._mark_dirty)
         self._proxy_port.textChanged.connect(self._mark_dirty)
@@ -725,7 +732,7 @@ class SettingsPage(QWidget):
         self._chk_robots.setChecked(s.default_respect_robots)
         self._chk_scrape_emails.setChecked(s.default_scrape_emails)
         self._chk_debug_screenshots.setChecked(s.debug_screenshots)
-        self._discovery_paths.setPlainText("\n".join(s.email_discovery_paths))
+        self._discovery_paths_edit.setPlainText(", ".join(s.email_discovery_paths))
         self._chk_proxy.setChecked(s.proxy_enabled)
         # Handle transition from proxy_url to proxies list
         main_proxy = s.proxies[0] if s.proxies else ""
@@ -738,12 +745,26 @@ class SettingsPage(QWidget):
         self._btn_set_pin.setVisible(s.security_enabled)
         self._git_repo_url.setText(s.git_repo_url)
         self._chk_auto_update.setChecked(s.auto_update_enabled)
+        
+        # Load Browser Engine
+        engine = getattr(s, "browser_engine", "chromium")
+        for idx in range(self._engine_combo.count()):
+            if self._engine_combo.itemData(idx) == engine:
+                self._engine_combo.setCurrentIndex(idx)
+                break
+
+
         target_language = get_language(getattr(s, "app_language", "en"))
         for idx in range(self._language_combo.count()):
             if self._language_combo.itemData(idx) == target_language:
                 self._language_combo.setCurrentIndex(idx)
                 break
         self._update_license_display()
+
+        # SMTP
+        self._smtp_host_cfg.setText(getattr(s, "email_smtp_host", "smtp.gmail.com"))
+        self._smtp_port_cfg.setText(getattr(s, "email_smtp_port", "587"))
+
         self._mark_clean()
 
     @staticmethod
@@ -777,7 +798,7 @@ class SettingsPage(QWidget):
     def _save(self):
         if not self._validate():
             return
-        paths = [p.strip() for p in self._discovery_paths.toPlainText().splitlines() if p.strip()]
+        paths = [p.strip().lower() for p in self._discovery_paths_edit.toPlainText().split(",") if p.strip()]
         user_agents = [ua.strip() for ua in self._user_agents.toPlainText().splitlines() if ua.strip()]
         
         previous_language = get_language(config_manager.settings.app_language)
@@ -802,7 +823,12 @@ class SettingsPage(QWidget):
             app_language=selected_language,
             security_enabled=self._chk_security_enabled.isChecked(),
             git_repo_url=self._git_repo_url.text().strip(),
-            auto_update_enabled=self._chk_auto_update.isChecked()
+            auto_update_enabled=self._chk_auto_update.isChecked(),
+            browser_engine=self._engine_combo.currentData(),
+            # SMTP
+            email_smtp_host=self._smtp_host_cfg.text().strip() or "smtp.gmail.com",
+            email_smtp_port=self._smtp_port_cfg.text().strip() or "587",
+            # End settings update
         )
         self._language = selected_language
         self._title_label.setText(tr("settings.title", self._language))

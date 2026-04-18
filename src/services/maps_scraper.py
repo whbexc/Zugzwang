@@ -236,7 +236,7 @@ class GoogleMapsScraper:
 
             success = await self.session.navigate(
 
-                page, MAPS_HOME, timeout=60_000, retries=3,
+                page, MAPS_HOME, timeout=30_000, retries=3,
 
                 wait_until="domcontentloaded",
 
@@ -268,11 +268,11 @@ class GoogleMapsScraper:
 
                 await search_input.fill(query)
 
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(0.5)
 
                 await page.keyboard.press("Enter")
 
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(0.5)
 
             except Exception as e:
 
@@ -371,7 +371,7 @@ class GoogleMapsScraper:
                     break
 
                 while self._paused and not self._cancelled:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
 
                 try:
                     record = await self._extract_listing(page, listing, query)
@@ -763,13 +763,13 @@ class GoogleMapsScraper:
 
             while self._paused and not self._cancelled:
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
 
 
             await page.mouse.wheel(0, 10000)
 
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(0.5)
 
 
 
@@ -1051,7 +1051,7 @@ class GoogleMapsScraper:
 
         except Exception:
 
-            await asyncio.sleep(0.75)
+            await asyncio.sleep(0.1)
 
 
 
@@ -1071,7 +1071,7 @@ class GoogleMapsScraper:
 
             # Results might take longer on slow connections
 
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.25)
 
 
 
@@ -1097,7 +1097,7 @@ class GoogleMapsScraper:
 
             # Fallback: short sleep if detail panel takes a different form
 
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
 
 
 
@@ -1137,7 +1137,7 @@ class GoogleMapsScraper:
 
                     await btn.click()
 
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.25)
 
                     logger.info(f"[{self.job_id}] Dismissed consent banner")
 
@@ -1199,7 +1199,7 @@ class GoogleMapsScraper:
         """Detect and handle CAPTCHAs via Headed-on-Demand solver."""
         if self._captcha_lock.locked() and not page.is_closed():
              # If someone else is solving it, wait for browser to sync cookies
-             await asyncio.sleep(2.0)
+             await asyncio.sleep(0.5)
 
         try:
             body_text = (await page.inner_text("body", timeout=1000)).lower()
@@ -1243,7 +1243,7 @@ class GoogleMapsScraper:
                         await page.reload(timeout=10000)
                     except: pass
                     
-                    await asyncio.sleep(2.0) # Settle time
+                    await asyncio.sleep(0.5) # Settle time
                     return
             except asyncio.TimeoutError:
                 logger.warning(f"[{self.job_id}] Headed solver timed out after 10m")
