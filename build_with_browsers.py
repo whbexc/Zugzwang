@@ -61,10 +61,14 @@ def find_playwright_browsers_path() -> Path:
             appdata / "ms-playwright",
             appdata / "Programs" / "Python" / "Python314" / "Lib" / "site-packages" / "playwright" / ".local-browsers",
         ]
-        # Also check inside the Python env
-        import site
-        for sp in site.getsitepackages():
-            candidates.append(Path(sp) / "playwright" / ".local-browsers")
+        # Check inside the Python env using a more robust method
+        try:
+            import playwright
+            pw_path = Path(playwright.__file__).parent
+            candidates.append(pw_path / ".local-browsers")
+        except ImportError:
+            pass
+
     else:
         candidates = [
             Path.home() / ".cache" / "ms-playwright",

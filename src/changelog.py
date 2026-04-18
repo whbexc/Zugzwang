@@ -1,14 +1,38 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 CHANGELOG = [
     {
-        "version": "1.0.7",
-        "date": "April 14, 2026",
+        "version": "1.0.8",
+        "date": "April 18, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "Main Thread Performance — eliminated 10s-30s UI freezes during active scraping sessions"
+            },
+            {
+                "type": "improved",
+                "text": "Database Stability — migrated heavy SQLite operations to non-blocking background workers"
+            },
+            {
+                "type": "new",
+                "text": "macOS 'Obsidian' Dark Theme — applied globally via a native QProxyStyle for a cohesive experience"
+            },
+            {
+                "type": "improved",
+                "text": "Settings UI Polish — streamlined layout and removed redundant email configuration fields"
+            },
+        ]
+    },
+    {
+        "version": "1.0.7",
+        "date": "April 14, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "new",
@@ -192,10 +216,40 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.7",
-        "date": "14 أبريل 2026",
+        "version": "1.0.8",
+        "date": "18 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "أداء الخيط الرئيسي — القضاء على تجمد الواجهة من 10 إلى 30 ثانية أثناء الاستخراج النشط"
+            },
+            {
+                "type": "improved",
+                "text": "استقرار قاعدة البيانات — نقل عمليات SQLite الثقيلة إلى عمال خلفية غير معرقلين"
+            },
+            {
+                "type": "new",
+                "text": "مظهر macOS الداكن 'Obsidian' — تم تطبيقه في جميع أنحاء التطبيق لتجربة متناسقة"
+            },
+            {
+                "type": "improved",
+                "text": "تحسين واجهة الإعدادات — تبسيط التخطيط وإزالة حقول تكوين البريد الإلكتروني الزائدة"
+            },
+        ]
+    },
+    {
+        "version": "1.0.7",
+        "date": "14 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

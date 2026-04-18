@@ -17,7 +17,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -104,13 +104,11 @@ class ConfigManager(QObject):
                     data = json.load(f)
                 settings = self._merge_with_defaults(data)
                 
-
-                
-                settings.app_version = "1.0.7"
+                settings.app_version = "1.0.8"
                 return settings
             except Exception as e:
                 logger.warning(f"Failed to load settings, using defaults: {e}")
-        return AppSettings(app_version="1.0.7")
+        return AppSettings(app_version="1.0.8")
 
     def _merge_with_defaults(self, data: dict) -> AppSettings:
         """Merge saved settings with defaults to handle new fields after upgrades."""
