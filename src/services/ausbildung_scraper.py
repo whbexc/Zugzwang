@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
@@ -22,6 +23,12 @@ logger = get_logger(__name__)
 SEARCH_URL = "https://www.ausbildung.de/suche/"
 
 
+def _build_search_url(title: str, city: str, radius: int) -> str:
+    """Build a direct search URL with query and radius params."""
+    query = f"{title}|{city}" if city else title
+    return f"{SEARCH_URL}?search={quote(query)}&radius={radius}"
+
+
 class AusbildungScraper:
     """
     Scrapes ausbildung.de job listings.
@@ -31,6 +38,7 @@ class AusbildungScraper:
     - Detail pages are fetched via in-page JS fetch() — no new tabs.
     - HTML is parsed with BeautifulSoup in Python memory.
     - Resource blocking (images, fonts) reduces memory and network overhead.
+    - Uses URL-based pagination (&page=N) for reliable multi-page scraping.
     """
 
     def __init__(
@@ -68,54 +76,39 @@ class AusbildungScraper:
                 lambda route, _req: route.abort(),
             )
 
-            # ── Step 1: Navigate to search page ──
-            logger.info(f"[{self.job_id}] Navigating to {SEARCH_URL}")
-            await page.goto(SEARCH_URL, wait_until="domcontentloaded", timeout=30_000)
+            # ── Step 1: Navigate to search URL with radius ──
+            url = _build_search_url(
+                self.config.job_title,
+                self.config.city or "",
+                self.config.radius,
+            )
+            logger.info(f"[{self.job_id}] Navigating to {url}")
+            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
 
             # Dismiss cookie consent if present
             await self._dismiss_cookies(page)
-            await asyncio.sleep(0.25)
-
-            # ── Step 2: Fill search inputs via JS (bypasses autocomplete) ──
-            await page.evaluate(
-                """(args) => {
-                    const what  = document.querySelector('[data-testid="search-input-what"]');
-                    const where = document.querySelector('[data-testid="search-input-where"]');
-                    const nativeSet = Object.getOwnPropertyDescriptor(
-                        window.HTMLInputElement.prototype, 'value'
-                    ).set;
-                    if (what) {
-                        nativeSet.call(what, args.title);
-                        what.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                    if (where && args.city) {
-                        nativeSet.call(where, args.city);
-                        where.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                }""",
-                {"title": self.config.job_title, "city": self.config.city or ""},
-            )
-
-            await asyncio.sleep(0.1)
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
 
             logger.info(
                 f"[{self.job_id}] Search submitted: "
-                f'"{self.config.job_title}" in "{self.config.city or "all"}"'
+                f'"{self.config.job_title}" in "{self.config.city or "all"}" '
+                f"(radius={self.config.radius}km)"
             )
 
+            # Track all visited detail URLs (prevents re-fetching)
             processed_urls: set[str] = set()
             yielded_count = 0
+            page_num = 1
 
             # ── Main pagination loop ──
             while not self._cancelled:
                 # Pause / cancel check
                 while self._paused and not self._cancelled:
                     await asyncio.sleep(0.1)
-                if self._cancelled: break
+                if self._cancelled:
+                    break
 
-                # ── Step 3: Harvest card links from current page ──
+                # ── Step 2: Harvest card links from current DOM ──
                 all_links: list[str] = await page.evaluate(
                     """() => {
                         const cards = document.querySelectorAll('a[href*="/stellen/"]');
@@ -140,131 +133,84 @@ class AusbildungScraper:
                 # Only process URLs we haven't visited yet
                 new_links = [u for u in all_links if u not in processed_urls]
                 logger.info(
-                    f"[{self.job_id}] Found {len(all_links)} card(s), "
+                    f"[{self.job_id}] Page {page_num}: found {len(all_links)} card(s), "
                     f"{len(new_links)} new"
                 )
 
                 if not new_links:
-                    # Could be a load-more that hasn't injected cards yet —
-                    # only stop if this is truly the first harvest (no cards at all).
                     if not processed_urls:
-                        logger.info(f"[{self.job_id}] No links found on first harvest — stopping.")
-                        break
-                    # Otherwise the loop will fall through to the has_more check.
-                    logger.debug(f"[{self.job_id}] No new links this pass (all already processed).")
+                        logger.info(f"[{self.job_id}] No results found for this search.")
+                    else:
+                        logger.info(
+                            f"[{self.job_id}] No more results — pagination complete "
+                            f"({len(processed_urls)} cards total)."
+                        )
+                    break
 
-                # ── Steps 4–6: Fetch + parse + yield ──
-                # --- Step 4 & 5: Process Detail Links in Batches ---
-                if new_links:
-                    # Process in batches of 5 for speed boost
-                    BATCH_SIZE = 5
-                    for i in range(0, len(new_links), BATCH_SIZE):
-                        # Pause / cancel check
+                # ── Step 3: Fetch + parse + yield detail pages in batches ──
+                BATCH_SIZE = 5
+                for i in range(0, len(new_links), BATCH_SIZE):
+                    while self._paused and not self._cancelled:
+                        await asyncio.sleep(0.1)
+                    if self._cancelled:
+                        break
+
+                    batch = new_links[i : i + BATCH_SIZE]
+
+                    # Mark ALL batch URLs as processed BEFORE fetching
+                    for link in batch:
+                        processed_urls.add(link)
+
+                    tasks = [self._fetch_and_parse(page, link) for link in batch]
+                    batch_results = await asyncio.gather(*tasks)
+
+                    for lead in batch_results:
                         while self._paused and not self._cancelled:
                             await asyncio.sleep(0.1)
                         if self._cancelled:
                             break
 
-                        batch = new_links[i : i + BATCH_SIZE]
-                        tasks = [self._fetch_and_parse(page, link) for link in batch]
-                        batch_results = await asyncio.gather(*tasks)
-                        
-                        for lead in batch_results:
-                            # Pause check between yielding batch items
-                            while self._paused and not self._cancelled:
-                                await asyncio.sleep(0.1)
-                            if self._cancelled: break
-                            
-                            if lead:
-                                if yielded_count >= self.config.max_results:
-                                    break
-                                
-                                # Step 6: Yield if conditions met
-                                if self.config.scrape_emails and not lead.email:
-                                    logger.debug(f"[{self.job_id}] Skipping lead (no email found): {lead.company_name}")
-                                    continue
+                        if lead:
+                            if yielded_count >= self.config.max_results:
+                                break
 
-                                processed_urls.add(lead.source_url)
-                                yield lead
-                                yielded_count += 1
+                            # Skip leads without email when email scraping is enabled
+                            if self.config.scrape_emails and not lead.email:
+                                logger.debug(
+                                    f"[{self.job_id}] Skipping lead (no email): "
+                                    f"{lead.company_name}"
+                                )
+                                continue
 
-                        # Incremental scroll to trigger next batch/pagination
-                        await page.evaluate("window.scrollBy(0, 800)")
-                        await asyncio.sleep(0.1)
+                            yield lead
+                            yielded_count += 1
 
                 if self._cancelled:
                     break
 
                 if yielded_count >= self.config.max_results:
+                    logger.info(f"[{self.job_id}] Reached max results ({self.config.max_results}).")
                     break
 
                 # Pause check before pagination
                 while self._paused and not self._cancelled:
                     await asyncio.sleep(0.1)
-                if self._cancelled: break
+                if self._cancelled:
+                    break
 
-                # ── Step 7: Load-more pagination ──
-                # Scroll to bottom to trigger the Intersection Observer
+                # ── Step 4: Scroll to bottom to trigger infinite scroll for next page ──
+                # (SPA ignores &page=N and often lazy-loads instead of showing a button)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.keyboard.press("End")
-                await asyncio.sleep(0.1)
-
+                await asyncio.sleep(0.5)
                 await self._dismiss_cookies(page)
 
                 prev_count = len(all_links)
 
-                # Use JS click and return diagnostic info
-                diag = await page.evaluate(
-                    """() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        const btn = buttons.find(b => {
-                            const txt = b.textContent.trim().toLowerCase();
-                            return txt === 'mehr ergebnisse laden';
-                        });
-
-                        if (btn) {
-                            const info = {
-                                found: true,
-                                text: btn.textContent.trim(),
-                                disabled: btn.disabled,
-                            };
-                            btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                            btn.click();
-                            return info;
-                        }
-                        return { found: false };
-                    }"""
-                )
-
-                if not diag.get("found"):
-                    # Button not in DOM yet — wait 2s for lazy-render, then give up
-                    logger.debug(f"[{self.job_id}] Load-more button not visible, waiting for lazy-render…")
-                    await asyncio.sleep(0.5)
-                    lazy_count: int = await page.evaluate(
-                        """() => {
-                            const seen = new Set();
-                            document.querySelectorAll('a[href*="/stellen/"]').forEach(a => {
-                                if (a.href && !a.href.includes('/suche/')) seen.add(a.href);
-                            });
-                            return seen.size;
-                        }"""
-                    )
-                    if lazy_count <= prev_count:
-                        logger.info(f"[{self.job_id}] No more results — pagination complete ({prev_count} cards total).")
-                        break
-                    else:
-                        logger.info(f"[{self.job_id}] Lazy-loaded {lazy_count - prev_count} new cards without button click.")
-                elif diag.get("disabled"):
-                    logger.warning(f"[{self.job_id}] Load-more button is DISABLED — end of results.")
-                    break
-                else:
-                    logger.info(f"[{self.job_id}] JS Click: '{diag.get('text')}'")
-
-                # Poll every 200 ms for up to 8 s
+                # Wait for new cards to appear in DOM (poll every 200ms, up to 5s)
                 found_new = False
-                for _ in range(40):
-                    await asyncio.sleep(0.1)
-                    candidate_count: int = await page.evaluate(
+                for _ in range(25):
+                    await asyncio.sleep(0.2)
+                    new_count: int = await page.evaluate(
                         """() => {
                             const seen = new Set();
                             document.querySelectorAll('a[href*="/stellen/"]').forEach(a => {
@@ -273,17 +219,49 @@ class AusbildungScraper:
                             return seen.size;
                         }"""
                     )
-                    if candidate_count > prev_count:
+                    if new_count > prev_count:
                         found_new = True
                         break
 
                 if not found_new:
-                    logger.info(f"[{self.job_id}] No new cards after 8s — pagination complete.")
-                    break
-                else:
-                    logger.info(
-                        f"[{self.job_id}] Load-more success: {candidate_count} total cards (+{candidate_count - prev_count})"
+                    # Final fallback: maybe there's a button we need to click?
+                    diag = await page.evaluate(
+                        """() => {
+                            const elements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+                            const btn = elements.find(b => {
+                                const txt = (b.textContent || "").trim().toLowerCase();
+                                return txt.includes('mehr ergebnisse') || txt.includes('weitere ergebnisse');
+                            });
+                            if (btn && !btn.disabled) {
+                                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                btn.click();
+                                return true;
+                            }
+                            return false;
+                        }"""
                     )
+                    
+                    if diag:
+                        # We clicked a button, wait another 3s for cards
+                        for _ in range(15):
+                            await asyncio.sleep(0.2)
+                            new_count = await page.evaluate("document.querySelectorAll('a[href*=\"/stellen/\"]').length")
+                            if new_count > prev_count:
+                                found_new = True
+                                break
+
+                    if not found_new:
+                        logger.info(
+                            f"[{self.job_id}] No new cards after scroll/click — "
+                            f"pagination complete ({len(processed_urls)} cards total)."
+                        )
+                        break
+
+                page_num += 1
+                logger.info(
+                    f"[{self.job_id}] Pagination success: {new_count} total cards "
+                    f"(+{new_count - prev_count} new)"
+                )
 
         except Exception as exc:
             logger.error(

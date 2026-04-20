@@ -4,10 +4,12 @@ Handles hardware fingerprinting and license validation.
 """
 
 import hashlib
-import uuid
 import os
+import uuid
 from datetime import datetime
-from .config import config_manager
+from pathlib import Path
+
+from .config import config_manager, get_app_data_dir
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -17,7 +19,6 @@ logger = get_logger(__name__)
 _MASTER_KEY_HASH = "30ba28554b78612623f23011379467223587ca111958661c536f6b07e1a389c4"
 _SALT_HASH       = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9ec96"
 
-
 MAX_FREE_TRIAL_SCRAPS = 20
 
 class LicenseManager:
@@ -26,13 +27,92 @@ class LicenseManager:
     """
 
     @staticmethod
+    def _machine_id_path() -> Path:
+        return get_app_data_dir() / "machine_id.txt"
+
+    @staticmethod
+    def _format_machine_id(raw_id: str) -> str:
+        return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:16].upper()
+
+    @staticmethod
+    def _get_windows_machine_guid() -> str:
+        if os.name != "nt":
+            return ""
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
+            value, _ = winreg.QueryValueEx(key, "MachineGuid")
+            return str(value).strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _load_persisted_machine_id() -> str:
+        settings_mid = (getattr(config_manager.settings, "machine_id", "") or "").strip().upper()
+        if settings_mid:
+            return settings_mid
+        path = LicenseManager._machine_id_path()
+        try:
+            if path.exists():
+                value = path.read_text(encoding="utf-8").strip().upper()
+                if len(value) == 16:
+                    return value
+        except Exception:
+            logger.warning("Failed to read persisted machine ID.", exc_info=True)
+        return ""
+
+    @staticmethod
+    def _persist_machine_id(machine_id: str) -> None:
+        normalized = (machine_id or "").strip().upper()
+        if len(normalized) != 16:
+            return
+        try:
+            LicenseManager._machine_id_path().write_text(normalized, encoding="utf-8")
+        except Exception:
+            logger.warning("Failed to persist machine ID to disk.", exc_info=True)
+        try:
+            if getattr(config_manager.settings, "machine_id", "") != normalized:
+                config_manager.update(machine_id=normalized)
+        except Exception:
+            logger.warning("Failed to persist machine ID to settings.", exc_info=True)
+
+    @staticmethod
+    def _candidate_machine_ids() -> list[str]:
+        candidates: list[str] = []
+
+        persisted = LicenseManager._load_persisted_machine_id()
+        if persisted:
+            candidates.append(persisted)
+
+        machine_guid = LicenseManager._get_windows_machine_guid()
+        if machine_guid:
+            candidates.append(LicenseManager._format_machine_id(f"{machine_guid}-{os.name}"))
+
+        # Legacy fallback for customers who already received keys from older builds.
+        legacy_mid = LicenseManager._format_machine_id(f"{uuid.getnode()}-{os.name}")
+        candidates.append(legacy_mid)
+
+        unique: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate and candidate not in seen:
+                unique.append(candidate)
+                seen.add(candidate)
+        return unique
+
+    @staticmethod
     def get_machine_id() -> str:
         """
-        Generates a unique, stable fingerprint for the current machine.
-        Uses the MAC address combined with the OS name.
+        Returns a stable machine identifier for the current machine.
+        Preference order:
+        1. Previously persisted app machine ID
+        2. Windows MachineGuid-derived ID
+        3. Legacy MAC-derived fallback
         """
-        raw_id = f"{uuid.getnode()}-{os.name}"
-        return hashlib.sha256(raw_id.encode()).hexdigest()[:16].upper()
+        candidates = LicenseManager._candidate_machine_ids()
+        machine_id = candidates[0] if candidates else LicenseManager._format_machine_id(f"{uuid.getnode()}-{os.name}")
+        LicenseManager._persist_machine_id(machine_id)
+        return machine_id
 
     @staticmethod
     def generate_license_key(machine_id: str) -> str:
@@ -63,15 +143,17 @@ class LicenseManager:
         # Master Bypass — compare SHA-256 hash of input, never the key itself
         if hashlib.sha256(key.strip().encode()).hexdigest() == _MASTER_KEY_HASH:
             return True
-            
-        machine_id = LicenseManager.get_machine_id()
-        expected_key = LicenseManager.generate_license_key(machine_id)
-        
+
         # Strip dashes and compare case-insensitively
         clean_key = key.replace("-", "").upper()
-        clean_expected = expected_key.replace("-", "").upper()
-        
-        return clean_key == clean_expected
+        for machine_id in LicenseManager._candidate_machine_ids():
+            expected_key = LicenseManager.generate_license_key(machine_id)
+            clean_expected = expected_key.replace("-", "").upper()
+            if clean_key == clean_expected:
+                LicenseManager._persist_machine_id(machine_id)
+                return True
+
+        return False
 
     @staticmethod
     def is_banned(key: str = "") -> bool:

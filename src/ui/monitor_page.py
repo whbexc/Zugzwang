@@ -32,7 +32,7 @@ class MetricTile(QFrame):
                  icon: FluentIcon = FluentIcon.INFO,
                  color: str = "#0A84FF"):
         super().__init__()
-        self.setMinimumHeight(0)
+        self.setMinimumHeight(126)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
         self.setStyleSheet("""
@@ -99,9 +99,10 @@ class MetricTile(QFrame):
         # ── Row 2: Large main value below ────────────────────────────────────
         self._value = QLabel(value)
         self._value.setStyleSheet(
-            f"color: {color}; font-family: 'PT Root UI', sans-serif; "
+            f"color: {color}; font-family: 'Segoe UI', 'PT Root UI', sans-serif; "
             "font-size: 36px; font-weight: 700; background: transparent; border: none;"
         )
+        self._value.setMinimumHeight(46)
         self._value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         root.addWidget(self._value)
 
@@ -132,22 +133,22 @@ class MonitorControlButton(QPushButton):
 
     def _set_style(self):
         # Override default theme padding for tighter monitor layout
-        padding_fix = "QPushButton { padding: 0 10px; }"
+        padding_fix = "QPushButton { padding: 0 10px; min-height: 36px; }"
         if self.is_danger:
             self.setStyleSheet(Theme.zugzwang_danger_button() + padding_fix)
-            self.setFixedWidth(100)
+            self.setMinimumWidth(100)
         elif self.is_primary:
             self.setStyleSheet(Theme.zugzwang_primary_button() + padding_fix)
-            self.setFixedWidth(190)
+            self.setMinimumWidth(190)
         elif self.is_success:
             self.setStyleSheet(Theme.zugzwang_success_button() + padding_fix)
-            self.setFixedWidth(100)
+            self.setMinimumWidth(100)
         elif self.is_warning:
             self.setStyleSheet(Theme.zugzwang_warning_button() + padding_fix)
-            self.setFixedWidth(100)
+            self.setMinimumWidth(100)
         else:
             self.setStyleSheet(Theme.zugzwang_button() + padding_fix)
-            self.setFixedWidth(100)
+            self.setMinimumWidth(100)
 
 
 class MonitorPage(QWidget):
@@ -540,6 +541,7 @@ class MonitorPage(QWidget):
         batch_lines = []
         last_log_summary = None
         latest_progress = None
+        job_ended_in_batch = False
         
         while not self._update_queue.empty() and processed_count < max_per_tick:
             try:
@@ -550,18 +552,22 @@ class MonitorPage(QWidget):
 
             if event_type == "started":
                 self._ui_started(data)
+                job_ended_in_batch = False
             elif event_type == "progress":
                 latest_progress = data
             elif event_type == "completed":
                 self._ui_completed()
+                job_ended_in_batch = True
             elif event_type == "failed":
                 self._ui_failed(data.get("error", ""))
+                job_ended_in_batch = True
             elif event_type == "paused":
                 self._ui_paused()
             elif event_type == "resumed":
                 self._ui_resumed()
             elif event_type == "cancelled":
                 self._ui_cancelled()
+                job_ended_in_batch = True
             elif event_type == "result":
                 line, summary = self._prepare_result_line(data)
                 batch_lines.append(line)
@@ -579,7 +585,7 @@ class MonitorPage(QWidget):
             elif event_type == "trial_limit":
                 self._ui_trial_limit()
 
-        if latest_progress:
+        if latest_progress and not job_ended_in_batch:
             self._ui_progress(latest_progress)
 
         if self._dropped_log_count:
@@ -685,7 +691,7 @@ class MonitorPage(QWidget):
         self._progress_label.setText(tr("monitor.progress.done", self._language))
         self._elapsed_value.setText(f"{tr('monitor.label.elapsed', self._language)} {self._format_time(time.monotonic() - self._job_start_time, fixed=True)}")
         self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} —")
-        self._btn_more.setEnabled(False)
+        self._btn_more.setEnabled(bool(self._current_config))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)
@@ -704,7 +710,7 @@ class MonitorPage(QWidget):
         self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
         
         self._progress_label.setText(tr("monitor.progress.failed", self._language))
-        self._btn_more.setEnabled(False)
+        self._btn_more.setEnabled(bool(self._current_config))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)
@@ -758,7 +764,7 @@ class MonitorPage(QWidget):
         self._snapshot_updated_value.setText("-")
         self._snapshot_event_value.setText("No activity yet.")
         self._progress_label.setText(tr("monitor.progress.cancelled", self._language))
-        self._btn_more.setEnabled(False)
+        self._btn_more.setEnabled(bool(self._current_config))
         self._btn_pause.setEnabled(False)
         self._btn_resume.setEnabled(False)
         self._btn_cancel.setEnabled(False)

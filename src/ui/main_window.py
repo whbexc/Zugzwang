@@ -412,6 +412,8 @@ class MainWindow(FramelessWindow):
         elif idx == 2: # ResultsPage
             instance.send_emails_to_sender.connect(self._on_send_emails)
             self._sync_results_page(instance)
+        elif idx == 3: # MonitorPage
+            instance.scrape_more_requested.connect(self._start_job)
         elif idx == 4: # EmailSenderPage
             pass # Currently no unique signals to MainWindow
 
@@ -688,6 +690,7 @@ class MainWindow(FramelessWindow):
         records = records or []
         self.titleBar.set_stats(len(records))
         self.dashboard_page.load_summary(len(records), sum(1 for r in records if r.email), sum(1 for r in records if r.website))
+        self.dashboard_page.refresh()
 
     def _start_job(self, config: SearchConfig):
         if orchestrator.is_running: return

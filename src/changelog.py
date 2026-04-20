@@ -1,14 +1,34 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 
 CHANGELOG = [
     {
-        "version": "1.0.8",
-        "date": "April 18, 2026",
+        "version": "1.0.9",
+        "date": "April 20, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "Ausbildung.de Pagination — native infinite scroll support for limitless lead extraction"
+            },
+            {
+                "type": "fixed",
+                "text": "Progress Indicators — resolved an update queue glitch where complete runs appeared stuck at 10%"
+            },
+            {
+                "type": "fixed",
+                "text": "Radius Accuracy — search URLs now perfectly match their configured catchment area"
+            },
+        ]
+    },
+    {
+        "version": "1.0.8",
+        "date": "April 18, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -216,10 +236,36 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.8",
-        "date": "18 أبريل 2026",
+        "version": "1.0.9",
+        "date": "20 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "تصفح صفحات Ausbildung.de — دعم التمرير اللانهائي لاستخراج عدد غير محدود من العملاء"
+            },
+            {
+                "type": "fixed",
+                "text": "مؤشرات التقدم — حل خلل في طابور التحديث كان يجعل المهام المكتملة تظهر عالقة عند 10%"
+            },
+            {
+                "type": "fixed",
+                "text": "دقة نطاق البحث — روابط البحث تتطابق الآن تماماً مع النطاق الجغرافي المحدد"
+            },
+        ]
+    },
+    {
+        "version": "1.0.8",
+        "date": "18 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

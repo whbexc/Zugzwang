@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, Property, QEasingCurve, QEvent, QTimer
 from PySide6.QtGui import QDoubleValidator, QIntValidator, QColor
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QSizePolicy
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QSizePolicy, QScrollArea
 
 from qfluentwidgets import (
     ComboBox,
@@ -421,9 +421,16 @@ class SearchPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        root.addWidget(scroll, 1)
+
         host = QWidget()
-        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        root.addWidget(host, 1)
+        host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        scroll.setWidget(host)
 
         body = QVBoxLayout(host)
         body.setContentsMargins(32, 20, 32, 20)
@@ -460,7 +467,8 @@ class SearchPage(QWidget):
         # Launch Button
         from PySide6.QtWidgets import QPushButton as _QPB
         self._launch_btn = _QPB(tr("search.launch", self._language))
-        self._launch_btn.setFixedSize(320, 42)
+        self._launch_btn.setObjectName("SearchLaunchBtn")
+        self._launch_btn.setMinimumSize(320, 44)
         self._launch_btn.setCursor(Qt.PointingHandCursor)
         self._launch_btn.setStyleSheet(Theme.zugzwang_primary_button())
         self._launch_btn.setToolTip("Initiate the scraping job with the configured parameters")
@@ -480,6 +488,7 @@ class SearchPage(QWidget):
         self._pulse_anim.setEasingCurve(QEasingCurve.InOutSine)
         self._pulse_anim.start()
         
+        body.addStretch(1)
         body.addWidget(self._launch_btn, 0, Qt.AlignHCenter)
 
     def _step_card(self, num: str, title: str, content: QWidget, compact: bool = False) -> QFrame:

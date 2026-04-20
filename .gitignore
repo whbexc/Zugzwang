@@ -54,6 +54,8 @@ settings.json
 logs/
 screenshots/
 .env
+.env.local
+.env.*.local
 generate_key.py
 KEYS.txt
 customer_support_guide.md
@@ -62,3 +64,7 @@ Job-Offers-Parser-main/job_offers_parser.py
 Job-Offers-Parser-main/README.md
 Job-Offers-Parser-main/html.html
 genk.py
+startup_error.log
+test.pdf
+test.txt
+.tmp_ausbildung_response.html

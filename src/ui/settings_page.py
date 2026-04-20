@@ -51,7 +51,7 @@ class SettingsPage(QWidget):
     def _row(self, title: str, widget: QWidget, caption: str = "") -> QWidget:
         """A standard macOS-style left-label / right-control row."""
         frame = QFrame()
-        frame.setFixedHeight(48)
+        frame.setMinimumHeight(56 if caption else 48)
         frame.setStyleSheet(
             "QFrame { background: transparent; border-radius: 4px; border: none; }"
             "QFrame:hover { background: #3A3A3C; }"
@@ -128,10 +128,45 @@ class SettingsPage(QWidget):
         return s
 
     def _style_combo(self, combo: QWidget) -> None:
-        pass
+        combo.setStyleSheet("""
+            ComboBox {
+                background: #3A3A3C;
+                border: 1px solid #4A4A4C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 0 12px;
+            }
+            ComboBox:hover {
+                border: 1px solid #5A5A5C;
+            }
+            ComboBox:focus {
+                border: 1px solid #0A84FF;
+            }
+        """)
 
     def _style_input(self, widget: QWidget) -> None:
-        pass
+        widget.setStyleSheet("""
+            QLineEdit, SearchLineEdit, QTextEdit {
+                background: #3A3A3C;
+                border: 1px solid #4A4A4C;
+                border-radius: 8px;
+                color: #F2F2F7;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                padding: 0 12px;
+            }
+            QLineEdit:focus, SearchLineEdit:focus, QTextEdit:focus {
+                border: 1px solid #0A84FF;
+            }
+            QLineEdit:disabled, SearchLineEdit:disabled, QTextEdit:disabled {
+                color: #6E6E73;
+                background: #2A2A2C;
+                border: 1px solid #3A3A3C;
+            }
+        """)
 
     # ── Main Layout ──────────────────────────────────────────────────────────
 
@@ -189,9 +224,11 @@ class SettingsPage(QWidget):
         # Browser Engine Selection
         self._engine_combo = ComboBox()
         self._engine_combo.setFixedWidth(200)
+        self._engine_combo.setFixedHeight(36)
         self._engine_combo.addItem("Chromium (Bundled)", "chromium")
         self._engine_combo.addItem("Google Chrome (System)", "chrome")
         self._engine_combo.addItem("Microsoft Edge (System)", "msedge")
+        self._style_combo(self._engine_combo)
         vl.addWidget(self._row("Scraping Engine", self._engine_combo, "Change the underlying browser."))
 
         self._engine_combo.currentIndexChanged.connect(self._on_engine_changed)
@@ -205,8 +242,8 @@ class SettingsPage(QWidget):
         iv = QDoubleValidator(5, 10000, 0, self); iv.setNotation(QDoubleValidator.StandardNotation)
         
         self._delay_min.setValidator(dv); self._delay_max.setValidator(dv); self._max_results.setValidator(iv)
-        for widget in [self._delay_min, self._delay_max, self._max_results]: 
-            pass
+        for widget in [self._delay_min, self._delay_max, self._max_results]:
+            self._style_input(widget)
 
         spin_frame = QFrame()
         spin_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
@@ -253,6 +290,7 @@ class SettingsPage(QWidget):
         self._discovery_paths_edit = TextEdit()
         self._discovery_paths_edit.setFixedHeight(50)
         self._discovery_paths_edit.setPlaceholderText("impressum, kontakt, karriere...")
+        self._style_input(self._discovery_paths_edit)
         vl.addWidget(self._discovery_paths_edit)
 
         # ── ROW 3: SMTP Credentials ──────────────────────────────────────────
@@ -271,11 +309,13 @@ class SettingsPage(QWidget):
         self._smtp_host_cfg = LineEdit()
         self._smtp_host_cfg.setFixedHeight(36)
         self._smtp_host_cfg.setPlaceholderText("Server Host (e.g., smtp.gmail.com)")
+        self._style_input(self._smtp_host_cfg)
         
         self._smtp_port_cfg = LineEdit()
         self._smtp_port_cfg.setFixedHeight(36)
         self._smtp_port_cfg.setFixedWidth(80)
         self._smtp_port_cfg.setPlaceholderText("Port")
+        self._style_input(self._smtp_port_cfg)
 
         smtp_row.addWidget(self._smtp_host_cfg, 1)
         smtp_row.addWidget(self._smtp_port_cfg, 0)
@@ -305,9 +345,8 @@ class SettingsPage(QWidget):
 
         vl.addWidget(self._section_label(tr("settings.user_agents.title", self._language)))
         self._user_agents = TextEdit()
-        # FIX 4: flex scroll behavior
         self._user_agents.setMinimumHeight(0)
-        self._user_agents.setMinimumHeight(0)
+        self._style_input(self._user_agents)
         vl.addWidget(self._user_agents, 1) # flex factor 1
         return container
 
@@ -319,8 +358,6 @@ class SettingsPage(QWidget):
         # ── Group 1: Modern Settings Rows ─────────────────────────────────────
         # Instead of generic columns, we use a "macOS Settings Row" pattern.
         # This increases the vertical height but significantly boosts legibility and "premium" feel.
-        
-        from PySide6.QtWidgets import QGraphicsDropShadowEffect
         
         # ── Group 1: Modern Split Layout ─────────────────────────────────────
         # Left: Config Rows | Right: Action Cluster
@@ -357,14 +394,14 @@ class SettingsPage(QWidget):
         # Timeout Row
         self._request_timeout = LineEdit(); self._request_timeout.setFixedSize(70, 30)
         self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
-        self._request_timeout.setValidator(QDoubleValidator(1, 300, 0, self))
+        self._style_input(self._request_timeout)
         conf_vl.addWidget(_setting_row(FluentIcon.SETTING, tr("settings.timeout.title", self._language), tr("settings.timeout.desc", self._language), self._request_timeout))
 
         div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
         conf_vl.addWidget(div)
 
         self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
-        self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
+        self._style_combo(self._language_combo)
         for code, label in SUPPORTED_LANGUAGES.items():
             self._language_combo.addItem(label, userData=code)
         conf_vl.addWidget(_setting_row(FluentIcon.LANGUAGE, tr("settings.language.title", self._language), tr("settings.language.desc", self._language), self._language_combo))
@@ -485,7 +522,7 @@ class SettingsPage(QWidget):
         uh = QHBoxLayout(url_frame); uh.setContentsMargins(12, 0, 12, 0); uh.setSpacing(10)
         self._git_repo_url = LineEdit(); self._git_repo_url.setFixedHeight(34)
         self._git_repo_url.setPlaceholderText(tr("settings.repo.placeholder", self._language))
-        self._git_repo_url.setPlaceholderText(tr("settings.repo.placeholder", self._language))
+        self._style_input(self._git_repo_url)
         uh.addWidget(self._git_repo_url)
         vl.addWidget(url_frame)
 
@@ -501,6 +538,7 @@ class SettingsPage(QWidget):
         self._btn_activate.setFixedHeight(36)
         self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language))
         self._btn_deactivate.setFixedHeight(36)
+        self._btn_deactivate.setStyleSheet(Theme.secondary_button())
         self._btn_deactivate.clicked.connect(self._reset_to_trial)
         
         lh.addWidget(self._btn_deactivate)

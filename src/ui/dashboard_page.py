@@ -271,11 +271,12 @@ class DashboardPage(QWidget):
         self._activity_timer = QTimer(self)
         self._activity_timer.setSingleShot(True)
         self._activity_timer.setInterval(250)
+        self._activity_timer.timeout.connect(self._refresh_activity)
         self._last_stats_refresh = 0.0
         self._last_job_list_refresh = 0.0
         self._build_ui()
         self._connect_events()
-        # Historical jobs will be loaded explicitly by MainWindow once global memory is ready
+        self._load_recent_jobs_from_disk()
 
     def _load_recent_jobs_from_disk(self):
         """Loads historical job definitions to populate the Recent Jobs list.
@@ -648,6 +649,8 @@ class DashboardPage(QWidget):
         if jobs is not None:
             self._jobs = jobs
             self._refresh_job_list()
+        else:
+            self._load_recent_jobs_from_disk()
         
         self._refresh_stats()
         if hasattr(self, 'metric_trial'):
@@ -655,6 +658,7 @@ class DashboardPage(QWidget):
 
     def load_summary(self, total_records: int, total_emails: int, total_websites: int):
         self._saved_summary = (total_records, total_emails, total_websites)
+        self._load_recent_jobs_from_disk()
         self._refresh_stats()
 
     def _totals(self):
@@ -671,9 +675,9 @@ class DashboardPage(QWidget):
             total_emails += active_job.total_emails
             total_websites += active_job.total_websites
 
-        active_jobs_count = sum(1 for j in self._jobs if j.status.value in {"running", "paused", "pending"})
-        if active_job and active_job.status.value in {"running", "paused", "pending"} and active_job not in self._jobs:
-            active_jobs_count += 1
+        active_jobs_count = 0
+        if active_job and active_job.status.value in {"running", "paused", "pending"}:
+            active_jobs_count = 1
             
         completed_jobs = sum(1 for j in self._jobs if j.status.value == "completed")
         failed_jobs = sum(1 for j in self._jobs if j.status.value in {"failed", "cancelled"})

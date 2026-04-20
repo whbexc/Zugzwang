@@ -248,8 +248,6 @@ class GoogleMapsScraper:
 
 
 
-            await self._wait_for_page_ready(page)
-
             await self._dismiss_consent_banner(page)
 
 
@@ -268,11 +266,11 @@ class GoogleMapsScraper:
 
                 await search_input.fill(query)
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.15)
 
                 await page.keyboard.press("Enter")
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
 
             except Exception as e:
 
@@ -306,9 +304,6 @@ class GoogleMapsScraper:
             results_count = 0
             emitted_keys: set[str] = set()
 
-
-
-            feed_records = self._build_records_from_feed(query)
 
 
             feed_records = self._build_records_from_feed(query)
@@ -355,12 +350,6 @@ class GoogleMapsScraper:
                         f"[{self.job_id}] [{results_count}] {enriched.company_name} "
                         f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | feed"
                     )
-                    event_bus.emit(
-                        event_bus.JOB_RESULT,
-                        job_id=self.job_id,
-                        record=enriched,
-                        count=results_count,
-                    )
                     LicenseManager.record_extraction()
                     yield enriched
 
@@ -406,12 +395,6 @@ class GoogleMapsScraper:
                             f"[{self.job_id}] [{results_count}] {enriched.company_name} "
                             f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | click"
                         )
-                        event_bus.emit(
-                            event_bus.JOB_RESULT,
-                            job_id=self.job_id,
-                            record=enriched,
-                            count=results_count,
-                        )
                         LicenseManager.record_extraction()
                         yield enriched
 
@@ -445,6 +428,10 @@ class GoogleMapsScraper:
             raise
 
         finally:
+            try:
+                event_bus.unsubscribe(event_bus.CAPTCHA_INTERACTION, self._on_interaction_received)
+            except Exception:
+                pass
 
             if self._total_errors > 0:
 
@@ -1133,11 +1120,11 @@ class GoogleMapsScraper:
 
                 btn = page.locator(sel).first
 
-                if await btn.is_visible(timeout=3_000):
+                if await btn.is_visible(timeout=350):
 
                     await btn.click()
 
-                    await asyncio.sleep(0.25)
+                    await asyncio.sleep(0.15)
 
                     logger.info(f"[{self.job_id}] Dismissed consent banner")
 

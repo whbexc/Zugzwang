@@ -29,6 +29,7 @@ from qfluentwidgets import (
     InfoBadge, ProgressBar,
     PushButton, PrimaryPushButton, TransparentPushButton, ToolButton,
     ElevatedCardWidget, FluentIcon, LineEdit, PlainTextEdit,
+    TransparentToolButton,
     ScrollArea, RoundMenu, Action, IconWidget
 )
 from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
@@ -200,6 +201,53 @@ class RecipientListWidget(QListWidget):
 
 
 class EmailSenderPage(QWidget):
+    @staticmethod
+    def _icon_button_stylesheet() -> str:
+        return """
+            TransparentToolButton, TransparentPushButton {
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                padding: 0;
+                color: #8E8E93;
+            }
+            TransparentToolButton:hover, TransparentPushButton:hover {
+                background: rgba(44, 44, 46, 0.85);
+                border: 1px solid #0A84FF;
+                color: #FFFFFF;
+            }
+            TransparentToolButton:pressed, TransparentPushButton:pressed {
+                background: rgba(58, 58, 60, 0.95);
+            }
+            TransparentToolButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+            TransparentPushButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+        """
+
+    @staticmethod
+    def _build_ssl_context() -> ssl.SSLContext:
+        """
+        Build a deterministic TLS context for SMTP.
+        Prefer certifi's CA bundle when available to avoid broken local CA stores
+        on some Windows installs, while still keeping certificate verification on.
+        """
+        cafile = None
+        try:
+            import certifi
+            cafile = certifi.where()
+        except Exception:
+            cafile = None
+
+        context = ssl.create_default_context(cafile=cafile)
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+        return context
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._attachments: list[str] = []
@@ -327,26 +375,12 @@ class EmailSenderPage(QWidget):
 
         
         # Simple Delete Button (Neutral Square)
-        self._btn_delete_menu = TransparentPushButton(FluentIcon.DELETE.icon(color=QColor("#8E8E93")), "")
+        self._btn_delete_menu = TransparentToolButton(FluentIcon.DELETE)
         self._btn_delete_menu.setFixedSize(32, 32)
         self._btn_delete_menu.setIconSize(QSize(16, 16))
         self._btn_delete_menu.setCursor(Qt.PointingHandCursor)
-        self._btn_delete_menu.setStyleSheet("""
-            TransparentPushButton { 
-                background: rgba(28, 28, 30, 0.5);
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                padding: 0;
-            }
-            TransparentPushButton:hover { 
-                background: rgba(44, 44, 46, 0.8);
-                border: 1px solid #0A84FF;
-            }
-            TransparentPushButton::menu-indicator {
-                image: none;
-                width: 0px;
-            }
-        """)
+        self._btn_delete_menu.setToolTip("Remove recipients")
+        self._btn_delete_menu.setStyleSheet(self._icon_button_stylesheet())
 
     def _build_ui(self):
         self.setObjectName("emailPage")
@@ -795,12 +829,12 @@ class EmailSenderPage(QWidget):
         self._setup_delete_menu()
         
         # Import Button (shows a popup menu with all import sources)
-        self._btn_load_leads = TransparentPushButton(FluentIcon.ADD.icon(color=QColor("#8E8E93")), "")
+        self._btn_load_leads = TransparentToolButton(FluentIcon.ADD)
         self._btn_load_leads.setFixedSize(32, 32)
         self._btn_load_leads.setIconSize(QSize(16, 16))
         self._btn_load_leads.setToolTip("Import recipients…")
         self._btn_load_leads.setCursor(Qt.PointingHandCursor)
-        self._btn_load_leads.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_load_leads.setStyleSheet(self._icon_button_stylesheet())
         self._btn_load_leads.clicked.connect(self._show_import_menu)
         
         lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
@@ -845,22 +879,22 @@ class EmailSenderPage(QWidget):
 
         
         # Copy Log Button
-        self._btn_copy_log = TransparentPushButton(FluentIcon.COPY.icon(color=QColor("#8E8E93")), "")
+        self._btn_copy_log = TransparentToolButton(FluentIcon.COPY)
         self._btn_copy_log.setFixedSize(32, 32)
         self._btn_copy_log.setIconSize(QSize(16, 16))
         self._btn_copy_log.setToolTip("Copy Activity Log")
         self._btn_copy_log.setCursor(Qt.PointingHandCursor)
-        self._btn_copy_log.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_copy_log.setStyleSheet(self._icon_button_stylesheet())
         self._btn_copy_log.clicked.connect(lambda: QGuiApplication.clipboard().setText(self._status_log.toPlainText()))
         log_header.addWidget(self._btn_copy_log, 0, Qt.AlignVCenter)
 
         # Clear Log Button
-        self._btn_clear_log = TransparentPushButton(FluentIcon.SYNC.icon(color=QColor("#8E8E93")), "")
+        self._btn_clear_log = TransparentToolButton(FluentIcon.DELETE)
         self._btn_clear_log.setFixedSize(32, 32)
         self._btn_clear_log.setIconSize(QSize(16, 16))
         self._btn_clear_log.setToolTip("Clear Activity Log")
         self._btn_clear_log.setCursor(Qt.PointingHandCursor)
-        self._btn_clear_log.setStyleSheet(self._btn_delete_menu.styleSheet())
+        self._btn_clear_log.setStyleSheet(self._icon_button_stylesheet())
         self._btn_clear_log.clicked.connect(lambda: self._status_log.clear())
         log_header.addWidget(self._btn_clear_log, 0, Qt.AlignVCenter)
         log_stack.addLayout(log_header)
@@ -1093,16 +1127,22 @@ class EmailSenderPage(QWidget):
         self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
 
     def _setup_delete_menu(self):
-        menu = RoundMenu(parent=self)
+        self._delete_menu = RoundMenu(parent=self)
         del_sel = Action(FluentIcon.DELETE, "Delete Selection", self)
         del_sel.triggered.connect(self._on_delete_selection)
         
         del_all = Action(FluentIcon.DELETE, "Delete All", self)
         del_all.triggered.connect(self._on_delete_all)
         
-        menu.addAction(del_sel)
-        menu.addAction(del_all)
-        self._btn_delete_menu.setMenu(menu)
+        self._delete_menu.addAction(del_sel)
+        self._delete_menu.addAction(del_all)
+        self._btn_delete_menu.clicked.connect(self._show_delete_menu)
+
+    def _show_delete_menu(self):
+        if not hasattr(self, "_delete_menu"):
+            return
+        pos = self._btn_delete_menu.mapToGlobal(self._btn_delete_menu.rect().bottomLeft())
+        self._delete_menu.exec(pos)
 
     def _on_delete_all(self):
         self._recipient_list.clear()
@@ -1428,12 +1468,8 @@ class EmailSenderPage(QWidget):
                     self._ensure_smtp_connection()
                 except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
                     self._log(f"Connection lost. Reconnecting for {rec}...", "WARNING")
-                    if self._active_server:
-                        try: self._active_server.close()
-                        except: pass
                     try:
-                        time.sleep(2)
-                        self._active_server = self._create_smtp_connection()
+                        self._reconnect_smtp(delay_seconds=2.0)
                         self._log("Reconnected successfully.", "SUCCESS")
                     except Exception as reconn_err:
                         self._log(f"Reconnection failed for {rec}: {reconn_err}", "ERROR")
@@ -1446,17 +1482,13 @@ class EmailSenderPage(QWidget):
 
                 # Actual Transmission
                 try:
-                    self._active_server.send_message(msg)
+                    self._send_message_with_recovery(msg)
                 except (smtplib.SMTPServerDisconnected, socket.error, ssl.SSLError):
                     self._log(f"Connection dropped during transmission. Retrying {rec}...", "WARNING")
-                    if self._active_server:
-                        try: self._active_server.close()
-                        except: pass
                     try:
-                        time.sleep(2)
-                        self._active_server = self._create_smtp_connection()
+                        self._reconnect_smtp(delay_seconds=2.0)
                         self._log("Reconnected successfully. Retrying transmission...", "SUCCESS")
-                        self._active_server.send_message(msg)
+                        self._send_message_with_recovery(msg)
                     except Exception as retry_err:
                         self._log(f"Retry failed for {rec}: {retry_err}", "ERROR")
                         failed += 1
@@ -1471,11 +1503,8 @@ class EmailSenderPage(QWidget):
                         self._log(f"Rate-limited by server (code {rate_err.smtp_code}). Waiting 60s before retrying {rec}...", "WARNING")
                         time.sleep(60)
                         try:
-                            if self._active_server:
-                                try: self._active_server.close()
-                                except: pass
-                            self._active_server = self._create_smtp_connection()
-                            self._active_server.send_message(msg)
+                            self._reconnect_smtp()
+                            self._send_message_with_recovery(msg)
                         except Exception as rl_err:
                             failed += 1
                             self._error_vault[rec] = f"Rate-limit retry failed: {rl_err}"
@@ -1579,13 +1608,13 @@ class EmailSenderPage(QWidget):
         try:
             if use_implicit_ssl:
                 self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
-                server = smtplib.SMTP_SSL(host, port, context=ssl.create_default_context(), timeout=timeout)
+                server = smtplib.SMTP_SSL(host, port, context=self._build_ssl_context(), timeout=timeout)
                 server.ehlo()
             else:
                 self._signals.log.emit(f"Connecting to {host}:{port} with STARTTLS...", "INFO")
                 server = smtplib.SMTP(host, port, timeout=timeout)
                 server.ehlo()
-                server.starttls(context=ssl.create_default_context())
+                server.starttls(context=self._build_ssl_context())
                 server.ehlo()
 
             if user:
@@ -1611,6 +1640,45 @@ class EmailSenderPage(QWidget):
         except Exception as e:
             err_msg = str(e) or type(e).__name__
             raise Exception(err_msg)
+
+    def _close_active_server(self):
+        server = getattr(self, "_active_server", None)
+        self._active_server = None
+        if not server:
+            return
+        try:
+            server.quit()
+            return
+        except Exception:
+            pass
+        try:
+            server.close()
+        except Exception:
+            pass
+
+    def _reconnect_smtp(self, delay_seconds: float = 0.8):
+        self._close_active_server()
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+        self._active_server = self._create_smtp_connection()
+        return self._active_server
+
+    def _send_message_with_recovery(self, msg):
+        if not self._active_server:
+            raise smtplib.SMTPServerDisconnected("Server not connected")
+        try:
+            self._active_server.send_message(msg)
+            return
+        except smtplib.SMTPServerDisconnected:
+            raise
+        except (socket.error, ssl.SSLError):
+            raise
+        except OSError as e:
+            # Some Windows 10 failures surface as generic socket/transport errors.
+            lower = str(e).lower()
+            if any(token in lower for token in ("not connected", "connection reset", "forcibly closed", "broken pipe", "timed out")):
+                raise smtplib.SMTPServerDisconnected(str(e))
+            raise
 
     def _ensure_smtp_connection(self):
         """Verify the connection is still alive, otherwise raise SMTPServerDisconnected."""

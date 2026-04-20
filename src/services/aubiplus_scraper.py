@@ -6,7 +6,7 @@ Translated from Chrome Extension JS logic to native async Playwright.
 import asyncio
 import re
 from typing import AsyncGenerator
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from .browser import BrowserSession, BrowserError
 from ..core.security import LicenseManager
@@ -29,6 +29,9 @@ class AubiPlusScraper:
         self._cancelled = False
         self._paused = False
         self._total_errors = 0
+        self._yielded_record_ids: set[str] = set()
+        self._website_email_cache: dict[str, str | None] = {}
+        self._dedup_skips = 0
 
     def cancel(self):
         self._cancelled = True
@@ -38,6 +41,67 @@ class AubiPlusScraper:
 
     def resume(self):
         self._paused = False
+
+    @staticmethod
+    def _website_cache_key(website_url: str) -> str:
+        parsed = urlparse(website_url or "")
+        return parsed.netloc.lower().strip()
+
+    @staticmethod
+    def _is_redirect_style_domain(website_url: str) -> bool:
+        domain = AubiPlusScraper._website_cache_key(website_url)
+        return domain in {
+            "short.sg",
+            "bit.ly",
+            "t.co",
+            "tinyurl.com",
+            "lnkd.in",
+        }
+
+    @staticmethod
+    def _fetch_url_sync(page_url: str) -> str | None:
+        import urllib.request
+
+        req = urllib.request.Request(
+            page_url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.read().decode("utf-8", errors="ignore")
+
+    async def _collect_result_links(self, page) -> list[dict[str, str]]:
+        items = await page.evaluate("""
+            () => {
+                const seen = new Set();
+                const hrefMatchers = [
+                    '/ausbildung/',
+                    '/duales-studium/',
+                    '/studium/',
+                    '/praktikum/',
+                    '/werkstudent/'
+                ];
+                const results = [];
+
+                for (const anchor of Array.from(document.querySelectorAll('a[href]'))) {
+                    const href = anchor.href || '';
+                    if (!href || !href.startsWith('http')) continue;
+                    if (!hrefMatchers.some(part => href.includes(part))) continue;
+                    if (href.includes('/suchmaschine/')) continue;
+                    if (seen.has(href)) continue;
+
+                    const card = anchor.closest('.my-3.overflow-hidden.rounded-3, article, .card');
+                    const titleEl = card?.querySelector('h2, h3, h4, .card-title') || anchor;
+                    const title = (titleEl?.innerText || anchor.innerText || '').trim();
+                    if (!title) continue;
+
+                    seen.add(href);
+                    results.push({ url: href, title: title.slice(0, 80) });
+                }
+
+                return results;
+            }
+        """)
+        return items or []
 
     async def _dismiss_cookie_modal(self, page) -> None:
         """
@@ -268,69 +332,16 @@ class AubiPlusScraper:
                 if self._cancelled:
                     break
                 
-                # Exact selector from aubiplus_script.js line 107:
-                # cards = docToSearch.querySelectorAll('.my-3.text-primary-dark.overflow-hidden.rounded-3')
-                # Try multiple fallbacks in case class names changed
-                job_cards = []
-                for card_sel in [
-                    ".my-3.overflow-hidden.rounded-3",                      # Matches both premium and standard cards
-                    ".my-3.text-primary-dark.overflow-hidden.rounded-3",    # premium exact
-                    ".my-3.text-primary-dark",                              # partial match
-                    "article.job-card",                                     # semantic fallback
-                    "a.stretched-link",                                     # direct link harvest
-                ]:
-                    job_cards = await page.query_selector_all(card_sel)
-                    if job_cards:
-                        logger.info(f"[{self.job_id}] Found {len(job_cards)} cards with selector: {card_sel}")
-                        break
-
-                if not job_cards:
-                    # Last resort: grab ALL stretched-links on the page
-                    job_cards = await page.query_selector_all("a.stretched-link")
-                    logger.info(f"[{self.job_id}] Fallback: found {len(job_cards)} stretched-links")
-
-                if not job_cards:
+                items_to_visit = await self._collect_result_links(page)
+                if items_to_visit:
+                    logger.info(f"[{self.job_id}] Found {len(items_to_visit)} canonical result links on page")
+                else:
                     logger.info(f"[{self.job_id}] No cards found on page. Ending.")
                     break
-                    
-                items_to_visit = []
-                for card in job_cards:
-                    # If card is already an <a> tag (stretched-link fallback)
-                    tag = await card.evaluate("el => el.tagName.toLowerCase()")
-                    if tag == "a":
-                        href = await card.get_attribute("href")
-                        title_text = await card.inner_text()
-                        link_el = card
-                    else:
-                        # Find the correct link prioritizing stretched-link or heading link
-                        link_el = await card.query_selector("a.stretched-link")
-                        if not link_el:
-                            link_el = await card.query_selector("h2 a, h3 a, h4 a, .card-title a")
-                        if not link_el:
-                            # Fallback: get first valid content link
-                            links = await card.query_selector_all("a[href]")
-                            for a in links:
-                                h = await a.get_attribute("href")
-                                if h and h != "#" and not h.startswith("javascript"):
-                                    link_el = a
-                                    break
-                        if not link_el:
-                            continue
-                        href = await link_el.get_attribute("href")
-                        title_text = ""
-                        title_el = await card.query_selector("h2, .h4, .card-title")
-                        if title_el:
-                            title_text = (await title_el.inner_text()).strip()
-                        if not title_text:
-                            title_text = (await link_el.inner_text()).strip()
-
-                    if not href or href == "#" or href.startswith("javascript"):
-                        continue
-
-                    full_url = urljoin("https://www.aubi-plus.de", href)
-                    if full_url not in processed_urls:
-                        processed_urls.add(full_url)
-                        items_to_visit.append({"url": full_url, "title": title_text[:60]})
+                items_to_visit = [
+                    item for item in items_to_visit
+                    if item["url"] not in processed_urls and not processed_urls.add(item["url"])
+                ]
                 
                 # Visit the details — use parallel batch fetch like extension
                 # Extension: sequential with 1s sleep
@@ -360,6 +371,18 @@ class AubiPlusScraper:
                             continue
                         if not (record.company_name or record.email or record.address or record.phone):
                             continue
+                        record = record.normalize()
+                        record_id = record.stable_id()
+                        if record_id in self._yielded_record_ids:
+                            self._dedup_skips += 1
+                            if self._dedup_skips % _DEDUP_LOG_EVERY == 0:
+                                event_bus.emit(
+                                    event_bus.JOB_LOG,
+                                    job_id=self.job_id,
+                                    message=f"Deduplicated {self._dedup_skips} repeated Aubi-Plus result(s) in this run.",
+                                    level="INFO",
+                                )
+                            continue
                         if not LicenseManager.can_extract():
                             logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
                             event_bus.emit(
@@ -371,13 +394,8 @@ class AubiPlusScraper:
                             event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
                             return
 
+                        self._yielded_record_ids.add(record_id)
                         yielded_count += 1
-                        event_bus.emit(
-                            event_bus.JOB_RESULT,
-                            job_id=self.job_id,
-                            record=record,
-                            count=yielded_count,
-                        )
                         LicenseManager.record_extraction()
                         yield record
 
@@ -699,7 +717,15 @@ class AubiPlusScraper:
         if not website_url:
             return ""
 
-        from urllib.parse import urlparse
+        cache_key = self._website_cache_key(website_url)
+        if cache_key in self._website_email_cache:
+            return self._website_email_cache[cache_key] or ""
+
+        if self._is_redirect_style_domain(website_url):
+            logger.info(f"[{self.job_id}] Skipping redirect-style website fallback: {website_url}")
+            self._website_email_cache[cache_key] = None
+            return ""
+
         base = urlparse(website_url)
         base_url = f"{base.scheme}://{base.netloc}"
 
@@ -713,16 +739,10 @@ class AubiPlusScraper:
 
         for page_url in pages_to_try:
             try:
-                html = await self._fetch_html_in_page(None, page_url)
-                if not html:
-                    # Try via background fetch with aiohttp-style call
-                    import urllib.request
-                    req = urllib.request.Request(
-                        page_url,
-                        headers={"User-Agent": "Mozilla/5.0"}
-                    )
-                    with urllib.request.urlopen(req, timeout=8) as r:
-                        html = r.read().decode("utf-8", errors="ignore")
+                html = await asyncio.wait_for(
+                    asyncio.to_thread(self._fetch_url_sync, page_url),
+                    timeout=5.5,
+                )
 
                 if not html:
                     continue
@@ -735,6 +755,7 @@ class AubiPlusScraper:
                     email = a["href"].replace("mailto:", "").split("?")[0].strip()
                     if "@" in email and "example" not in email:
                         logger.info(f"[{self.job_id}] Website email found: {email} at {page_url}")
+                        self._website_email_cache[cache_key] = email
                         return email
 
                 # Regex scan
@@ -743,12 +764,14 @@ class AubiPlusScraper:
                     email = match.group(1).strip()
                     if "example" not in email:
                         logger.info(f"[{self.job_id}] Website email (regex): {email} at {page_url}")
+                        self._website_email_cache[cache_key] = email
                         return email
 
             except Exception as e:
                 logger.debug(f"[{self.job_id}] Website fetch failed {page_url}: {e}")
                 continue
 
+        self._website_email_cache[cache_key] = None
         return ""
 
     async def _extract_job_detail(self, url: str, page=None) -> LeadRecord | None:

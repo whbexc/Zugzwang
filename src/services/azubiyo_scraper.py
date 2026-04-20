@@ -138,7 +138,6 @@ class AzubiyoScraper:
                                 return # Abort completely on trial limit
 
                             yielded_count += 1
-                            event_bus.emit(event_bus.JOB_RESULT, job_id=self.job_id, record=record, count=yielded_count)
                             LicenseManager.record_extraction()
                             yield record
 
