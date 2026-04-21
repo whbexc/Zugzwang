@@ -1462,6 +1462,9 @@ class EmailSenderPage(QWidget):
             try:
                 msg = self._build_message(rec)
                 if self._stop_requested: break
+
+                if self._should_use_fresh_connection_per_message():
+                    self._reconnect_smtp(delay_seconds=0.35 if i > 0 else 0.0)
                 
                 # Proactively ensure connection BEFORE sending
                 try:
@@ -1662,6 +1665,12 @@ class EmailSenderPage(QWidget):
             time.sleep(delay_seconds)
         self._active_server = self._create_smtp_connection()
         return self._active_server
+
+    def _should_use_fresh_connection_per_message(self) -> bool:
+        from ..core.config import config_manager
+        s = config_manager.settings
+        host = (getattr(s, "email_smtp_host", "") or self._smtp_host.text()).strip().lower()
+        return host in {"smtp.gmail.com", "smtp.googlemail.com"}
 
     def _send_message_with_recovery(self, msg):
         if not self._active_server:
