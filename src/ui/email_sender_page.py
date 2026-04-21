@@ -6,6 +6,7 @@ Aesthetic 3.0: Senior Grade macOS Design.
 
 from __future__ import annotations
 
+import html
 import os
 import smtplib
 import ssl
@@ -328,6 +329,7 @@ class EmailSenderPage(QWidget):
         
         self._body_preview = QTextBrowser()
         self._body_preview.setOpenExternalLinks(True)
+        self._body_preview.setOpenLinks(True)
         self._body_stack.addWidget(self._body_preview)
         
         self._type_toggle = MacSwitch()
@@ -335,6 +337,7 @@ class EmailSenderPage(QWidget):
         self._attach_btn = ToolButton(FluentIcon.ADD)
         self._attach_clear_btn = ToolButton(FluentIcon.DELETE)
         self._attach_badge = QLabel(tr("send.badge.files", self._language).format(count=0))
+        self._attachments = []
         
         # Step 3 Widgets
         self._btn_dedup = PushButton(tr("send.button.clean", self._language))
@@ -1019,12 +1022,14 @@ class EmailSenderPage(QWidget):
         self._reply_to.textChanged.connect(self._save_fields)
         self._subject.textChanged.connect(self._save_fields)
         self._body_text.textChanged.connect(self._save_fields)
+        self._body_text.textChanged.connect(self._refresh_preview_if_open)
         self._interval_input.textChanged.connect(self._save_fields)
         
         self._auth_switch.toggled.connect(self._save_fields)
         self._ssl_switch.toggled.connect(self._save_fields)
         self._tls_switch.toggled.connect(self._save_fields)
         self._type_toggle.toggled.connect(self._save_fields)
+        self._type_toggle.toggled.connect(self._refresh_preview_if_open)
 
     def _on_log(self, message: str, level: str):
         color = "#FFFFFF"
@@ -1060,26 +1065,117 @@ class EmailSenderPage(QWidget):
     def _toggle_preview(self):
         self._isPreview = not self._isPreview
         if self._isPreview:
-            self._body_preview.setHtml(self._body_text.toPlainText())
+            self._render_preview_content()
             self._body_stack.setCurrentIndex(1)
-            self._preview_btn.setText("EDIT MODE")
+            self._preview_btn.setText("EDIT")
         else:
             self._body_stack.setCurrentIndex(0)
-            self._preview_btn.setText("PREVIEW CONTENT")
+            self._preview_btn.setText("PREVIEW")
+
+    def _refresh_preview_if_open(self):
+        if self._isPreview:
+            self._render_preview_content()
+
+    def _render_preview_content(self):
+        raw = self._body_text.toPlainText()
+        if self._type_toggle.isChecked():
+            rendered = self._wrap_email_preview_html(raw)
+        else:
+            plain_html = html.escape(raw).replace("\n", "<br>")
+            rendered = self._wrap_email_preview_html(f"<div class='plain-body'>{plain_html}</div>")
+        self._body_preview.setHtml(rendered)
+
+    def _wrap_email_preview_html(self, body_html: str) -> str:
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{
+      margin: 0;
+      padding: 20px;
+      background: #1C1C1E;
+      color: #E5E5EA;
+      font-family: 'PT Root UI', -apple-system, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+    }}
+    .preview-shell {{
+      max-width: 760px;
+      margin: 0 auto;
+      background: #242426;
+      border: 1px solid #3A3A3C;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+    }}
+    .preview-bar {{
+      padding: 10px 16px;
+      background: #2F2F31;
+      border-bottom: 1px solid #3A3A3C;
+      color: #8E8E93;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+    }}
+    .preview-body {{
+      padding: 24px;
+      color: #F2F2F7;
+      word-break: break-word;
+    }}
+    .preview-body a {{
+      color: #4EA1FF;
+      text-decoration: none;
+    }}
+    .preview-body img {{
+      max-width: 100%;
+      height: auto;
+    }}
+    .preview-body table {{
+      max-width: 100%;
+      border-collapse: collapse;
+    }}
+    .plain-body {{
+      white-space: normal;
+    }}
+  </style>
+</head>
+<body>
+  <div class="preview-shell">
+    <div class="preview-bar">EMAIL PREVIEW</div>
+    <div class="preview-body">{body_html}</div>
+  </div>
+</body>
+</html>
+"""
 
     def _on_attach(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Attach Files")
         if files:
-            self._attachments = files
-            self._attach_badge.setText(tr("send.badge.files", self._language).format(count=len(files)))
+            self._attachments = list(dict.fromkeys(files))
+            self._update_attachment_badge()
+            self._save_fields()
+            config_manager.flush()
             self._on_log(f"Attached {len(files)} file(s).", "INFO")
 
     def _on_attach_clear(self):
         if self._attachments:
             count = len(self._attachments)
             self._attachments = []
-            self._attach_badge.setText(tr("send.badge.files", self._language).format(count=0))
+            self._update_attachment_badge()
+            self._save_fields()
+            config_manager.flush()
             self._on_log(f"Cleared {count} attachment(s).", "WARNING")
+
+    def _update_attachment_badge(self):
+        count = len(self._attachments)
+        self._attach_badge.setText(
+            tr("send.badge.files", self._language).format(count=count)
+        )
+        color = "#32D74B" if count > 0 else "#FF6B6B"
+        self._attach_badge.setStyleSheet(
+            f"color: {color}; font-family: 'PT Root UI', monospace; font-size: 11px; background: transparent;"
+        )
 
     def _get_recipients(self) -> list[str]:
         return [self._recipient_list.item(i).email for i in range(self._recipient_list.count())]
@@ -1398,6 +1494,7 @@ class EmailSenderPage(QWidget):
     def _worker_send(self, recipients: list[str]):
         self._error_vault.clear()
         sent = 0; failed = 0; total = len(recipients)
+        fresh_per_message = self._should_use_fresh_connection_per_message()
         try: 
             raw_val = int(self._interval_input.text().strip())
             interval = max(15, raw_val)
@@ -1406,40 +1503,58 @@ class EmailSenderPage(QWidget):
         except: 
             interval = 30
 
-        try:
-            self._log("Initializing SMTP Handshake...")
-            last_err = None
-            for attempt in range(1, 4):  # 3 retries with exponential backoff
-                try:
-                    self._active_server = self._create_smtp_connection()
-                    last_err = None
+        def _sleep_interruptibly(duration: float):
+            deadline = time.monotonic() + max(duration, 0.0)
+            while not self._stop_requested:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     break
-                except Exception as e:
-                    last_err = e
-                    if self._stop_requested:
-                        break
-                    if attempt < 3:
-                        wait = 2 ** attempt  # 2s, 4s
-                        self._log(f"Handshake attempt {attempt}/3 failed: {e}. Retrying in {wait}s...", "WARNING")
-                        time.sleep(wait)
-            
-            if last_err:
-                raise last_err
-                
+                time.sleep(min(remaining, 0.2))
+
+        def _sleep_remaining(cycle_started_at: float):
             if self._stop_requested:
-                try: self._active_server.quit()
-                except: pass
-                self._active_server = None
-                self._signals.finished.emit(0, 0, True)
                 return
-            self._log("Authenticated successfully.", "SUCCESS")
-        except Exception as e:
-            if self._stop_requested:
-                self._signals.finished.emit(0, 0, True)
-            else:
-                self._signals.error.emit(f"Handshake Failed after 3 attempts: {e}")
-                self._signals.finished.emit(0, 0, False)
-            return
+            remaining = max(interval - (time.monotonic() - cycle_started_at), 0.0)
+            if remaining > 0:
+                _sleep_interruptibly(remaining)
+
+        if fresh_per_message:
+            self._log("Gmail mode detected. A fresh SMTP session will be opened for each recipient.", "INFO")
+        else:
+            try:
+                self._log("Initializing SMTP Handshake...")
+                last_err = None
+                for attempt in range(1, 4):  # 3 retries with exponential backoff
+                    try:
+                        self._active_server = self._create_smtp_connection()
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        if self._stop_requested:
+                            break
+                        if attempt < 3:
+                            wait = 2 ** attempt  # 2s, 4s
+                            self._log(f"Handshake attempt {attempt}/3 failed: {e}. Retrying in {wait}s...", "WARNING")
+                            _sleep_interruptibly(wait)
+                
+                if last_err:
+                    raise last_err
+                    
+                if self._stop_requested:
+                    try: self._active_server.quit()
+                    except: pass
+                    self._active_server = None
+                    self._signals.finished.emit(0, 0, True)
+                    return
+                self._log("Authenticated successfully.", "SUCCESS")
+            except Exception as e:
+                if self._stop_requested:
+                    self._signals.finished.emit(0, 0, True)
+                else:
+                    self._signals.error.emit(f"Handshake Failed after 3 attempts: {e}")
+                    self._signals.finished.emit(0, 0, False)
+                return
 
         # Respect Batch Size
         try: 
@@ -1452,6 +1567,7 @@ class EmailSenderPage(QWidget):
 
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
+            cycle_started_at = time.monotonic()
             
             # Strict Block - Prevents duplicates even from Manual Test Broadcasts
             if rec.lower() in self._successful_emails:
@@ -1463,8 +1579,8 @@ class EmailSenderPage(QWidget):
                 msg = self._build_message(rec)
                 if self._stop_requested: break
 
-                if self._should_use_fresh_connection_per_message():
-                    self._reconnect_smtp(delay_seconds=0.35 if i > 0 else 0.0)
+                if fresh_per_message:
+                    self._reconnect_smtp(delay_seconds=0.35 if i > 0 else 0.0, silent=True)
                 
                 # Proactively ensure connection BEFORE sending
                 try:
@@ -1480,7 +1596,7 @@ class EmailSenderPage(QWidget):
                         self._error_vault[rec] = f"Reconnection failed: {reconn_err}"
                         self._signals.progress.emit(i+1, total)
                         if i < total - 1 and not self._stop_requested:
-                            time.sleep(interval)
+                            _sleep_remaining(cycle_started_at)
                         continue
 
                 # Actual Transmission
@@ -1499,12 +1615,14 @@ class EmailSenderPage(QWidget):
                         self._active_server = None  # Force re-init on next loop
                         self._signals.progress.emit(i+1, total)
                         if i < total - 1 and not self._stop_requested:
-                            time.sleep(interval)
+                            _sleep_remaining(cycle_started_at)
                         continue
                 except smtplib.SMTPResponseException as rate_err:
                     if rate_err.smtp_code in (421, 452):
                         self._log(f"Rate-limited by server (code {rate_err.smtp_code}). Waiting 60s before retrying {rec}...", "WARNING")
-                        time.sleep(60)
+                        _sleep_interruptibly(60)
+                        if self._stop_requested:
+                            break
                         try:
                             self._reconnect_smtp()
                             self._send_message_with_recovery(msg)
@@ -1514,7 +1632,7 @@ class EmailSenderPage(QWidget):
                             self._active_server = None
                             self._signals.progress.emit(i+1, total)
                             if i < total - 1 and not self._stop_requested:
-                                time.sleep(interval)
+                                _sleep_remaining(cycle_started_at)
                             continue
                     else:
                         raise  # Re-raise non-rate-limit SMTP errors
@@ -1541,7 +1659,7 @@ class EmailSenderPage(QWidget):
             
             self._signals.progress.emit(i+1, total)
             if i < total - 1 and not self._stop_requested:
-                time.sleep(interval)
+                _sleep_remaining(cycle_started_at)
 
         try: 
             if self._active_server:
@@ -1586,7 +1704,7 @@ class EmailSenderPage(QWidget):
 
         return msg
 
-    def _create_smtp_connection(self):
+    def _create_smtp_connection(self, silent: bool = False):
         from ..core.config import config_manager
         s = config_manager.settings
 
@@ -1610,18 +1728,21 @@ class EmailSenderPage(QWidget):
         use_implicit_ssl = (port == 465)
         try:
             if use_implicit_ssl:
-                self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
+                if not silent:
+                    self._signals.log.emit(f"Connecting via Implicit SSL to {host}:{port}...", "INFO")
                 server = smtplib.SMTP_SSL(host, port, context=self._build_ssl_context(), timeout=timeout)
                 server.ehlo()
             else:
-                self._signals.log.emit(f"Connecting to {host}:{port} with STARTTLS...", "INFO")
+                if not silent:
+                    self._signals.log.emit(f"Connecting to {host}:{port} with STARTTLS...", "INFO")
                 server = smtplib.SMTP(host, port, timeout=timeout)
                 server.ehlo()
                 server.starttls(context=self._build_ssl_context())
                 server.ehlo()
 
             if user:
-                self._signals.log.emit(f"Authenticating as {user}...", "INFO")
+                if not silent:
+                    self._signals.log.emit(f"Authenticating as {user}...", "INFO")
                 server.login(user, pwd)
 
             return server
@@ -1659,11 +1780,18 @@ class EmailSenderPage(QWidget):
         except Exception:
             pass
 
-    def _reconnect_smtp(self, delay_seconds: float = 0.8):
+    def _reconnect_smtp(self, delay_seconds: float = 0.8, silent: bool = False):
         self._close_active_server()
         if delay_seconds > 0:
-            time.sleep(delay_seconds)
-        self._active_server = self._create_smtp_connection()
+            deadline = time.monotonic() + delay_seconds
+            while not self._stop_requested:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(remaining, 0.2))
+            if self._stop_requested:
+                raise smtplib.SMTPServerDisconnected("Reconnect cancelled by user")
+        self._active_server = self._create_smtp_connection(silent=silent)
         return self._active_server
 
     def _should_use_fresh_connection_per_message(self) -> bool:
@@ -1744,7 +1872,8 @@ class EmailSenderPage(QWidget):
             email_subject=self._subject.text(),
             email_body=self._body_text.toPlainText(),
             email_interval=self._interval_input.text(),
-            email_recipients="\n".join(self._get_recipients())
+            email_recipients="\n".join(self._get_recipients()),
+            email_attachments="\n".join(self._attachments),
         )
 
     def _restore_fields(self):
@@ -1762,6 +1891,11 @@ class EmailSenderPage(QWidget):
         self._subject.setText(s.email_subject)
         self._body_text.setPlainText(s.email_body)
         self._interval_input.setText(s.email_interval)
+        self._attachments = [
+            path for path in (s.email_attachments or "").split("\n")
+            if path.strip() and os.path.exists(path.strip())
+        ]
+        self._update_attachment_badge()
         if s.email_recipients:
             self._set_recipients(s.email_recipients.split("\n"))
         else:

@@ -123,6 +123,10 @@ class ConfigManager(QObject):
         from .db_worker import db_worker
         db_worker.submit(self._save_sync)
 
+    def flush(self) -> None:
+        """Synchronously persist settings to disk."""
+        self._save_sync()
+
     def _save_sync(self) -> None:
         try:
             with open(self._settings_path, "w", encoding="utf-8") as f:

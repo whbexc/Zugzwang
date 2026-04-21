@@ -421,6 +421,7 @@ class ScrapingOrchestrator:
 
             # Stream results in batches to prevent UI signal flooding
             current_job_ids: set[str] = set()
+            baseline_skip_ids: set[str] = set(job.config.skip_known_ids or []) if job.config.continue_from_previous else set()
             result_batch: list[LeadRecord] = []
             last_batch_emit: float = time.monotonic()
 
@@ -431,6 +432,21 @@ class ScrapingOrchestrator:
                 record.id = record.stable_id()
                 record.job_id = job.id
                 with self._memory_lock:
+                    if record.id in baseline_skip_ids:
+                        existing = self._app_memory_records.get(record.id)
+                        if existing:
+                            record.email = record.email or existing.email
+                            record.phone = record.phone or existing.phone
+                            record.website = record.website or existing.website
+                            record.address = record.address or existing.address
+                            record.contact_person = record.contact_person or existing.contact_person
+                            record.linkedin = record.linkedin or existing.linkedin
+                            record.twitter = record.twitter or existing.twitter
+                            record.instagram = record.instagram or existing.instagram
+                            record.is_duplicate = existing.is_duplicate
+                        self._app_memory_records[record.id] = record
+                        continue
+
                     if record.id in current_job_ids:
                         existing = self._app_memory_records.get(record.id)
                         if existing:

@@ -255,25 +255,16 @@ class GoogleMapsScraper:
             logger.info(f"[{self.job_id}] Typing search: {query}")
 
             try:
-
                 search_input = page.locator(
-
                     '//input[@id="searchboxinput"] | //input[@role="combobox"]'
-
                 ).first
-
                 await search_input.wait_for(state="visible", timeout=15_000)
-
+                await search_input.click()
                 await search_input.fill(query)
-
                 await asyncio.sleep(0.15)
-
-                await page.keyboard.press("Enter")
-
-                await asyncio.sleep(0.2)
+                await self._submit_maps_search(page, search_input)
 
             except Exception as e:
-
                 raise BrowserError(f"Could not interact with Maps search box: {e}")
 
 
@@ -1039,6 +1030,68 @@ class GoogleMapsScraper:
         except Exception:
 
             await asyncio.sleep(0.1)
+
+    async def _submit_maps_search(self, page: Page, search_input: Page) -> None:
+        """Submit the Maps search with focused-input and click fallbacks."""
+        await search_input.press("Enter")
+        if await self._wait_for_search_submission(page, timeout_ms=4_000):
+            return
+
+        logger.info(f"[{self.job_id}] Enter key did not trigger Maps search. Trying search button fallback.")
+        button_selectors = [
+            '#searchbox-searchbutton',
+            'button[aria-label="Search"]',
+            'button[aria-label="Suche"]',
+            '//button[@id="searchbox-searchbutton"]',
+        ]
+        for selector in button_selectors:
+            try:
+                btn = page.locator(selector).first
+                await btn.wait_for(state="attached", timeout=1_000)
+                await btn.click()
+                if await self._wait_for_search_submission(page, timeout_ms=4_000):
+                    return
+            except Exception:
+                continue
+
+        logger.info(f"[{self.job_id}] Search button fallback did not trigger. Retrying with JavaScript submit.")
+        try:
+            await page.evaluate(
+                """
+                () => {
+                    const input = document.querySelector('#searchboxinput, input[role="combobox"]');
+                    if (!input) return false;
+                    input.focus();
+                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', bubbles: true}));
+                    input.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', bubbles: true}));
+                    return true;
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        if not await self._wait_for_search_submission(page, timeout_ms=4_000):
+            raise BrowserError("Maps search submission did not trigger after Enter and button fallbacks.")
+
+    async def _wait_for_search_submission(self, page: Page, timeout_ms: int = 4_000) -> bool:
+        """Detect whether Maps actually accepted the submitted search."""
+        deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                url = (page.url or "").lower()
+                if "google.com/sorry" in url or "consent.google.com" in url:
+                    return True
+                if "/maps/search/" in url or "?q=" in url or "&q=" in url:
+                    return True
+                if self._feed_candidates:
+                    return True
+                if await page.locator(LISTING_XPATH).count() > 0:
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+        return False
 
 
 

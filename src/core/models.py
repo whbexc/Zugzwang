@@ -288,6 +288,9 @@ class SearchConfig:
     radius: int = 25  # Search radius in km (Jobsuche, Ausbildung, etc.)
     proxy: Optional[str] = None
     browser_engine: Optional[str] = None # Fallback to app default if None
+    continue_from_previous: bool = False
+    search_more_step: int = 0
+    skip_known_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -429,6 +432,7 @@ class AppSettings:
     email_body_html: bool = False
     email_interval: str = "5"
     email_recipients: str = ""
+    email_attachments: str = ""
 
     # Security & Licensing
     security_pin: str = ""

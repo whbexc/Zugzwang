@@ -722,6 +722,7 @@ class MainWindow(FramelessWindow):
             self.titleBar.updateMaximizeButton(self.isMaximized())
 
     def closeEvent(self, event):
+        config_manager.flush()
         orchestrator.persist_current_job()
         if orchestrator.is_running:
             orchestrator.cancel_job()

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import queue
 import time
+from dataclasses import replace
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QSize, Signal
@@ -909,7 +910,17 @@ class MonitorPage(QWidget):
 
     def _scrape_more(self):
         if self._current_config:
-            self.scrape_more_requested.emit(self._current_config)
+            base_step = max(1, self._current_config.search_more_step or self._current_config.max_results)
+            current_job = orchestrator.current_job
+            previous_ids = [r.id for r in current_job.results if getattr(r, "id", "")] if current_job else []
+            more_config = replace(
+                self._current_config,
+                max_results=max(len(previous_ids), self._current_config.max_results) + base_step,
+                continue_from_previous=True,
+                search_more_step=base_step,
+                skip_known_ids=previous_ids,
+            )
+            self.scrape_more_requested.emit(more_config)
 
     def _pause(self):
         orchestrator.pause_job()
