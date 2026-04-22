@@ -36,6 +36,7 @@ from ..core.events import event_bus
 from ..core.i18n import get_language, is_rtl, tr
 from ..core.logger import get_logger, setup_logging
 from ..core.models import ScrapingJob, SearchConfig
+from ..core.security import LicenseManager
 from ..services.orchestrator import orchestrator
 from ..services.update_service import UpdateService
 
@@ -322,6 +323,9 @@ class MainWindow(FramelessWindow):
         if config_manager.settings.auto_update_enabled:
             self.update_service.update_available.connect(self._show_update_dialog)
             QTimer.singleShot(5000, self.update_service.check)
+
+        if not LicenseManager.is_active():
+            QTimer.singleShot(1600, self._show_startup_upgrade_prompt)
         
         # Maximization is handled in showEvent for reliability
 
@@ -642,6 +646,14 @@ class MainWindow(FramelessWindow):
         dialog = ActivationDialog(self)
         dialog.open_send_requested.connect(lambda: self._switch(4))
         return dialog.exec()
+
+    def _show_startup_upgrade_prompt(self):
+        if LicenseManager.is_active():
+            return
+        from .activation_dialog import ActivationDialog
+        dialog = ActivationDialog(self, startup_prompt=True)
+        dialog.open_send_requested.connect(lambda: self._switch(4))
+        dialog.exec()
 
     def _show_update_dialog(self, version: str, url: str):
         """Show the macOS-style update notification."""

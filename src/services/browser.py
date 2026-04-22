@@ -109,9 +109,10 @@ class BrowserSession:
         from .browser_installer import configure_browsers_path, is_chromium_installed
         configure_browsers_path()
 
-        engine = self.settings.browser_engine
-        
-        engine = self.settings.browser_engine
+        engine = (self.settings.browser_engine or "chromium").strip().lower()
+        if engine not in {"chromium", "chrome", "msedge"}:
+            logger.warning(f"[{self.job_id}] Invalid browser engine '{engine}'. Falling back to chromium.")
+            engine = "chromium"
         
         # Validation
         if engine in ["chromium", "chrome", "msedge"] and not self.settings.browser_channel:
@@ -158,8 +159,6 @@ class BrowserSession:
 
             if engine in ["chrome", "msedge"]:
                 launch_kwargs["channel"] = engine
-            elif self.settings.browser_channel:
-                launch_kwargs["channel"] = self.settings.browser_channel
 
             self._browser = await self._playwright.chromium.launch(**launch_kwargs)
             logger.info(f"[{self.job_id}] Local {engine} launched.")

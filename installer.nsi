@@ -4,7 +4,7 @@
 ; Build: makensis installer.nsi
 
 !define APP_NAME "ZUGZWANG"
-!define APP_VERSION "1.0.9"
+!define APP_VERSION "1.0.9b"
 !define APP_PUBLISHER "ZUGZWANG"
 !define APP_EXE "ZUGZWANG.exe"
 !define APP_GUID "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
@@ -15,14 +15,16 @@
 !include "LogicLib.nsh"
 
 Name "${APP_NAME} ${APP_VERSION}"
+Caption "${APP_NAME} ${APP_VERSION} Installer"
 OutFile "ZUGZWANG_Setup_v${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKCU "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
+BrandingText "ZUGZWANG Installer"
 
 ; Metadata
-VIProductVersion "1.0.9.0"
+VIProductVersion "1.0.9.1"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
@@ -43,14 +45,19 @@ VIAddVersionKey "LegalCopyright" "Copyright 2024 ${APP_PUBLISHER}"
 !define MUI_HEADERIMAGE_UNBITMAP "assets\header.bmp"
 !define MUI_HEADERIMAGE_RIGHT
 
-!define MUI_WELCOMEPAGE_TITLE "Welcome to ${APP_NAME} Setup"
-!define MUI_WELCOMEPAGE_TEXT "This wizard will install ${APP_NAME} ${APP_VERSION} on your computer.$\r$\n$\r$\nZUGZWANG is a professional lead generation and recruitment research tool, optimized for maximum speed and accuracy.$\r$\n$\r$\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TITLE "Install ${APP_NAME}"
+!define MUI_WELCOMEPAGE_TEXT "${APP_NAME} ${APP_VERSION} installs a complete Windows workspace for scraping, lead enrichment, and outreach.$\r$\n$\r$\nYou will get:$\r$\n• Multi-source search and scraping$\r$\n• A live runtime monitor$\r$\n• Results review and export tools$\r$\n• Built-in SMTP outreach workflow$\r$\n$\r$\nClick Next to continue."
+!define MUI_LICENSEPAGE_TEXT_TOP "Review the license terms before installing ${APP_NAME}."
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose where ${APP_NAME} should be installed."
+!define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Install location"
+!define MUI_FINISHPAGE_TITLE "${APP_NAME} is ready"
+!define MUI_FINISHPAGE_TEXT "${APP_NAME} ${APP_VERSION} has been installed successfully.$\r$\n$\r$\nYou can launch the app now or close the installer."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
-!define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME} Now"
-!define MUI_FINISHPAGE_LINK "Visit Official Website"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME}"
+!define MUI_FINISHPAGE_LINK "Open the GitHub project"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/whbexc/Zugzwang"
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.txt"
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "View Release Notes (README)"
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Open local release notes"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME

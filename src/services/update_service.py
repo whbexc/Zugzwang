@@ -7,11 +7,59 @@ import os
 import sys
 import httpx
 import logging
-from packaging import version
+import re
+import socket
 from PySide6.QtCore import QObject, Signal, QThread
 from ..core.config import config_manager
 
 logger = logging.getLogger(__name__)
+
+_VERSION_RE = re.compile(r"^\s*v?(\d+(?:\.\d+)*)([a-zA-Z]*)\s*$")
+
+
+def _parse_version_parts(raw: str) -> tuple[tuple[int, ...], str]:
+    text = (raw or "").strip()
+    match = _VERSION_RE.match(text)
+    if not match:
+        return (0,), ""
+    numeric = tuple(int(part) for part in match.group(1).split("."))
+    suffix = match.group(2).lower()
+    return numeric, suffix
+
+
+def _compare_versions(current: str, latest: str) -> int:
+    """
+    Compare app versions with support for developer suffixes like 1.0.9b.
+    Returns:
+      1  -> current is newer
+      0  -> same
+     -1  -> latest is newer
+    Rule: same numeric base + letter suffix means the suffixed version is newer
+    than the plain release, so 1.0.9b > 1.0.9.
+    """
+    current_num, current_suffix = _parse_version_parts(current)
+    latest_num, latest_suffix = _parse_version_parts(latest)
+
+    max_len = max(len(current_num), len(latest_num))
+    current_num += (0,) * (max_len - len(current_num))
+    latest_num += (0,) * (max_len - len(latest_num))
+
+    if current_num > latest_num:
+        return 1
+    if current_num < latest_num:
+        return -1
+
+    if current_suffix == latest_suffix:
+        return 0
+    if current_suffix and not latest_suffix:
+        return 1
+    if latest_suffix and not current_suffix:
+        return -1
+    if current_suffix > latest_suffix:
+        return 1
+    if current_suffix < latest_suffix:
+        return -1
+    return 0
 
 class UpdateWorker(QThread):
     """Background worker for update checks and downloads."""
@@ -31,9 +79,19 @@ class UpdateWorker(QThread):
                 self._check_for_updates()
             elif self.mode == "download":
                 self._download_update()
+        except (httpx.HTTPError, socket.gaierror, OSError) as e:
+            if self.mode == "check":
+                logger.info(f"Update check skipped: {e}")
+                self.check_finished.emit(False, "", "")
+                return
+            logger.error(f"Update download error: {str(e)}")
+            self.error.emit(str(e))
         except Exception as e:
             logger.error(f"Update error: {str(e)}")
-            self.error.emit(str(e))
+            if self.mode == "check":
+                self.check_finished.emit(False, "", "")
+            else:
+                self.error.emit(str(e))
 
     def _check_for_updates(self):
         from ..core.config import APP_VERSION
@@ -68,7 +126,7 @@ class UpdateWorker(QThread):
                 self.check_finished.emit(False, "", "")
                 return
 
-            if version.parse(latest_version) <= version.parse(current_version):
+            if _compare_versions(current_version, latest_version) >= 0:
                 self.check_finished.emit(False, "", "")
                 return
 

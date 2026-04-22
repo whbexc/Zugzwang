@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect, 
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QDesktopServices, QKeySequence, QBrush
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, 
-    QPushButton, QWidget, QGraphicsOpacityEffect
+    QPushButton, QWidget, QGraphicsOpacityEffect, QSizePolicy
 )
 from .theme import Theme
 from ..changelog import CHANGELOG, CHANGELOG_AR, APP_VERSION
@@ -14,7 +14,8 @@ class HoverChangeRow(QFrame):
     """A row that highlights on hover."""
     def __init__(self, pill_widget, text_widget, is_rtl: bool, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(34)
+        self.setMinimumHeight(40)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.setStyleSheet("""
             HoverChangeRow {
                 background: transparent;
@@ -25,21 +26,24 @@ class HoverChangeRow(QFrame):
             }
         """)
         row = QHBoxLayout(self)
-        row.setContentsMargins(8, 0, 8, 0)
+        row.setContentsMargins(10, 6, 10, 6)
         row.setSpacing(10)
         
-        # Flex layout: vertically center align items
+        text_widget.setWordWrap(True)
+        text_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+
         txt_wrapper = QWidget()
+        txt_wrapper.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         txt_layout = QVBoxLayout(txt_wrapper)
         txt_layout.setContentsMargins(0, 0, 0, 0)
-        txt_layout.addWidget(text_widget, 0, Qt.AlignVCenter)
+        txt_layout.addWidget(text_widget, 0, Qt.AlignTop)
 
         if is_rtl:
-            row.addWidget(txt_wrapper, 1, Qt.AlignVCenter)
-            row.addWidget(pill_widget, 0, Qt.AlignVCenter)
+            row.addWidget(txt_wrapper, 1, Qt.AlignTop)
+            row.addWidget(pill_widget, 0, Qt.AlignTop)
         else:
-            row.addWidget(pill_widget, 0, Qt.AlignVCenter)
-            row.addWidget(txt_wrapper, 1, Qt.AlignVCenter)
+            row.addWidget(pill_widget, 0, Qt.AlignTop)
+            row.addWidget(txt_wrapper, 1, Qt.AlignTop)
 
 class WhatsNewDialog(QDialog):
     def __init__(self, current_version: str = APP_VERSION, parent=None):
@@ -56,7 +60,7 @@ class WhatsNewDialog(QDialog):
         if parent:
             self.resize(parent.size())
         else:
-            self.resize(1000, 800)
+            self.resize(1100, 860)
             
         self._build_ui()
         self._start_animations()
@@ -64,8 +68,10 @@ class WhatsNewDialog(QDialog):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'main_container'):
-            cx = self.width() // 2 - 260
-            cy = self.height() // 2 - 310
+            cw = self.main_container.width()
+            ch = self.main_container.height()
+            cx = self.width() // 2 - cw // 2
+            cy = self.height() // 2 - ch // 2
             self.main_container.move(cx, cy)
 
     def paintEvent(self, event):
@@ -76,7 +82,7 @@ class WhatsNewDialog(QDialog):
     def _build_ui(self):
         # ── 1. DIALOG CONTAINER ─────────────────────────────────────
         self.main_container = QFrame(self)
-        self.main_container.setFixedSize(520, 620)
+        self.main_container.setFixedSize(640, 720)
         self.main_container.setStyleSheet("""
             QFrame#MainContainer {
                 background-color: #1C1C1E;
@@ -86,8 +92,8 @@ class WhatsNewDialog(QDialog):
         """)
         self.main_container.setObjectName("MainContainer")
         
-        cx = self.width() // 2 - 260
-        cy = self.height() // 2 - 310
+        cx = self.width() // 2 - 320
+        cy = self.height() // 2 - 360
         self.main_container.move(cx, cy)
         
         self.opacity_effect = QGraphicsOpacityEffect(self)
@@ -121,7 +127,7 @@ class WhatsNewDialog(QDialog):
             QPushButton:hover { color: #FFFFFF; }
         """)
         close_btn.clicked.connect(self.close_animated)
-        close_btn.move(520 - 28 - 16, 0) # align with 28px padding right
+        close_btn.move(640 - 28 - 16, 0) # align with 28px padding right
 
         icon_title_layout = QHBoxLayout(top_row)
         icon_title_layout.setContentsMargins(0, 0, 0, 0)
@@ -178,7 +184,6 @@ class WhatsNewDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setFixedWidth(520) # Constrain exactly
         scroll.setStyleSheet("""
             QScrollArea {
                 background: transparent;
@@ -207,7 +212,6 @@ class WhatsNewDialog(QDialog):
 
         content = QWidget()
         content.setObjectName("ScrollContent")
-        content.setFixedWidth(520)
         self.list_layout = QVBoxLayout(content)
         self.list_layout.setContentsMargins(28, 20, 28, 20)
         self.list_layout.setSpacing(0)
@@ -412,12 +416,12 @@ class WhatsNewDialog(QDialog):
             # ── 3. CHANGE TYPE BADGES
             pill = QLabel(type_label)
             pill.setAlignment(Qt.AlignCenter)
-            pill.setFixedSize(64, 20)
+            pill.setFixedSize(78, 22)
             pill.setStyleSheet(f"""
                 QLabel {{
                     background: {rgba_bg};
                     border: 1px solid {rgba_border};
-                    border-radius: 4px;
+                    border-radius: 5px;
                     color: {c_clr};
                     font-family: 'Zariantz', '-apple-system', 'SF Pro Semibold', sans-serif;
                     font-size: 9px;
@@ -429,7 +433,7 @@ class WhatsNewDialog(QDialog):
             
             txt = QLabel(change["text"])
             txt.setWordWrap(True)
-            txt.setStyleSheet("color: #AEAEB2; font-family: 'Zariantz', '-apple-system', 'SF Pro Text', sans-serif; font-size: 13px; line-height: 1.4; background: transparent; border: none;")
+            txt.setStyleSheet("color: #AEAEB2; font-family: 'Zariantz', '-apple-system', 'SF Pro Text', sans-serif; font-size: 14px; line-height: 1.45; background: transparent; border: none;")
             if self._is_rtl:
                 txt.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             else:
@@ -453,9 +457,9 @@ class WhatsNewDialog(QDialog):
         
         cx, cy = self.width() // 2, self.height() // 2
         # 95% start
-        sw, sh = int(520 * 0.95), int(620 * 0.95)
+        sw, sh = int(640 * 0.95), int(720 * 0.95)
         start_rect = QRect(cx - sw//2, cy - sh//2, sw, sh)
-        end_rect = QRect(cx - 260, cy - 310, 520, 620)
+        end_rect = QRect(cx - 320, cy - 360, 640, 720)
         
         self.geom_anim.setStartValue(start_rect)
         self.geom_anim.setEndValue(end_rect)

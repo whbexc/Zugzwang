@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QLineEdit, QTextEdit, QFileDialog, QSizePolicy, QStackedWidget, QTextBrowser,
-    QPlainTextEdit, QScrollArea, QPushButton
+    QPlainTextEdit, QScrollArea, QPushButton, QCompleter
 )
 from .components import StatCard, SectionCard, MacSwitch
 from qfluentwidgets import (
@@ -52,6 +52,8 @@ from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QAbstractItem
 from PySide6.QtGui import QPainter, QCursor, QGuiApplication
 import re
 
+_EMAIL_PROFILE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.com$", re.IGNORECASE)
+
 class RecipientItem(QListWidgetItem):
     def __init__(self, email: str, parent=None):
         super().__init__(parent)
@@ -59,10 +61,20 @@ class RecipientItem(QListWidgetItem):
         self.status = "pending" # pending, sending, success, failed
         self.setText(email)
         self.setSizeHint(QSize(0, 24))
+        self.setFlags(self.flags() | Qt.ItemIsEditable)
+
+    def setData(self, role, value):
+        super().setData(role, value)
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            self.email = str(value or "").strip()
 
 
 class RecipientDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        if option.state & QStyle.State_Editing:
+            super().paint(painter, option, index)
+            return
+
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         
@@ -101,7 +113,11 @@ class RecipientDelegate(QStyledItemDelegate):
             painter.setPen(QColor("#32D74B")) # Green Success Color
         
         painter.setFont(font)
-        painter.drawText(rect.adjusted(36, 0, -80, 0), Qt.AlignLeft | Qt.AlignVCenter, email)
+        painter.drawText(
+            rect.adjusted(36, 0, -12, 0),
+            Qt.AlignLeft | Qt.AlignVCenter | Qt.TextSingleLine,
+            email,
+        )
         
         # Drag Handle (Left)
         painter.setPen(QColor("#636366"))
@@ -130,6 +146,7 @@ class RecipientListWidget(QListWidget):
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.setDefaultDropAction(Qt.MoveAction)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.setItemDelegate(RecipientDelegate(self))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
@@ -138,6 +155,16 @@ class RecipientListWidget(QListWidget):
         self.model().rowsMoved.connect(lambda: self.items_changed.emit())
         self.model().rowsInserted.connect(lambda: self.items_changed.emit())
         self.model().rowsRemoved.connect(lambda: self.items_changed.emit())
+        self.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item):
+        cleaned = item.text().strip()
+        item.email = cleaned
+        if item.text() != cleaned:
+            self.blockSignals(True)
+            item.setText(cleaned)
+            self.blockSignals(False)
+        self.items_changed.emit()
 
     def _show_context_menu(self, pos):
         item = self.itemAt(pos)
@@ -252,6 +279,7 @@ class EmailSenderPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._attachments: list[str] = []
+        self._sender_profiles: dict[str, dict[str, str]] = {}
         self._successful_emails: list[str] = self._load_outreach_history()
         self._sending = False
         self._stop_requested = False
@@ -384,6 +412,12 @@ class EmailSenderPage(QWidget):
         self._btn_delete_menu.setCursor(Qt.PointingHandCursor)
         self._btn_delete_menu.setToolTip("Remove recipients")
         self._btn_delete_menu.setStyleSheet(self._icon_button_stylesheet())
+
+        self._sender_completer = QCompleter([], self)
+        self._sender_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._sender_completer.setFilterMode(Qt.MatchContains)
+        self._sender_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._smtp_user.setCompleter(self._sender_completer)
 
     def _build_ui(self):
         self.setObjectName("emailPage")
@@ -613,6 +647,7 @@ class EmailSenderPage(QWidget):
         except: pass
         try: self._smtp_pass.textChanged.disconnect()
         except: pass
+        self._smtp_user.textChanged.connect(self._on_sender_identity_changed)
         self._smtp_user.textChanged.connect(self._save_fields)
         self._smtp_pass.textChanged.connect(self._save_fields)
 
@@ -1030,6 +1065,7 @@ class EmailSenderPage(QWidget):
         self._tls_switch.toggled.connect(self._save_fields)
         self._type_toggle.toggled.connect(self._save_fields)
         self._type_toggle.toggled.connect(self._refresh_preview_if_open)
+        self._sender_completer.activated[str].connect(self._apply_sender_profile)
 
     def _on_log(self, message: str, level: str):
         color = "#FFFFFF"
@@ -1179,6 +1215,66 @@ class EmailSenderPage(QWidget):
 
     def _get_recipients(self) -> list[str]:
         return [self._recipient_list.item(i).email for i in range(self._recipient_list.count())]
+
+    def _load_sender_profiles(self):
+        raw_profiles = getattr(config_manager.settings, "email_sender_profiles", []) or []
+        profiles: dict[str, dict[str, str]] = {}
+        for entry in raw_profiles:
+            if not isinstance(entry, dict):
+                continue
+            email = str(entry.get("email", "")).strip()
+            if not self._is_valid_sender_profile_email(email):
+                continue
+            profiles[email.lower()] = {
+                "email": email,
+                "password": str(entry.get("password", "")),
+            }
+        self._sender_profiles = profiles
+        self._refresh_sender_completer()
+
+    def _refresh_sender_completer(self):
+        emails = [entry["email"] for entry in self._sender_profiles.values()]
+        emails.sort(key=str.lower)
+        self._sender_completer.model().setStringList(emails)
+
+    def _remember_current_sender_profile(self):
+        email = self._smtp_user.text().strip()
+        password = self._smtp_pass.text()
+        if not self._is_valid_sender_profile_email(email) or not password:
+            return
+        self._sender_profiles[email.lower()] = {
+            "email": email,
+            "password": password,
+        }
+        if len(self._sender_profiles) > 20:
+            ordered = list(sorted(self._sender_profiles.values(), key=lambda item: item["email"].lower()))
+            ordered = ordered[-20:]
+            self._sender_profiles = {item["email"].lower(): item for item in ordered}
+        self._refresh_sender_completer()
+
+    @staticmethod
+    def _is_valid_sender_profile_email(email: str) -> bool:
+        return bool(_EMAIL_PROFILE_RE.match((email or "").strip()))
+
+    def _apply_sender_profile(self, email: str):
+        profile = self._sender_profiles.get(email.strip().lower())
+        if not profile:
+            return
+        self._is_restoring = True
+        self._smtp_user.setText(profile["email"])
+        self._smtp_pass.setText(profile.get("password", ""))
+        self._is_restoring = False
+        self._save_fields()
+
+    def _on_sender_identity_changed(self):
+        if getattr(self, "_is_restoring", False):
+            return
+        email = self._smtp_user.text().strip().lower()
+        profile = self._sender_profiles.get(email)
+        if profile and self._smtp_pass.text() != profile.get("password", ""):
+            self._is_restoring = True
+            self._smtp_pass.setText(profile.get("password", ""))
+            self._is_restoring = False
 
     def _set_recipients(self, emails: list[str]):
         self._recipient_list.setUpdatesEnabled(False)
@@ -1857,12 +1953,13 @@ class EmailSenderPage(QWidget):
     def _save_fields(self):
         if getattr(self, '_is_restoring', False):
             return
-            
+        self._remember_current_sender_profile()
         config_manager.update(
             email_smtp_host=self._smtp_host.text(),
             email_smtp_port=self._smtp_port.text(),
             email_smtp_user=self._smtp_user.text(),
             email_smtp_pass=self._smtp_pass.text(),
+            email_sender_profiles=list(self._sender_profiles.values()),
             email_from_name=self._from_name.text(),
             email_reply_to=self._reply_to.text(),
             email_smtp_auth=self._auth_switch.isChecked(),
@@ -1878,6 +1975,7 @@ class EmailSenderPage(QWidget):
 
     def _restore_fields(self):
         s = config_manager.settings
+        self._load_sender_profiles()
         self._smtp_host.setText(s.email_smtp_host)
         self._smtp_port.setText(s.email_smtp_port)
         self._smtp_user.setText(s.email_smtp_user)

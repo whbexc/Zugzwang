@@ -41,10 +41,12 @@ class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
         self._dirty = False
+        self._cache_cleanup_in_progress = False
         self._language = get_language(config_manager.settings.app_language)
         self._build_ui()
         self._load_values()
         self._connect_change_tracking()
+        config_manager.cache_cleanup_finished.connect(self._on_cache_cleanup_finished)
 
     # ── Widget Factories ─────────────────────────────────────────────────────
 
@@ -452,13 +454,52 @@ class SettingsPage(QWidget):
         vl.addLayout(top_split)
         vl.addSpacing(16)
 
-        # ── Group 2: Danger Zone card ──────────────────────────────────────────
+        # ── Group 2: Cache cleanup card ───────────────────────────────────────
+        cache_card = QFrame()
+        cache_card.setObjectName("CacheCard")
+        cache_card.setStyleSheet("QFrame#CacheCard { background: rgba(255, 159, 10, 0.05); border: 1px solid rgba(255, 159, 10, 0.14); border-radius: 12px; }")
+        cache_hl = QHBoxLayout(cache_card); cache_hl.setContentsMargins(16, 12, 16, 12); cache_hl.setSpacing(12)
+
+        c_ic = IconWidget(FluentIcon.SYNC); c_ic.setFixedSize(16, 16); c_ic.setStyleSheet("color: #FF9F0A;")
+        cache_hl.addWidget(c_ic)
+
+        ctxt = QVBoxLayout(); ctxt.setSpacing(2); ctxt.setContentsMargins(0, 0, 0, 0)
+        ch = QLabel("CACHED APPDATA"); ch.setStyleSheet("color: rgba(255, 159, 10, 0.95); font-size: 10px; font-weight: 800; letter-spacing: 1px;")
+        cb = QLabel("Reset stale AppData settings and local cache while keeping SMTP and scraped leads.")
+        cb.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        ctxt.addWidget(ch); ctxt.addWidget(cb)
+        cache_hl.addLayout(ctxt, 1)
+
+        self._clean_cache_btn = _Btn("CLEAN CACHE")
+        self._clean_cache_btn.setFixedSize(140, 40)
+        self._clean_cache_btn.setCursor(Qt.PointingHandCursor)
+        self._clean_cache_btn.setStyleSheet("""
+            _Btn {
+                background-color: #3A2A12;
+                border: none;
+                border-radius: 10px;
+                color: #FFB340;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1.4px;
+                text-transform: uppercase;
+                padding: 0 12px;
+            }
+            _Btn:hover { background-color: #483419; color: #FFC15C; }
+            _Btn:pressed { background-color: #523A18; }
+        """)
+        self._clean_cache_btn.clicked.connect(self._clear_cached_appdata)
+        cache_hl.addWidget(self._clean_cache_btn)
+
+        vl.addWidget(cache_card)
+        vl.addSpacing(12)
+
+        # ── Group 3: Danger Zone card ──────────────────────────────────────────
         danger_card = QFrame()
         danger_card.setObjectName("DangerCard")
         danger_card.setStyleSheet("QFrame#DangerCard { background: rgba(255, 69, 58, 0.05); border: 1px solid rgba(255, 69, 58, 0.12); border-radius: 12px; }")
         danger_hl = QHBoxLayout(danger_card); danger_hl.setContentsMargins(16, 12, 16, 12); danger_hl.setSpacing(12)
         
-        from qfluentwidgets import IconWidget
         d_ic = IconWidget(FluentIcon.INFO); d_ic.setFixedSize(16, 16); d_ic.setStyleSheet("color: #FF453A;")
         danger_hl.addWidget(d_ic)
 
@@ -490,7 +531,7 @@ class SettingsPage(QWidget):
         danger_hl.addWidget(self._clear_btn)
         
         from PySide6.QtWidgets import QStyleFactory
-        for btn in (self._reset_btn, self._save_btn, self._clear_btn):
+        for btn in (self._reset_btn, self._save_btn, self._clean_cache_btn, self._clear_btn):
             btn.setStyle(QStyleFactory.create("Fusion"))
 
         vl.addWidget(danger_card)
@@ -910,3 +951,34 @@ class SettingsPage(QWidget):
                 InfoBar.success("Cleaned", "Saved leads DB cleared", duration=2000, parent=self.window())
             except Exception as e:
                 InfoBar.error("Clean Failed", f"Could not clear saved leads: {e}", parent=self.window())
+
+    def _clear_cached_appdata(self):
+        if orchestrator.is_running:
+            InfoBar.warning(tr("monitor.status.running", self._language), "Stop current job first.", parent=self.window())
+            return
+        if self._cache_cleanup_in_progress:
+            return
+
+        from .components import ZugzwangDialog
+        msg = ZugzwangDialog(
+            "Clean Cached AppData",
+            "This will reset old AppData settings and local cache to a fresh-install state while keeping SMTP setup and scraped leads. Continue?",
+            self.window(),
+            destructive=True
+        )
+        if msg.exec():
+            self._cache_cleanup_in_progress = True
+            self._clean_cache_btn.setEnabled(False)
+            config_manager.clear_cached_app_data_async()
+
+    def _on_cache_cleanup_finished(self, success: bool, error: str):
+        if not self._cache_cleanup_in_progress:
+            return
+        self._cache_cleanup_in_progress = False
+        self._clean_cache_btn.setEnabled(True)
+
+        if success:
+            self._load_values()
+            InfoBar.success("Cache Cleaned", "Old AppData settings were reset. SMTP and saved leads were preserved.", duration=2500, parent=self.window())
+        else:
+            InfoBar.error("Cleanup Failed", f"Could not clean cached AppData: {error}", parent=self.window())

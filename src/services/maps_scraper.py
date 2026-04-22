@@ -53,6 +53,7 @@ import asyncio
 import json
 
 import re
+from urllib.parse import quote_plus
 
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -219,18 +220,22 @@ class GoogleMapsScraper:
         query = self._build_query()
 
         logger.info(f"[{self.job_id}] Google Maps scrape: {query}")
+        logger.info(f"[{self.job_id}] Preparing Maps page...")
+        try:
+            page = await asyncio.wait_for(self.session.new_page(), timeout=8.0)
+        except asyncio.TimeoutError as exc:
+            raise BrowserError("Timed out while opening the initial Maps page tab.") from exc
 
-
-
-        page = await self.session.new_page()
-
+        logger.info(f"[{self.job_id}] Maps page ready. Applying startup settings...")
         page.set_default_timeout(120_000)
 
 
 
         try:
 
+            logger.info(f"[{self.job_id}] Installing Maps feed listener...")
             self._install_search_feed_listener(page)
+            logger.info(f"[{self.job_id}] Maps feed listener installed.")
 
             logger.info(f"[{self.job_id}] Opening google.com/maps ...")
 
@@ -247,8 +252,12 @@ class GoogleMapsScraper:
                 raise BrowserError("Failed to load Google Maps after retries")
 
 
-
-            await self._dismiss_consent_banner(page)
+            logger.info(f"[{self.job_id}] Google Maps loaded. Checking consent/startup state...")
+            try:
+                await asyncio.wait_for(self._dismiss_consent_banner(page), timeout=3.0)
+            except asyncio.TimeoutError as exc:
+                raise BrowserError("Timed out while checking the Google Maps consent banner.") from exc
+            logger.info(f"[{self.job_id}] Maps startup checks completed.")
 
 
 
@@ -515,7 +524,11 @@ class GoogleMapsScraper:
 
         record.category = await self._extract_text_with_fallbacks(page, [
 
+            '//button[contains(@jsaction, "category") and normalize-space()]',
+
             '//button[contains(@jsaction, "category")]//span',
+
+            '//button[contains(@class, "DkEaL") and normalize-space()]',
 
             '//button[@data-item-id="authority"]/..//span[contains(@class, "fontBodyMedium")]',
 
@@ -524,6 +537,36 @@ class GoogleMapsScraper:
             '//span[contains(@class, "mgr77e")]',
 
         ])
+
+        if not record.category:
+            try:
+                record.category = await page.evaluate(
+                    """
+                    () => {
+                        const selectors = [
+                            'button[jsaction*=".category"]',
+                            'button.DkEaL[jsaction*=".category"]',
+                            'button.DkEaL'
+                        ];
+                        for (const selector of selectors) {
+                            const nodes = Array.from(document.querySelectorAll(selector));
+                            for (const node of nodes) {
+                                const text = (node.innerText || node.textContent || '').trim();
+                                if (!text) continue;
+                                if (text.length < 2) continue;
+                                if (/^(website|route|save|teilen|share|call|anrufen)$/i.test(text)) continue;
+                                return text;
+                            }
+                        }
+                        return '';
+                    }
+                    """
+                ) or ""
+            except Exception:
+                pass
+
+        if record.category and not record.job_title:
+            record.job_title = record.category
 
 
 
@@ -752,8 +795,6 @@ class GoogleMapsScraper:
 
 
             count = await page.locator(LISTING_XPATH).count()
-
-            logger.info(f"[{self.job_id}] Listings visible: {count}")
 
 
 
@@ -1032,47 +1073,28 @@ class GoogleMapsScraper:
             await asyncio.sleep(0.1)
 
     async def _submit_maps_search(self, page: Page, search_input: Page) -> None:
-        """Submit the Maps search with focused-input and click fallbacks."""
-        await search_input.press("Enter")
-        if await self._wait_for_search_submission(page, timeout_ms=4_000):
-            return
-
-        logger.info(f"[{self.job_id}] Enter key did not trigger Maps search. Trying search button fallback.")
-        button_selectors = [
-            '#searchbox-searchbutton',
-            'button[aria-label="Search"]',
-            'button[aria-label="Suche"]',
-            '//button[@id="searchbox-searchbutton"]',
-        ]
-        for selector in button_selectors:
-            try:
-                btn = page.locator(selector).first
-                await btn.wait_for(state="attached", timeout=1_000)
-                await btn.click()
-                if await self._wait_for_search_submission(page, timeout_ms=4_000):
-                    return
-            except Exception:
-                continue
-
-        logger.info(f"[{self.job_id}] Search button fallback did not trigger. Retrying with JavaScript submit.")
+        """Submit the Maps search using the direct search URL path."""
+        query = ""
         try:
-            await page.evaluate(
-                """
-                () => {
-                    const input = document.querySelector('#searchboxinput, input[role="combobox"]');
-                    if (!input) return false;
-                    input.focus();
-                    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', bubbles: true}));
-                    input.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', bubbles: true}));
-                    return true;
-                }
-                """
-            )
+            query = (await search_input.input_value()).strip()
         except Exception:
-            pass
+            query = ""
 
-        if not await self._wait_for_search_submission(page, timeout_ms=4_000):
-            raise BrowserError("Maps search submission did not trigger after Enter and button fallbacks.")
+        if query:
+            logger.info(f"[{self.job_id}] UI submit failed. Navigating directly to Maps search URL.")
+            search_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
+            success = await self.session.navigate(
+                page,
+                search_url,
+                timeout=25_000,
+                retries=1,
+                wait_until="domcontentloaded",
+                ignore_rate_limit=True,
+            )
+            if success and await self._wait_for_search_submission(page, timeout_ms=8_000):
+                return
+
+        raise BrowserError("Maps search submission did not trigger through the direct URL path.")
 
     async def _wait_for_search_submission(self, page: Page, timeout_ms: int = 4_000) -> bool:
         """Detect whether Maps actually accepted the submitted search."""
@@ -1364,8 +1386,7 @@ class GoogleMapsScraper:
 
 
         if added:
-
-            logger.info(f"[{self.job_id}] Search feed captured {added} new Maps candidates")
+            logger.debug(f"[{self.job_id}] Search feed captured {added} new Maps candidates")
 
 
 

@@ -14,10 +14,10 @@ from .logger import get_logger
 
 logger = get_logger(__name__)
 
-# Hashed security constants — original values are NEVER stored in the source code or binary.
-# Use hashlib.sha256(key.encode()).hexdigest() to verify/update these.
-_MASTER_KEY_HASH = "30ba28554b78612623f23011379467223587ca111958661c536f6b07e1a389c4"
-_SALT_HASH       = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9ec96"
+# Hashed security constants — raw admin secret is never stored in source.
+# Override keys are machine-bound and derived from the hashed admin seed only.
+_ADMIN_OVERRIDE_SEED_HASH = "b216dd4a3e0a43535b926069a969d261270205d5893e03d8b63f65f41dcb9668"
+_SALT_HASH                = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9ec96"
 
 MAX_FREE_TRIAL_SCRAPS = 20
 
@@ -25,6 +25,15 @@ class LicenseManager:
     """
     Manages application activation and hardware fingerprinting.
     """
+
+    @staticmethod
+    def _format_key(prefix: str, signature: str) -> str:
+        blocks = [signature[i:i+4] for i in range(0, len(signature), 4)]
+        return f"{prefix}-{'-'.join(blocks)}"
+
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        return (key or "").replace("-", "").strip().upper()
 
     @staticmethod
     def _machine_id_path() -> Path:
@@ -73,6 +82,7 @@ class LicenseManager:
         try:
             if getattr(config_manager.settings, "machine_id", "") != normalized:
                 config_manager.update(machine_id=normalized)
+                config_manager.flush()
         except Exception:
             logger.warning("Failed to persist machine ID to settings.", exc_info=True)
 
@@ -123,16 +133,24 @@ class LicenseManager:
         """
         raw_payload = f"{machine_id}{_SALT_HASH}"
         signature = hashlib.sha256(raw_payload.encode()).hexdigest()[:12].upper()
-        
-        # Split into blocks: ZUG-ABCD-EFGH-IJKL
-        blocks = [signature[i:i+4] for i in range(0, 12, 4)]
-        return f"ZUG-{''.join(blocks)}"
+        return LicenseManager._format_key("ZUG", signature)
+
+    @staticmethod
+    def generate_admin_override_key(machine_id: str) -> str:
+        """
+        Generates a machine-bound admin override key for internal support/dev use.
+        Format: ADM-XXXX-XXXX-XXXX
+        """
+        normalized_mid = (machine_id or "").strip().upper()
+        raw_payload = f"ADMIN::{normalized_mid}::{_ADMIN_OVERRIDE_SEED_HASH}"
+        signature = hashlib.sha256(raw_payload.encode()).hexdigest()[:12].upper()
+        return LicenseManager._format_key("ADM", signature)
 
     @staticmethod
     def validate_license(key: str) -> bool:
         """
         Checks if the provided key matches the current machine's hardware ID.
-        Also supports a developer master override (verified by hash only — key never stored).
+        Also supports machine-bound internal admin override keys.
         """
         if not key or len(key) < 5:
             return False
@@ -140,16 +158,13 @@ class LicenseManager:
         if LicenseManager.is_banned(key):
             return False
             
-        # Master Bypass — compare SHA-256 hash of input, never the key itself
-        if hashlib.sha256(key.strip().encode()).hexdigest() == _MASTER_KEY_HASH:
-            return True
-
-        # Strip dashes and compare case-insensitively
-        clean_key = key.replace("-", "").upper()
+        clean_key = LicenseManager._normalize_key(key)
         for machine_id in LicenseManager._candidate_machine_ids():
-            expected_key = LicenseManager.generate_license_key(machine_id)
-            clean_expected = expected_key.replace("-", "").upper()
-            if clean_key == clean_expected:
+            expected_keys = (
+                LicenseManager.generate_license_key(machine_id),
+                LicenseManager.generate_admin_override_key(machine_id),
+            )
+            if any(clean_key == LicenseManager._normalize_key(expected_key) for expected_key in expected_keys):
                 LicenseManager._persist_machine_id(machine_id)
                 return True
 
@@ -179,6 +194,7 @@ class LicenseManager:
         """Attempts to activate the app with the provided key."""
         if LicenseManager.validate_license(key):
             config_manager.update(license_key=key, is_activated=True)
+            config_manager.flush()
             return True
         return False
 

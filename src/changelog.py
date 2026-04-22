@@ -1,14 +1,82 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.0.9b"
 
 CHANGELOG = [
     {
-        "version": "1.0.9",
-        "date": "April 20, 2026",
+        "version": "1.0.9b",
+        "date": "April 22, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Sender Profiles — saved multiple Gmail sender identities with instant autocomplete and password autofill"
+            },
+            {
+                "type": "new",
+                "text": "Startup Pro Prompt — free users now see a launch-time upgrade dialog with a direct path to activation"
+            },
+            {
+                "type": "improved",
+                "text": "Broadcast Draft Persistence — Send page now preserves SMTP setup, queue, subject, body, interval, and attachments across cache cleanup"
+            },
+            {
+                "type": "improved",
+                "text": "Gmail Delivery Stability — each Gmail recipient now uses a fresh SMTP session to reduce Windows 10 disconnect issues"
+            },
+            {
+                "type": "improved",
+                "text": "Update Intelligence — developer builds like 1.0.9b no longer show false downgrade popups when GitHub is still on 1.0.9"
+            },
+            {
+                "type": "improved",
+                "text": "Google Maps Search Resilience — added direct search-URL fallback when packaged builds fail to submit the Maps search box"
+            },
+            {
+                "type": "improved",
+                "text": "Google Maps Startup Flow — packaged builds now go straight to the direct Maps search URL instead of wasting time on unreliable UI submit fallbacks"
+            },
+            {
+                "type": "improved",
+                "text": "Maps Category Extraction — Google Maps business-type buttons like 'Pflegeheim' and 'Plastischer Chirurg' now populate the Job / Category column"
+            },
+            {
+                "type": "improved",
+                "text": "Update Check Quiet Mode — offline or DNS lookup failures no longer spam false updater errors when GitHub cannot be reached"
+            },
+            {
+                "type": "fixed",
+                "text": "Stop Responsiveness — manual broadcast stop now interrupts long waits instead of hanging until the next delay finishes"
+            },
+            {
+                "type": "fixed",
+                "text": "Cached AppData Cleanup — reset stale local settings without touching scraped leads, SMTP credentials, or saved send drafts"
+            },
+            {
+                "type": "fixed",
+                "text": "Settings Cleanup Reliability — locked live log files are skipped safely and cleanup no longer runs SQLite operations on the main thread"
+            },
+            {
+                "type": "fixed",
+                "text": "License Persistence — machine ID now saves correctly and Pro activation is flushed immediately to survive app restart"
+            },
+            {
+                "type": "fixed",
+                "text": "Recipient Queue Editing — Send page emails can now be corrected inline with a double-click instead of delete-and-readd"
+            },
+            {
+                "type": "fixed",
+                "text": "Recipient Queue Editor Rendering — inline email editing no longer draws duplicated overlapping text inside the queue"
+            },
+        ]
+    },
+    {
+        "version": "1.0.9",
+        "date": "April 20, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -236,10 +304,72 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.9",
-        "date": "20 أبريل 2026",
+        "version": "1.0.9b",
+        "date": "22 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "ملفات تعريف المرسل — حفظ عدة هويات Gmail مع إكمال تلقائي فوري وملء تلقائي لكلمة مرور التطبيق"
+            },
+            {
+                "type": "new",
+                "text": "نافذة ترقية عند التشغيل — المستخدم التجريبي يرى الآن نافذة تفعيل عند بدء التطبيق مع مسار مباشر للترقية"
+            },
+            {
+                "type": "improved",
+                "text": "استمرارية مسودة البث — صفحة الإرسال تحفظ إعدادات SMTP وقائمة المستلمين والعنوان والمحتوى والفاصل الزمني والمرفقات حتى بعد تنظيف الكاش"
+            },
+            {
+                "type": "improved",
+                "text": "استقرار إرسال Gmail — كل مستلم في Gmail يستخدم الآن جلسة SMTP جديدة لتقليل انقطاعات Windows 10"
+            },
+            {
+                "type": "improved",
+                "text": "ذكاء التحديث — الإصدارات التطويرية مثل 1.0.9b لم تعد تعرض تنبيهات تحديث خاطئة عندما يكون GitHub ما زال على 1.0.9"
+            },
+            {
+                "type": "improved",
+                "text": "مرونة بحث خرائط Google — تمت إضافة مسار مباشر عبر رابط البحث عندما تفشل النسخة المجمعة في إرسال مربع بحث الخرائط"
+            },
+            {
+                "type": "improved",
+                "text": "استخراج فئة خرائط Google — أزرار نوع النشاط مثل 'Pflegeheim' و 'Plastischer Chirurg' تملأ الآن عمود الوظيفة / الفئة"
+            },
+            {
+                "type": "fixed",
+                "text": "استجابة الإيقاف — إيقاف البث اليدوي يقطع فترات الانتظار الطويلة فوراً بدل التعليق حتى ينتهي التأخير"
+            },
+            {
+                "type": "fixed",
+                "text": "تنظيف AppData المؤقت — إعادة ضبط الإعدادات المحلية القديمة بدون المساس بالعملاء المستخرجين أو بيانات SMTP أو مسودات الإرسال"
+            },
+            {
+                "type": "fixed",
+                "text": "موثوقية تنظيف الإعدادات — يتم تخطي ملفات السجل المقفلة بأمان ولم تعد عمليات SQLite تعمل على الخيط الرئيسي"
+            },
+            {
+                "type": "fixed",
+                "text": "استمرارية الترخيص — يتم الآن حفظ معرف الجهاز بشكل صحيح مع حفظ التفعيل فوراً حتى يبقى وضع Pro بعد إعادة تشغيل التطبيق"
+            },
+            {
+                "type": "fixed",
+                "text": "تحرير قائمة المستلمين — يمكن الآن تصحيح البريد الإلكتروني داخل صفحة الإرسال بالنقر المزدوج بدل الحذف ثم الإضافة من جديد"
+            },
+        ]
+    },
+    {
+        "version": "1.0.9",
+        "date": "20 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

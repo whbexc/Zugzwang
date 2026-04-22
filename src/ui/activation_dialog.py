@@ -23,8 +23,9 @@ class ActivationDialog(QDialog):
     activated = Signal()
     open_send_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, startup_prompt: bool = False):
         super().__init__(parent)
+        self._startup_prompt = startup_prompt
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -77,7 +78,8 @@ class ActivationDialog(QDialog):
         header.addSpacing(6)
         
         # Subtitle
-        subtitle = QLabel("Activation required to use ZUGZWANG")
+        subtitle_text = "Unlock Pro to remove trial limits and use ZUGZWANG at full power" if self._startup_prompt else "Activation required to use ZUGZWANG"
+        subtitle = QLabel(subtitle_text)
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet("""
             color: #8E8E93; 
@@ -336,7 +338,7 @@ class ActivationDialog(QDialog):
         actions.addWidget(banner)
         
         # Close Button
-        self.close_btn = QPushButton("Close Application")
+        self.close_btn = QPushButton("Continue Trial" if self._startup_prompt else "Close Application")
         self.close_btn.setFixedHeight(36)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
@@ -363,6 +365,8 @@ class ActivationDialog(QDialog):
 
     def _on_exit_clicked(self):
         if LicenseManager.is_active():
+            self.reject()
+        elif self._startup_prompt:
             self.reject()
         else:
             import sys

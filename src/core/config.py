@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.0.9b"
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -67,12 +68,28 @@ def get_screenshots_dir() -> Path:
     return d
 
 
+def _clear_dir_contents(path: Path) -> None:
+    """Delete all files and folders inside a directory, preserving the directory itself."""
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            try:
+                child.unlink()
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                logger.debug(f"Skipping locked cache file during cleanup: {child}")
+
+
 class ConfigManager(QObject):
     """
     Singleton-style settings manager.
     Reads/writes AppSettings to a JSON file in the user's AppData folder.
     """
     history_updated = Signal()
+    cache_cleanup_finished = Signal(bool, str)
 
     _instance: "ConfigManager | None" = None
     _settings_path: Path
@@ -104,11 +121,11 @@ class ConfigManager(QObject):
                     data = json.load(f)
                 settings = self._merge_with_defaults(data)
                 
-                settings.app_version = "1.0.9"
+                settings.app_version = "1.0.9b"
                 return settings
             except Exception as e:
                 logger.warning(f"Failed to load settings, using defaults: {e}")
-        return AppSettings(app_version="1.0.9")
+        return AppSettings(app_version="1.0.9b")
 
     def _merge_with_defaults(self, data: dict) -> AppSettings:
         """Merge saved settings with defaults to handle new fields after upgrades."""
@@ -244,6 +261,74 @@ class ConfigManager(QObject):
             self._refresh_history_cache_sync()
         except Exception as e:
             logger.warning(f"Failed to clear history: {e}")
+
+    def clear_search_history(self) -> None:
+        """Delete all search history entries synchronously."""
+        self._clear_search_history_sync()
+
+    def _clear_search_history_sync(self) -> None:
+        try:
+            conn = self._get_db()
+            with conn:
+                conn.execute("DELETE FROM search_history")
+            conn.close()
+            self._refresh_history_cache_sync()
+        except Exception as e:
+            logger.warning(f"Failed to clear all history: {e}")
+
+    def clear_cached_app_data(self) -> None:
+        """Reset stale AppData settings/cache while preserving activation and trial state."""
+        preserved = {
+            "trial_scraps_count": self._settings.trial_scraps_count,
+            "trial_last_reset_date": self._settings.trial_last_reset_date,
+            "license_key": self._settings.license_key,
+            "is_activated": self._settings.is_activated,
+            "security_pin": self._settings.security_pin,
+            "security_enabled": self._settings.security_enabled,
+            "email_smtp_host": self._settings.email_smtp_host,
+            "email_smtp_port": self._settings.email_smtp_port,
+            "email_smtp_user": self._settings.email_smtp_user,
+            "email_smtp_pass": self._settings.email_smtp_pass,
+            "email_from_name": self._settings.email_from_name,
+            "email_reply_to": self._settings.email_reply_to,
+            "email_smtp_auth": self._settings.email_smtp_auth,
+            "email_smtp_ssl": self._settings.email_smtp_ssl,
+            "email_smtp_tls": self._settings.email_smtp_tls,
+            "email_subject": self._settings.email_subject,
+            "email_body": self._settings.email_body,
+            "email_body_html": self._settings.email_body_html,
+            "email_interval": self._settings.email_interval,
+            "email_recipients": self._settings.email_recipients,
+            "email_attachments": self._settings.email_attachments,
+        }
+
+        try:
+            if self._settings_path.exists():
+                self._settings_path.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to remove cached settings file: {e}")
+
+        self._settings = AppSettings(app_version=APP_VERSION)
+        for key, value in preserved.items():
+            setattr(self._settings, key, value)
+
+        self._clear_search_history_sync()
+        _clear_dir_contents(get_logs_dir())
+        _clear_dir_contents(get_screenshots_dir())
+        self._save_sync()
+
+    def clear_cached_app_data_async(self) -> None:
+        """Run AppData cleanup on the background DB worker."""
+        from .db_worker import db_worker
+        db_worker.submit(self._clear_cached_app_data_task)
+
+    def _clear_cached_app_data_task(self) -> None:
+        try:
+            self.clear_cached_app_data()
+            self.cache_cleanup_finished.emit(True, "")
+        except Exception as e:
+            logger.error(f"Cached AppData cleanup failed: {e}", exc_info=True)
+            self.cache_cleanup_finished.emit(False, str(e))
 
     def reset(self) -> None:
         """Resets configurations to factory defaults, preserving trial usage tracking."""

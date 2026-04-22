@@ -422,6 +422,7 @@ class AppSettings:
     email_smtp_port: str = "587"
     email_smtp_user: str = ""
     email_smtp_pass: str = ""
+    email_sender_profiles: list = field(default_factory=list)
     email_from_name: str = ""
     email_reply_to: str = ""
     email_smtp_auth: bool = True
@@ -435,6 +436,7 @@ class AppSettings:
     email_attachments: str = ""
 
     # Security & Licensing
+    machine_id: str = ""
     security_pin: str = ""
     security_enabled: bool = False
     license_key: str = ""
@@ -443,7 +445,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.9"
+    app_version: str = "1.0.9b"
 
 
     # Free Trial Tracking
