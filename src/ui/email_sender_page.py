@@ -1272,15 +1272,14 @@ class EmailSenderPage(QWidget):
         return container
 
     def _clear_all_data(self):
-        # Identity
-        self._smtp_host.clear()
-        self._smtp_port.setText("587")
+        # Keep SMTP transport settings intact. "Clear all" should reset compose
+        # state, not wipe the configured mail server out of app settings.
         self._smtp_user.clear()
         self._smtp_pass.clear()
         self._auth_switch.setChecked(True)
         self._ssl_switch.setChecked(False)
         self._tls_switch.setChecked(True)
-        
+
         # Payload
         self._from_name.clear()
         self._reply_to.clear()
@@ -2279,9 +2278,12 @@ class EmailSenderPage(QWidget):
         if getattr(self, '_is_restoring', False):
             return
         self._remember_current_sender_profile()
+        current_settings = config_manager.settings
+        smtp_host = self._smtp_host.text().strip() or getattr(current_settings, "email_smtp_host", "") or "smtp.gmail.com"
+        smtp_port = self._smtp_port.text().strip() or getattr(current_settings, "email_smtp_port", "") or "587"
         config_manager.update(
-            email_smtp_host=self._smtp_host.text(),
-            email_smtp_port=self._smtp_port.text(),
+            email_smtp_host=smtp_host,
+            email_smtp_port=smtp_port,
             email_smtp_user=self._smtp_user.text(),
             email_smtp_pass=self._smtp_pass.text(),
             email_sender_profiles=list(self._sender_profiles.values()),
@@ -2301,8 +2303,8 @@ class EmailSenderPage(QWidget):
     def _restore_fields(self):
         s = config_manager.settings
         self._load_sender_profiles()
-        self._smtp_host.setText(s.email_smtp_host)
-        self._smtp_port.setText(s.email_smtp_port)
+        self._smtp_host.setText(s.email_smtp_host or "smtp.gmail.com")
+        self._smtp_port.setText(s.email_smtp_port or "587")
         self._smtp_user.setText(s.email_smtp_user)
         self._smtp_pass.setText(s.email_smtp_pass)
         self._from_name.setText(s.email_from_name)
