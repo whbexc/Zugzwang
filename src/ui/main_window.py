@@ -6,6 +6,7 @@ Pivot from Sidebar to Top-Navigation Header for a wide-screen, cinematic feel.
 from __future__ import annotations
 import re
 import asyncio
+import threading
 
 from PySide6.QtCore import Qt, QSize, QTimer, QRectF, Signal, QEvent, QUrl
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QBrush, QFont, QDesktopServices
@@ -285,6 +286,8 @@ class MainWindow(FramelessWindow):
         self._active_captcha_dialog = None
         self._activation_prompt_open = False
         self._startup_upgrade_prompt_pending = False
+        self._active_solver_jobs: set[str] = set()
+        self._solver_lock = threading.Lock()
         self._upgrade_prompt_timer = QTimer(self)
         self._upgrade_prompt_timer.setInterval(10 * 60 * 1000)
         self._upgrade_prompt_timer.timeout.connect(self._show_periodic_upgrade_prompt)
@@ -659,12 +662,15 @@ class MainWindow(FramelessWindow):
         logger.info("[activation] Opening activation dialog from manual entry point")
         dialog = ActivationDialog(self)
         dialog.open_send_requested.connect(lambda: self._switch(4))
+        result = 0
         try:
             result = dialog.exec()
             logger.info("[activation] Manual activation dialog closed with result=%s", result)
-            return result
         finally:
             self._activation_prompt_open = False
+        if LicenseManager.is_active():
+            self._refresh_post_activation_state()
+        return result
 
     def _show_startup_upgrade_prompt(self):
         if LicenseManager.is_active():
@@ -692,6 +698,7 @@ class MainWindow(FramelessWindow):
                 self._upgrade_prompt_timer.start()
             else:
                 logger.info("[startup] License activated; upgrade reminder timer remains stopped")
+                self._refresh_post_activation_state()
 
     def _show_periodic_upgrade_prompt(self):
         if LicenseManager.is_active():
@@ -703,6 +710,17 @@ class MainWindow(FramelessWindow):
             return
         logger.info("[startup] 10-minute upgrade reminder fired")
         self._show_startup_upgrade_prompt()
+
+    def _refresh_post_activation_state(self):
+        self.dashboard_page.refresh()
+
+        settings_page = self._page_instances.get(5)
+        if settings_page and hasattr(settings_page, "_update_license_display"):
+            settings_page._update_license_display()
+
+        search_page = self._page_instances.get(1)
+        if search_page and hasattr(search_page, "refresh_license_state"):
+            search_page.refresh_license_state()
 
     def _show_update_dialog(self, version: str, url: str):
         """Show the macOS-style update notification."""
@@ -793,6 +811,11 @@ class MainWindow(FramelessWindow):
         orchestrator.persist_current_job()
         if orchestrator.is_running:
             orchestrator.cancel_job()
+        thread = getattr(orchestrator, "_thread", None)
+        if thread and thread.isRunning():
+            logger.info("[window] Waiting for scraping worker thread to shut down...")
+            if not thread.wait(3000):
+                logger.warning("[window] Scraping worker thread still running after shutdown wait")
         event.accept()
 
     def _on_captcha_challenge(self, job_id: str, image: bytes, **kw):
@@ -827,6 +850,12 @@ class MainWindow(FramelessWindow):
 
     def _launch_headed_solver(self, job_id: str, url: str, cookies: list, user_agent: str = ""):
         """Open a REAL browser window for the user to solve the captcha."""
+        with self._solver_lock:
+            if job_id in self._active_solver_jobs:
+                logger.info(f"[{job_id}] Headed solver already active; ignoring duplicate request for {url}")
+                return
+            self._active_solver_jobs.add(job_id)
+
         logger.info(f"[{job_id}] Launching headed solver for {url}")
         
         # We need to run this in a way that doesn't block the UI thread but allows the user to interact
@@ -845,71 +874,92 @@ class MainWindow(FramelessWindow):
 
         async def solver_task():
             from playwright.async_api import async_playwright
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=False)
-                
-                context_kwargs = {}
-                if user_agent:
-                    context_kwargs["user_agent"] = user_agent
-                
-                context = await browser.new_context(**context_kwargs)
-                if cookies:
-                    await context.add_cookies(cookies)
-                
-                page = await context.new_page()
-                page.set_default_timeout(0) # No timeout for manual solving
-                await page.goto(url)
+            final_cookies = list(cookies or [])
+            try:
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch(headless=False)
 
-                def _captcha_still_present() -> str:
-                    return """() => {
-                        const text = document.body.innerText.toLowerCase();
-                        if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
-                        const h1 = document.querySelector('h1');
-                        if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
-                        if (document.querySelector('#captchaForm')) return true;
-                        if (document.querySelector('#kontaktdaten-captcha-input')) return true;
-                        if (document.querySelector('#kontaktdaten-captcha-absenden-button')) return true;
-                        if (document.querySelector('[id*="kontaktdaten-captcha"]')) return true;
-                        if (text.includes('ich bin kein roboter')) return true;
-                        if (text.includes('verify you are human')) return true;
-                        if (text.includes('beim laden der sicherheitsabfrage')) return true;
-                        return false;
-                    }"""
+                    context_kwargs = {}
+                    if user_agent:
+                        context_kwargs["user_agent"] = user_agent
 
-                clear_checks = 0
-                captcha_seen_once = False
-                solver_started_at = asyncio.get_running_loop().time()
-                while browser.is_connected():
-                    pages = context.pages
-                    if not pages:
-                        break
+                    context = await browser.new_context(**context_kwargs)
+                    if cookies:
+                        await context.add_cookies(cookies)
+
+                    page = await context.new_page()
+                    page.set_default_timeout(0) # No timeout for manual solving
                     try:
-                        challenge_present = await page.evaluate(_captcha_still_present())
-                        if challenge_present:
-                            captcha_seen_once = True
-                            clear_checks = 0
-                        else:
-                            if captcha_seen_once and (asyncio.get_running_loop().time() - solver_started_at) >= 4.0:
-                                clear_checks += 1
-                            else:
-                                clear_checks = 0
-                        if captcha_seen_once and clear_checks >= 2:
+                        await page.goto(url, wait_until="domcontentloaded")
+                    except Exception as e:
+                        logger.warning(f"[{job_id}] Headed solver navigation aborted: {e}")
+                        return
+
+                    def _captcha_still_present() -> str:
+                        return """() => {
+                            const text = document.body.innerText.toLowerCase();
+                            if (document.title.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            const h1 = document.querySelector('h1');
+                            if (h1 && h1.innerText.toLowerCase().includes('sicherheitsabfrage')) return true;
+                            if (document.querySelector('#captchaForm')) return true;
+                            if (document.querySelector('#kontaktdaten-captcha-input')) return true;
+                            if (document.querySelector('#kontaktdaten-captcha-absenden-button')) return true;
+                            if (document.querySelector('[id*="kontaktdaten-captcha"]')) return true;
+                            if (text.includes('ich bin kein roboter')) return true;
+                            if (text.includes('verify you are human')) return true;
+                            if (text.includes('beim laden der sicherheitsabfrage')) return true;
+                            return false;
+                        }"""
+
+                    clear_checks = 0
+                    captcha_seen_once = False
+                    solver_started_at = asyncio.get_running_loop().time()
+                    while browser.is_connected():
+                        pages = context.pages
+                        if not pages:
                             break
+                        page = pages[-1]
+                        try:
+                            if page.is_closed():
+                                break
+                            challenge_present = await page.evaluate(_captcha_still_present())
+                            if challenge_present:
+                                captcha_seen_once = True
+                                clear_checks = 0
+                            else:
+                                if captcha_seen_once and (asyncio.get_running_loop().time() - solver_started_at) >= 4.0:
+                                    clear_checks += 1
+                                else:
+                                    clear_checks = 0
+                            if captcha_seen_once and clear_checks >= 2:
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(1)
+
+                    try:
+                        final_cookies = await context.cookies()
                     except Exception:
                         pass
-                    await asyncio.sleep(1)
 
-                final_cookies = await context.cookies()
-                event_bus.emit(event_bus.SOLVER_COMPLETED, job_id=job_id, cookies=final_cookies)
-                await browser.close()
+                    event_bus.emit(event_bus.SOLVER_COMPLETED, job_id=job_id, cookies=final_cookies)
+
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+            finally:
+                with self._solver_lock:
+                    self._active_solver_jobs.discard(job_id)
 
         def run_it():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(solver_task())
-            loop.close()
+            try:
+                loop.run_until_complete(solver_task())
+            finally:
+                loop.close()
 
-        import threading
         threading.Thread(target=run_it, daemon=True).start()
 
     def _sync_results_page(self, results_page: QWidget, fallback_records=None) -> None:

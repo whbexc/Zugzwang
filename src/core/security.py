@@ -193,7 +193,17 @@ class LicenseManager:
     def activate(key: str) -> bool:
         """Attempts to activate the app with the provided key."""
         if LicenseManager.validate_license(key):
-            config_manager.update(license_key=key, is_activated=True)
+            settings = config_manager.settings
+            updates = {
+                "license_key": key,
+                "is_activated": True,
+            }
+
+            # If the last search was auto-capped by trial mode, restore the normal default.
+            if (settings.last_search_max_results or 0) <= MAX_FREE_TRIAL_SCRAPS:
+                updates["last_search_max_results"] = settings.default_max_results
+
+            config_manager.update(**updates)
             config_manager.flush()
             return True
         return False

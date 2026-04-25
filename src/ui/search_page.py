@@ -896,7 +896,7 @@ class SearchPage(QWidget):
             radius=int(self._radius.currentText().split()[0]),
             source_type=SourceType(self._source),
             offer_type=backend_offer,
-            max_results=self._int_value(self._max_results_input, 100),
+            max_results=max_results,
             scrape_emails=self._chk_emails.isChecked(),
             latest_offers_only=self._chk_latest.isChecked(),
             headless=self._chk_headless.isChecked(),
@@ -942,6 +942,20 @@ class SearchPage(QWidget):
         self._radius.setCurrentText(f"{settings.last_search_radius} km")
         self._select_source(self._source, preserve_values=True)
 
+    def refresh_license_state(self) -> None:
+        from ..core.security import LicenseManager
+
+        settings = config_manager.settings
+        is_free = not LicenseManager.is_active()
+        current_max = self._int_value(self._max_results_input, settings.default_max_results)
+
+        if is_free:
+            current_max = min(20, current_max)
+        elif current_max <= 20 and (settings.last_search_max_results or 0) <= 20:
+            current_max = settings.default_max_results
+
+        self._max_results_input.setText(str(max(10, min(10000, current_max))))
+
     def _load_last_search(self) -> None:
         settings = config_manager.settings
         self._job_title.setText(settings.last_search_job_title or "")
@@ -967,6 +981,8 @@ class SearchPage(QWidget):
         last_max = settings.last_search_max_results or settings.default_max_results
         if is_free:
             last_max = min(20, last_max)
+        elif last_max <= 20:
+            last_max = settings.default_max_results
 
         self._max_results_input.setText(str(max(10, min(10000, last_max))))
         self._delay_min.setText(f"{(settings.last_search_delay_min or settings.default_delay_min):.1f}")
