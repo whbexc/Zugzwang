@@ -18,7 +18,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.9b"
+APP_VERSION = "1.0.9c"
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -105,8 +105,11 @@ class ConfigManager(QObject):
         if hasattr(self, "_initialized") and self._initialized:
             return
         super().__init__()
+        self._upgrade_state_reset_applied = False
         self._settings_path = get_app_data_dir() / "settings.json"
         self._settings = self._load()
+        if self._upgrade_state_reset_applied:
+            self._save_sync()
         self._search_history_cache = []
         self._initialized = True
         
@@ -119,13 +122,14 @@ class ConfigManager(QObject):
             try:
                 with open(self._settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                previous_version = str(data.get("app_version", "") or "").strip()
                 settings = self._merge_with_defaults(data)
-                
-                settings.app_version = "1.0.9b"
+                settings = self._reset_cached_state_for_upgrade(settings, previous_version)
+                settings.app_version = APP_VERSION
                 return settings
             except Exception as e:
                 logger.warning(f"Failed to load settings, using defaults: {e}")
-        return AppSettings(app_version="1.0.9b")
+        return AppSettings(app_version=APP_VERSION)
 
     def _merge_with_defaults(self, data: dict) -> AppSettings:
         """Merge saved settings with defaults to handle new fields after upgrades."""
@@ -135,6 +139,55 @@ class ConfigManager(QObject):
             return AppSettings(**{k: defaults[k] for k in AppSettings.__dataclass_fields__})
         except Exception:
             return AppSettings()
+
+    @staticmethod
+    def _preserved_upgrade_state(settings: AppSettings) -> dict[str, Any]:
+        return {
+            "trial_scraps_count": settings.trial_scraps_count,
+            "trial_last_reset_date": settings.trial_last_reset_date,
+            "machine_id": settings.machine_id,
+            "license_key": settings.license_key,
+            "is_activated": settings.is_activated,
+            "security_pin": settings.security_pin,
+            "security_enabled": settings.security_enabled,
+            "app_language": settings.app_language,
+            "email_smtp_host": settings.email_smtp_host,
+            "email_smtp_port": settings.email_smtp_port,
+            "email_smtp_user": settings.email_smtp_user,
+            "email_smtp_pass": settings.email_smtp_pass,
+            "email_sender_profiles": list(settings.email_sender_profiles),
+            "email_from_name": settings.email_from_name,
+            "email_reply_to": settings.email_reply_to,
+            "email_smtp_auth": settings.email_smtp_auth,
+            "email_smtp_ssl": settings.email_smtp_ssl,
+            "email_smtp_tls": settings.email_smtp_tls,
+            "email_subject": settings.email_subject,
+            "email_body": settings.email_body,
+            "email_body_html": settings.email_body_html,
+            "email_interval": settings.email_interval,
+            "email_recipients": settings.email_recipients,
+            "email_attachments": settings.email_attachments,
+        }
+
+    def _reset_cached_state_for_upgrade(self, settings: AppSettings, previous_version: str) -> AppSettings:
+        previous_version = (previous_version or "").strip()
+        if not previous_version or previous_version == APP_VERSION:
+            return settings
+
+        preserved = self._preserved_upgrade_state(settings)
+        refreshed = AppSettings(app_version=APP_VERSION)
+        for key, value in preserved.items():
+            setattr(refreshed, key, value)
+
+        self._upgrade_state_reset_applied = True
+        logger.info(
+            "Applied one-time cached state reset for upgrade from %s to %s.",
+            previous_version,
+            APP_VERSION,
+        )
+        _clear_dir_contents(get_logs_dir())
+        _clear_dir_contents(get_screenshots_dir())
+        return refreshed
 
     def save(self) -> None:
         from .db_worker import db_worker
@@ -278,29 +331,7 @@ class ConfigManager(QObject):
 
     def clear_cached_app_data(self) -> None:
         """Reset stale AppData settings/cache while preserving activation and trial state."""
-        preserved = {
-            "trial_scraps_count": self._settings.trial_scraps_count,
-            "trial_last_reset_date": self._settings.trial_last_reset_date,
-            "license_key": self._settings.license_key,
-            "is_activated": self._settings.is_activated,
-            "security_pin": self._settings.security_pin,
-            "security_enabled": self._settings.security_enabled,
-            "email_smtp_host": self._settings.email_smtp_host,
-            "email_smtp_port": self._settings.email_smtp_port,
-            "email_smtp_user": self._settings.email_smtp_user,
-            "email_smtp_pass": self._settings.email_smtp_pass,
-            "email_from_name": self._settings.email_from_name,
-            "email_reply_to": self._settings.email_reply_to,
-            "email_smtp_auth": self._settings.email_smtp_auth,
-            "email_smtp_ssl": self._settings.email_smtp_ssl,
-            "email_smtp_tls": self._settings.email_smtp_tls,
-            "email_subject": self._settings.email_subject,
-            "email_body": self._settings.email_body,
-            "email_body_html": self._settings.email_body_html,
-            "email_interval": self._settings.email_interval,
-            "email_recipients": self._settings.email_recipients,
-            "email_attachments": self._settings.email_attachments,
-        }
+        preserved = self._preserved_upgrade_state(self._settings)
 
         try:
             if self._settings_path.exists():

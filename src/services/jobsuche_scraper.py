@@ -641,10 +641,17 @@ class JobsucheScraper:
             await asyncio.sleep(0.1)
 
             option = page.locator(
-                f"#angebotsart-dropdownList li:has-text('{target}')"
+                f"#angebotsart-dropdownList li:has-text('{target}'), "
+                f"#angebotsart-dropdownList [role='option']:has-text('{target}'), "
+                f"#angebotsart-dropdownList button:has-text('{target}'), "
+                f"#angebotsart-dropdownList a:has-text('{target}')"
             ).first
-            await option.wait_for(state="visible", timeout=8_000)
-            await option.click()
+            await option.wait_for(state="attached", timeout=8_000)
+            try:
+                await option.scroll_into_view_if_needed(timeout=1_500)
+            except Exception:
+                pass
+            await option.click(force=True)
             await asyncio.sleep(0.1)
             logger.info(f"[{self.job_id}] Angebotsart set to {target}")
         except Exception as e:
@@ -662,18 +669,34 @@ class JobsucheScraper:
                 logger.debug(f"[{self.job_id}] Radius dropdown not visible, skipping selection")
                 return
 
+            if not await self._wait_for_enabled(page, dropdown_btn, timeout_ms=6_000):
+                aria_label = await dropdown_btn.get_attribute("aria-label")
+                title = await dropdown_btn.get_attribute("title")
+                logger.warning(
+                    f"[{self.job_id}] Radius dropdown stayed disabled after location entry. "
+                    f"aria-label={aria_label!r} title={title!r}"
+                )
+                return
+
             await dropdown_btn.click()
             await asyncio.sleep(0.1)
 
             # Match exactly (e.g. "200 km")
             target_text = f"{radius} km"
             option = page.locator(
-                f"#umkreis-dropdownList li:has-text('{target_text}')"
+                f"#umkreis-dropdownList li:has-text('{target_text}'), "
+                f"#umkreis-dropdownList [role='option']:has-text('{target_text}'), "
+                f"#umkreis-dropdownList button:has-text('{target_text}'), "
+                f"#umkreis-dropdownList a:has-text('{target_text}')"
             ).first
             
             if await option.count() > 0:
-                await option.wait_for(state="visible", timeout=5_000)
-                await option.click()
+                await option.wait_for(state="attached", timeout=5_000)
+                try:
+                    await option.scroll_into_view_if_needed(timeout=1_500)
+                except Exception:
+                    pass
+                await option.click(force=True)
                 # Wait for dropdown to close and UI to reflect change
                 await asyncio.sleep(0.1)
                 logger.info(f"[{self.job_id}] Radius set to {target_text}")
@@ -719,9 +742,11 @@ class JobsucheScraper:
         """Switch the Jobsuche results page into the split-pane detail view."""
         selectors = [
             '#ansicht-auswahl-tabbar-item-1',
+            '[id*="ansicht"][id*="tabbar"][id$="-1"]',
             'button:has-text("Detailansicht")',
             'a:has-text("Detailansicht")',
             '[role="tab"]:has-text("Detailansicht")',
+            '[aria-label*="Detailansicht"]',
         ]
         for selector in selectors:
             try:
@@ -729,14 +754,24 @@ class JobsucheScraper:
                 if await button.count() <= 0:
                     continue
                 await button.scroll_into_view_if_needed(timeout=1_200)
-                if await button.get_attribute("aria-selected") == "true":
+                aria_selected = await button.get_attribute("aria-selected")
+                aria_pressed = await button.get_attribute("aria-pressed")
+                classes = (await button.get_attribute("class") or "").lower()
+                if aria_selected == "true" or aria_pressed == "true" or "active" in classes or "selected" in classes:
                     logger.info(f"[{self.job_id}] Detailansicht already active")
                     return
-                await button.click()
-                await asyncio.sleep(0.1)
-                logger.info(f"[{self.job_id}] Switched to Detailansicht")
-                return
-            except Exception:
+                await button.click(force=True)
+                await asyncio.sleep(0.15)
+                if (
+                    await button.get_attribute("aria-selected") == "true"
+                    or await button.get_attribute("aria-pressed") == "true"
+                    or "active" in ((await button.get_attribute("class") or "").lower())
+                    or await page.locator(RESULT_CARD_SEL).count() > 0
+                ):
+                    logger.info(f"[{self.job_id}] Switched to Detailansicht")
+                    return
+            except Exception as e:
+                logger.debug(f"[{self.job_id}] Detailansicht selector failed ({selector}): {e}")
                 continue
 
         logger.warning(f"[{self.job_id}] Could not switch to Detailansicht")
@@ -1155,20 +1190,19 @@ class JobsucheScraper:
                 record.website = direct_website
 
         panel_ready = False
-        should_try_panel = not any([
-            record.email,
-            record.phone,
-            record.address,
-            record.website,
-        ])
-        if should_try_panel:
-            await self._open_application_panel(page)
-            panel_ready = await self._wait_for_application_panel(page)
-            if panel_ready:
-                captcha_seen = await self._handle_captcha(page)
-                if captcha_seen:
-                    await self._open_application_panel(page)
-                    panel_ready = await self._wait_for_application_panel(page) or panel_ready
+        await self._open_application_panel(page)
+        panel_ready = await self._wait_for_application_panel(page)
+        if not panel_ready:
+            captcha_seen = await self._handle_captcha(page)
+            if captcha_seen:
+                await self._resync_results_after_captcha(page)
+                refreshed_cards = page.locator(RESULT_CARD_SEL)
+                if await refreshed_cards.count() >= card_index:
+                    card = refreshed_cards.nth(card_index - 1)
+                    await self._click_result_card(page, card, card_index, "post-panel-captcha")
+                    await asyncio.sleep(0.15)
+                await self._open_application_panel(page)
+                panel_ready = await self._wait_for_application_panel(page)
 
         if not panel_ready:
             logger.info(
@@ -2004,11 +2038,46 @@ class JobsucheScraper:
             field = page.locator(selectors).first
             await field.wait_for(state="visible", timeout=8_000)
             await field.click()
+            try:
+                await field.fill("")
+            except Exception:
+                pass
             await field.fill(value)
+            await field.press("Tab")
+            await asyncio.sleep(0.15)
+            committed = await self._wait_for_field_value(page, field, value, timeout_ms=4_000)
+            if not committed:
+                logger.debug(f"[{self.job_id}] {field_name} field did not confirm exact value immediately")
             await asyncio.sleep(0.1)
             logger.info(f"[{self.job_id}] {field_name} field set to '{value}'")
         except Exception as e:
             logger.warning(f"[{self.job_id}] Could not fill {field_name}: {e}")
+
+    async def _wait_for_enabled(self, page: Page, locator: Any, timeout_ms: int = 5_000) -> bool:
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < deadline:
+            try:
+                disabled = await locator.get_attribute("disabled")
+                aria_disabled = await locator.get_attribute("aria-disabled")
+                if disabled is None and aria_disabled != "true":
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.15)
+        return False
+
+    async def _wait_for_field_value(self, page: Page, locator: Any, expected: str, timeout_ms: int = 4_000) -> bool:
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        expected_norm = " ".join((expected or "").split()).lower()
+        while time.monotonic() < deadline:
+            try:
+                current = await locator.input_value()
+                if " ".join((current or "").split()).lower() == expected_norm:
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.15)
+        return False
 
     async def _collect_listing_hrefs(self, page: Page) -> list[str]:
         """Scroll to load listings and collect unique detail page URLs."""

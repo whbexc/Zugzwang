@@ -27,6 +27,12 @@ _NOISY_INFO_LOGGERS = (
     "src.services.azubiyo_scraper",
 )
 
+_UI_HIDDEN_LOG_PREFIXES = (
+    "[startup]",
+    "[window]",
+    "[activation]",
+)
+
 
 def register_ui_log_sink(sink: Callable[[str, str, str], None]) -> None:
     """Register a callable that receives (level, logger_name, message) for UI display."""
@@ -48,6 +54,11 @@ class UISinkHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = record.getMessage()
+            if (
+                record.name == "src.ui.main_window"
+                and msg.startswith(_UI_HIDDEN_LOG_PREFIXES)
+            ):
+                return
             
             # Simple [job-id] extraction for standard scraper logs
             job_id = ""

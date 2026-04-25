@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.0.9b-E5E5EA?style=for-the-badge&color=2C2C2E">
+<img alt="Version" src="https://img.shields.io/badge/version-1.0.9c-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -57,9 +57,13 @@ It is designed for:
 - SMTP sending
 - Gmail-safe broadcast mode
 - recipient queue management
+- inline queue editing
+- manual recipient add dialog
 - duplicate-send protection
+- message-sensitive resend logic
 - attachment persistence
 - HTML preview
+- sender profiles with autocomplete
 
 ### Local persistence
 
@@ -68,6 +72,7 @@ It is designed for:
 - outreach history
 - saved sender settings
 - saved attachment paths
+- one-time upgrade reset for stale local UI state
 
 ## Product Flow
 
@@ -85,8 +90,8 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 | Search | Query builder, source selection, radius/city filters, history reuse |
 | Monitor | Live progress, runtime metrics, activity stream, pause/resume/stop |
 | Results | Persistent lead library, dedupe-aware review, export-ready records |
-| Send | SMTP broadcast workflow, queue control, attachments, HTML preview |
-| Settings / Logs | Runtime config, sender setup, diagnostics, product state |
+| Send | SMTP broadcast workflow, queue control, inline email editing, sender profiles, attachments, HTML preview |
+| Settings / Logs | Runtime config, cache cleanup, diagnostics, activation, product state |
 
 ## Feature Snapshot
 
@@ -97,6 +102,7 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 - background orchestration to keep UI responsive
 - CAPTCHA handoff flow
 - rate limiting and session management
+- direct fallback paths for unstable packaged-search flows
 
 ### Lead model
 
@@ -116,6 +122,9 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 - reconnect and retry logic
 - test-send and full broadcast flows
 - sent-history tracking
+- sender identity profiles
+- inline recipient editing and manual-add flow
+- resend allowed when the message content changes
 
 ### Storage model
 
@@ -123,6 +132,7 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 - local app memory database
 - dedupe via stable lead identifiers
 - persisted attachment and sender state
+- targeted upgrade cleanup that preserves scraped data, send data, and Pro activation
 
 ## Tech Stack
 
@@ -185,15 +195,18 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.0.9b**
+**1.0.9c**
 
 Recent work includes:
 
-- Ausbildung.de pagination improvements
-- runtime progress reliability fixes
-- Windows/UI stability work
-- Gmail sender hardening
-- persistent attachments in Send page
+- one-time upgrade reset of stale local UI/app state after update
+- scraped leads, sent-email history, send drafts, and Pro activation preserved across that reset
+- sender profiles with saved Gmail identities and password autofill
+- recipient queue inline editing fixes with solid in-row editor rendering
+- manual recipient add dialog styled to match the app
+- resend logic now allows the same email when the message changed
+- Gmail per-recipient fresh-session delivery hardening
+- packaged Google Maps search fallback improvements
 
 ## Licensing
 
@@ -212,6 +225,8 @@ ZUGZWANG stores local application state in AppData, including:
 - logs
 - screenshots
 - app memory database
+
+On version upgrades, the app can refresh stale cached local state once to avoid carrying old UI bugs forward. That reset is designed to preserve scraped leads, send-related state, outreach history, and Pro/license state.
 
 You remain responsible for how scraped data and outbound email are used.
 

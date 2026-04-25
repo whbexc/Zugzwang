@@ -283,6 +283,11 @@ class MainWindow(FramelessWindow):
         
         self._jobs = []
         self._active_captcha_dialog = None
+        self._activation_prompt_open = False
+        self._startup_upgrade_prompt_pending = False
+        self._upgrade_prompt_timer = QTimer(self)
+        self._upgrade_prompt_timer.setInterval(10 * 60 * 1000)
+        self._upgrade_prompt_timer.timeout.connect(self._show_periodic_upgrade_prompt)
 
         self._build_shell()
         self._connect_signals()
@@ -304,6 +309,7 @@ class MainWindow(FramelessWindow):
         from ..changelog import APP_VERSION as changelog_version
         last_seen = config_manager.settings.last_seen_version
         if last_seen != changelog_version:
+            self._startup_upgrade_prompt_pending = not LicenseManager.is_active()
             QTimer.singleShot(1000, self._show_whats_new)
             config_manager.settings.last_seen_version = changelog_version
             config_manager.save()
@@ -324,8 +330,9 @@ class MainWindow(FramelessWindow):
             self.update_service.update_available.connect(self._show_update_dialog)
             QTimer.singleShot(5000, self.update_service.check)
 
-        if not LicenseManager.is_active():
+        if not LicenseManager.is_active() and not self._startup_upgrade_prompt_pending:
             QTimer.singleShot(1600, self._show_startup_upgrade_prompt)
+            self._upgrade_prompt_timer.start()
         
         # Maximization is handled in showEvent for reliability
 
@@ -514,13 +521,6 @@ class MainWindow(FramelessWindow):
             )
         event_bus.subscribe("rate_limit.detected", _on_rate_limit)
 
-    def _show_whats_new(self):
-        """Displays the What's New changelog dialog."""
-        from .whats_new_dialog import WhatsNewDialog
-        from ..changelog import APP_VERSION
-        dialog = WhatsNewDialog(current_version=APP_VERSION, parent=self)
-        dialog.exec()
-
     def _setup_shortcuts(self):
         from PySide6.QtGui import QKeySequence, QShortcut
         # Show What's New
@@ -609,8 +609,20 @@ class MainWindow(FramelessWindow):
     def _show_whats_new(self):
         from .whats_new_dialog import WhatsNewDialog
         from ..changelog import APP_VERSION
+        logger.info(
+            "[startup] Opening What's New dialog (version=%s, pending_upgrade_prompt=%s)",
+            APP_VERSION,
+            self._startup_upgrade_prompt_pending,
+        )
         dialog = WhatsNewDialog(current_version=APP_VERSION, parent=self)
         dialog.exec()
+        logger.info("[startup] What's New dialog closed")
+        if self._startup_upgrade_prompt_pending and not LicenseManager.is_active():
+            logger.info("[startup] Scheduling startup upgrade prompt after What's New")
+            QTimer.singleShot(150, self._show_startup_upgrade_prompt)
+        elif not LicenseManager.is_active():
+            logger.info("[startup] Starting 10-minute upgrade reminder timer after What's New")
+            self._upgrade_prompt_timer.start()
 
     def _show_ui_health_report(self):
         """Displays a real-time UI health diagnostic report."""
@@ -643,17 +655,54 @@ class MainWindow(FramelessWindow):
     def show_activation_dialog(self):
         """Centralized activation check with navigation support."""
         from .activation_dialog import ActivationDialog
+        self._activation_prompt_open = True
+        logger.info("[activation] Opening activation dialog from manual entry point")
         dialog = ActivationDialog(self)
         dialog.open_send_requested.connect(lambda: self._switch(4))
-        return dialog.exec()
+        try:
+            result = dialog.exec()
+            logger.info("[activation] Manual activation dialog closed with result=%s", result)
+            return result
+        finally:
+            self._activation_prompt_open = False
 
     def _show_startup_upgrade_prompt(self):
         if LicenseManager.is_active():
+            self._startup_upgrade_prompt_pending = False
+            self._upgrade_prompt_timer.stop()
+            logger.info("[startup] Startup upgrade prompt skipped because license is active")
+            return
+        if self._activation_prompt_open:
+            logger.info("[startup] Startup upgrade prompt skipped because another activation dialog is already open")
             return
         from .activation_dialog import ActivationDialog
+        self._activation_prompt_open = True
+        logger.info("[startup] Opening startup upgrade prompt")
         dialog = ActivationDialog(self, startup_prompt=True)
         dialog.open_send_requested.connect(lambda: self._switch(4))
-        dialog.exec()
+        dialog.activated.connect(self._upgrade_prompt_timer.stop)
+        try:
+            result = dialog.exec()
+            logger.info("[startup] Startup upgrade prompt closed with result=%s", result)
+        finally:
+            self._activation_prompt_open = False
+            self._startup_upgrade_prompt_pending = False
+            if not LicenseManager.is_active():
+                logger.info("[startup] User still unsubscribed; restarting 10-minute upgrade reminder timer")
+                self._upgrade_prompt_timer.start()
+            else:
+                logger.info("[startup] License activated; upgrade reminder timer remains stopped")
+
+    def _show_periodic_upgrade_prompt(self):
+        if LicenseManager.is_active():
+            self._upgrade_prompt_timer.stop()
+            logger.info("[startup] Periodic upgrade prompt stopped because license is active")
+            return
+        if self._activation_prompt_open:
+            logger.info("[startup] Periodic upgrade prompt skipped because activation dialog is already open")
+            return
+        logger.info("[startup] 10-minute upgrade reminder fired")
+        self._show_startup_upgrade_prompt()
 
     def _show_update_dialog(self, version: str, url: str):
         """Show the macOS-style update notification."""
@@ -722,6 +771,7 @@ class MainWindow(FramelessWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        logger.info("[window] Main window shown")
         # Ensure window opens maximized on start
         if not hasattr(self, "_was_maximized_once"):
             self._was_maximized_once = True
@@ -734,6 +784,11 @@ class MainWindow(FramelessWindow):
             self.titleBar.updateMaximizeButton(self.isMaximized())
 
     def closeEvent(self, event):
+        logger.info(
+            "[window] Main window closing (is_running=%s, activation_dialog_open=%s)",
+            orchestrator.is_running,
+            self._activation_prompt_open,
+        )
         config_manager.flush()
         orchestrator.persist_current_job()
         if orchestrator.is_running:

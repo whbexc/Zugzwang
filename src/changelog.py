@@ -1,14 +1,34 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.9b"
+APP_VERSION = "1.0.9c"
 
 CHANGELOG = [
     {
-        "version": "1.0.9b",
-        "date": "April 22, 2026",
+        "version": "1.0.9c",
+        "date": "April 25, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "fixed",
+                "text": "Upgrade State Reset — first launch after updating now refreshes stale local UI state automatically without touching scraped leads, sent-email history, or Pro activation"
+            },
+            {
+                "type": "fixed",
+                "text": "Recipient Queue Editing — inline email editing now uses a solid in-row editor so old text no longer bleeds through while typing"
+            },
+            {
+                "type": "fixed",
+                "text": "Recipient Queue Add Flow — manual recipient entry now uses a native app-styled dialog instead of the old system prompt"
+            },
+        ]
+    },
+    {
+        "version": "1.0.9b",
+        "date": "April 22, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "new",
@@ -304,10 +324,36 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.9b",
-        "date": "22 أبريل 2026",
+        "version": "1.0.9c",
+        "date": "25 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "fixed",
+                "text": "إعادة ضبط حالة الترقية — أول تشغيل بعد التحديث يجدد حالة الواجهة المحلية القديمة تلقائياً بدون المساس بالعملاء المستخرجين أو سجل الإرسال أو تفعيل Pro"
+            },
+            {
+                "type": "fixed",
+                "text": "تحرير قائمة المستلمين — محرر البريد داخل السطر أصبح يستخدم حقلاً معتماً بالكامل حتى لا يبقى النص القديم ظاهراً أثناء الكتابة"
+            },
+            {
+                "type": "fixed",
+                "text": "إضافة مستلم يدوياً — إدخال البريد اليدوي أصبح يستخدم نافذة داخلية منسجمة مع تصميم التطبيق بدل النافذة النظامية القديمة"
+            },
+        ]
+    },
+    {
+        "version": "1.0.9b",
+        "date": "22 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

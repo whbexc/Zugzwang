@@ -7,6 +7,7 @@ Aesthetic 3.0: Senior Grade macOS Design.
 from __future__ import annotations
 
 import html
+import hashlib
 import os
 import smtplib
 import ssl
@@ -23,7 +24,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QLabel,
     QLineEdit, QTextEdit, QFileDialog, QSizePolicy, QStackedWidget, QTextBrowser,
-    QPlainTextEdit, QScrollArea, QPushButton, QCompleter
+    QPlainTextEdit, QScrollArea, QPushButton, QCompleter, QDialog
 )
 from .components import StatCard, SectionCard, MacSwitch
 from qfluentwidgets import (
@@ -71,15 +72,26 @@ class RecipientItem(QListWidgetItem):
 
 class RecipientDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        rect = option.rect
+        row_background = QColor("#1A1A1A")
+        separator_color = QColor("#2C2C2E")
+
         if option.state & QStyle.State_Editing:
-            super().paint(painter, option, index)
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.fillRect(rect, row_background)
+            painter.setBrush(QColor(10, 132, 255, 40) if option.state & QStyle.State_Selected else QColor(255, 255, 255, 10))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(rect, 6, 6)
+            painter.setPen(separator_color)
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+            painter.restore()
             return
 
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        
-        rect = option.rect
-        
+        painter.fillRect(rect, row_background)
+
         # Hover / Selected bg
         if option.state & QStyle.State_Selected:
             painter.setBrush(QColor(10, 132, 255, 40))
@@ -103,29 +115,66 @@ class RecipientDelegate(QStyledItemDelegate):
         # Cross out already sent
         # Attempt to find history on the widget itself or its parent (EmailSenderPage)
         history = []
-        if option.widget and hasattr(option.widget, "_successful_emails"):
-            history = option.widget._successful_emails
-        elif option.widget and option.widget.parent() and hasattr(option.widget.parent(), "_successful_emails"):
-            history = option.widget.parent()._successful_emails
+        if option.widget and hasattr(option.widget, "_current_sent_emails"):
+            history = option.widget._current_sent_emails()
+        elif option.widget and option.widget.parent() and hasattr(option.widget.parent(), "_current_sent_emails"):
+            history = option.widget.parent()._current_sent_emails()
             
         if email.lower() in history:
             font.setStrikeOut(True)
             painter.setPen(QColor("#32D74B")) # Green Success Color
         
         painter.setFont(font)
+        painter.setClipRect(rect.adjusted(36, 0, -12, 0))
         painter.drawText(
             rect.adjusted(36, 0, -12, 0),
             Qt.AlignLeft | Qt.AlignVCenter | Qt.TextSingleLine,
             email,
         )
+        painter.setClipping(False)
         
         # Drag Handle (Left)
         painter.setPen(QColor("#636366"))
         font.setPointSize(10)
         painter.setFont(font)
         painter.drawText(rect.adjusted(12, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, "≡")
+        painter.setPen(separator_color)
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
         painter.restore()
+
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setFrame(False)
+        editor.setClearButtonEnabled(True)
+        editor.setAutoFillBackground(True)
+        editor.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        editor.setStyleSheet("""
+            QLineEdit {
+                background: #1A1A1A;
+                border: 1px solid rgba(10, 132, 255, 0.75);
+                border-radius: 6px;
+                color: #FFFFFF;
+                padding: 0 8px;
+                selection-background-color: rgba(10, 132, 255, 140);
+                selection-color: #FFFFFF;
+            }
+        """)
+        font = option.font
+        font.setFamily("SF Mono")
+        font.setPointSizeF(9.0)
+        editor.setFont(font)
+        return editor
+
+    def setEditorData(self, editor, index):
+        editor.setText(index.data(Qt.EditRole) or index.data(Qt.DisplayRole) or "")
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.text().strip(), Qt.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect.adjusted(34, 2, -10, -2))
 
 
 class RecipientListWidget(QListWidget):
@@ -228,6 +277,149 @@ class RecipientListWidget(QListWidget):
 
 
 
+class ManualRecipientDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.recipient_email = ""
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(380)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        container = QFrame(self)
+        container.setObjectName("ManualRecipientDialog")
+        container.setStyleSheet("""
+            QFrame#ManualRecipientDialog {
+                background: #1C1C1E;
+                border: 1px solid #3A3A3C;
+                border-radius: 16px;
+            }
+        """)
+        root.addWidget(container)
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+
+        title = QLabel("Add Recipient")
+        title.setStyleSheet(
+            "color: #FFFFFF; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 18px; font-weight: 700; background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel("Type one email address and add it directly to the queue.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(
+            "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 12px; background: transparent; border: none;"
+        )
+        layout.addWidget(subtitle)
+
+        field_label = QLabel("RECIPIENT EMAIL")
+        field_label.setStyleSheet(
+            "color: #636366; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 10px; font-weight: 600; letter-spacing: 1px; "
+            "background: transparent; border: none;"
+        )
+        layout.addWidget(field_label)
+
+        self._email_input = LineEdit()
+        self._email_input.setPlaceholderText("name@example.com")
+        self._email_input.setFixedHeight(42)
+        self._email_input.setStyleSheet("""
+            QLineEdit {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 0 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0A84FF;
+            }
+        """)
+        self._email_input.returnPressed.connect(self._submit)
+        layout.addWidget(self._email_input)
+
+        self._error_label = QLabel("")
+        self._error_label.setWordWrap(True)
+        self._error_label.setStyleSheet(
+            "color: #FF9F0A; font-family: 'PT Root UI', sans-serif; "
+            "font-size: 11px; background: transparent; border: none;"
+        )
+        self._error_label.hide()
+        layout.addWidget(self._error_label)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(10)
+
+        cancel_btn = QPushButton("CANCEL")
+        cancel_btn.setFixedHeight(38)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 10px;
+                color: #AEAEB2;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 1px;
+            }
+            QPushButton:hover { background: #3A3A3C; color: #FFFFFF; }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+
+        add_btn = QPushButton("ADD")
+        add_btn.setFixedHeight(38)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                border: none;
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 1px;
+            }
+            QPushButton:hover { background: #409CFF; }
+        """)
+        add_btn.clicked.connect(self._submit)
+
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(add_btn)
+        layout.addLayout(buttons)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._email_input.setFocus()
+        self._email_input.selectAll()
+
+    def _submit(self):
+        email = self._email_input.text().strip()
+        if not email:
+            self._error_label.setText("Enter an email address.")
+            self._error_label.show()
+            return
+
+        if "@" not in email or "." not in email.split("@")[-1]:
+            self._error_label.setText("Enter a valid email address.")
+            self._error_label.show()
+            return
+
+        self.recipient_email = email
+        self.accept()
+
+
 class EmailSenderPage(QWidget):
     @staticmethod
     def _icon_button_stylesheet() -> str:
@@ -280,7 +472,7 @@ class EmailSenderPage(QWidget):
         super().__init__(parent)
         self._attachments: list[str] = []
         self._sender_profiles: dict[str, dict[str, str]] = {}
-        self._successful_emails: list[str] = self._load_outreach_history()
+        self._successful_history: dict[str, set[str]] = self._load_outreach_history()
         self._sending = False
         self._stop_requested = False
         self._active_server = None
@@ -301,24 +493,108 @@ class EmailSenderPage(QWidget):
         self._connect_buttons()
         self._is_restoring = False
 
-    def _load_outreach_history(self) -> list[str]:
+    def _outreach_history_path(self) -> Path:
+        return Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data" / "outreach_history.txt"
+
+    def _load_outreach_history(self) -> dict[str, set[str]]:
         # Persist across application restarts
         try:
-            path = Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data" / "outreach_history.txt"
-            if not path.exists(): return []
-            with open(path, "r", encoding="utf-8") as f:
-                return [line.strip().lower() for line in f if line.strip()]
-        except Exception:
-            return []
+            path = self._outreach_history_path()
+            if not path.exists():
+                return {}
 
-    def _append_outreach_history(self, email: str):
+            history: dict[str, set[str]] = {}
+            with open(path, "r", encoding="utf-8") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or "\t" not in line:
+                        continue
+                    email, signature = line.split("\t", 1)
+                    email = email.strip().lower()
+                    signature = signature.strip()
+                    if not email or not signature:
+                        continue
+                    history.setdefault(email, set()).add(signature)
+            return history
+        except Exception:
+            return {}
+
+    def _append_outreach_history(self, email: str, signature: str):
         try:
-            path = Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data"
-            path.mkdir(parents=True, exist_ok=True)
-            with open(path / "outreach_history.txt", "a", encoding="utf-8") as f:
-                f.write(email.strip().lower() + "\n")
+            path = self._outreach_history_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"{email.strip().lower()}\t{signature}\n")
         except Exception:
             pass
+
+    def _clear_outreach_history(self):
+        self._successful_history = {}
+        try:
+            path = self._outreach_history_path()
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            self._on_log(f"Could not clear sent history: {e}", "ERROR")
+            return
+
+        self._refresh_recipient_history_state()
+        self._on_log("Cleared sent email history.", "SUCCESS")
+
+    def _message_signature(self) -> str:
+        attachment_parts = []
+        for file_path in self._attachments:
+            clean_path = str(file_path).strip()
+            if not clean_path:
+                continue
+
+            size = ""
+            mtime = ""
+            if os.path.exists(clean_path):
+                try:
+                    stat = os.stat(clean_path)
+                    size = str(stat.st_size)
+                    mtime = str(int(stat.st_mtime))
+                except OSError:
+                    pass
+            attachment_parts.append(f"{clean_path}|{size}|{mtime}")
+
+        payload = "\n".join([
+            self._smtp_user.text().strip().lower(),
+            self._from_name.text().strip(),
+            self._reply_to.text().strip().lower(),
+            self._subject.text(),
+            "html" if self._type_toggle.isChecked() else "plain",
+            self._body_text.toPlainText(),
+            "\n".join(sorted(attachment_parts)),
+        ])
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _current_sent_emails(self) -> list[str]:
+        signature = self._message_signature()
+        return sorted(
+            email for email, signatures in self._successful_history.items()
+            if signature in signatures
+        )
+
+    def _was_message_sent(self, email: str, signature: str | None = None) -> bool:
+        email_key = email.strip().lower()
+        if not email_key:
+            return False
+        if signature is None:
+            signature = self._message_signature()
+        return signature in self._successful_history.get(email_key, set())
+
+    def _record_successful_send(self, email: str, signature: str):
+        email_key = email.strip().lower()
+        signatures = self._successful_history.setdefault(email_key, set())
+        if signature in signatures:
+            return
+        signatures.add(signature)
+        self._append_outreach_history(email_key, signature)
+
+    def _refresh_recipient_history_state(self):
+        self._recipient_list.viewport().update()
 
     def import_emails(self, emails: list[str]):
         """Consolidated API to push leads into the recipient queue."""
@@ -865,6 +1141,14 @@ class EmailSenderPage(QWidget):
         lbl_rec_row.addWidget(self._search_input, 0, Qt.AlignVCenter)
         
         self._setup_delete_menu()
+
+        self._btn_add_manual_recipient = TransparentToolButton(FluentIcon.EDIT)
+        self._btn_add_manual_recipient.setFixedSize(32, 32)
+        self._btn_add_manual_recipient.setIconSize(QSize(16, 16))
+        self._btn_add_manual_recipient.setToolTip("Add recipient manually")
+        self._btn_add_manual_recipient.setCursor(Qt.PointingHandCursor)
+        self._btn_add_manual_recipient.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_add_manual_recipient.clicked.connect(self._on_add_manual_recipient)
         
         # Import Button (shows a popup menu with all import sources)
         self._btn_load_leads = TransparentToolButton(FluentIcon.ADD)
@@ -876,6 +1160,7 @@ class EmailSenderPage(QWidget):
         self._btn_load_leads.clicked.connect(self._show_import_menu)
         
         lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_add_manual_recipient, 0, Qt.AlignVCenter)
         lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
         
         rec_col.addLayout(lbl_rec_row)
@@ -925,6 +1210,14 @@ class EmailSenderPage(QWidget):
         self._btn_copy_log.setStyleSheet(self._icon_button_stylesheet())
         self._btn_copy_log.clicked.connect(lambda: QGuiApplication.clipboard().setText(self._status_log.toPlainText()))
         log_header.addWidget(self._btn_copy_log, 0, Qt.AlignVCenter)
+
+        self._btn_clear_history = TransparentToolButton(FluentIcon.BROOM)
+        self._btn_clear_history.setFixedSize(32, 32)
+        self._btn_clear_history.setIconSize(QSize(16, 16))
+        self._btn_clear_history.setToolTip("Clear Sent History")
+        self._btn_clear_history.setCursor(Qt.PointingHandCursor)
+        self._btn_clear_history.setStyleSheet(self._icon_button_stylesheet())
+        log_header.addWidget(self._btn_clear_history, 0, Qt.AlignVCenter)
 
         # Clear Log Button
         self._btn_clear_log = TransparentToolButton(FluentIcon.DELETE)
@@ -1042,6 +1335,7 @@ class EmailSenderPage(QWidget):
         self._btn_send_all.clicked.connect(self._send_all)
         self._btn_stop.clicked.connect(self._on_stop)
         self._btn_purge_sent.clicked.connect(self._on_purge_sent)
+        self._btn_clear_history.clicked.connect(self._clear_outreach_history)
         self._btn_export.clicked.connect(self._on_export)
 
         # self._recipients_text is replaced by self._recipient_list
@@ -1052,12 +1346,17 @@ class EmailSenderPage(QWidget):
         self._smtp_host.textChanged.connect(self._save_fields)
         self._smtp_port.textChanged.connect(self._save_fields)
         self._smtp_user.textChanged.connect(self._save_fields)
+        self._smtp_user.textChanged.connect(self._refresh_recipient_history_state)
         self._smtp_pass.textChanged.connect(self._save_fields)
         self._from_name.textChanged.connect(self._save_fields)
+        self._from_name.textChanged.connect(self._refresh_recipient_history_state)
         self._reply_to.textChanged.connect(self._save_fields)
+        self._reply_to.textChanged.connect(self._refresh_recipient_history_state)
         self._subject.textChanged.connect(self._save_fields)
+        self._subject.textChanged.connect(self._refresh_recipient_history_state)
         self._body_text.textChanged.connect(self._save_fields)
         self._body_text.textChanged.connect(self._refresh_preview_if_open)
+        self._body_text.textChanged.connect(self._refresh_recipient_history_state)
         self._interval_input.textChanged.connect(self._save_fields)
         
         self._auth_switch.toggled.connect(self._save_fields)
@@ -1065,6 +1364,7 @@ class EmailSenderPage(QWidget):
         self._tls_switch.toggled.connect(self._save_fields)
         self._type_toggle.toggled.connect(self._save_fields)
         self._type_toggle.toggled.connect(self._refresh_preview_if_open)
+        self._type_toggle.toggled.connect(self._refresh_recipient_history_state)
         self._sender_completer.activated[str].connect(self._apply_sender_profile)
 
     def _on_log(self, message: str, level: str):
@@ -1190,6 +1490,7 @@ class EmailSenderPage(QWidget):
         if files:
             self._attachments = list(dict.fromkeys(files))
             self._update_attachment_badge()
+            self._refresh_recipient_history_state()
             self._save_fields()
             config_manager.flush()
             self._on_log(f"Attached {len(files)} file(s).", "INFO")
@@ -1199,6 +1500,7 @@ class EmailSenderPage(QWidget):
             count = len(self._attachments)
             self._attachments = []
             self._update_attachment_badge()
+            self._refresh_recipient_history_state()
             self._save_fields()
             config_manager.flush()
             self._on_log(f"Cleared {count} attachment(s).", "WARNING")
@@ -1307,15 +1609,15 @@ class EmailSenderPage(QWidget):
             except: pass
 
     def _on_purge_sent(self):
-        if not self._successful_emails:
+        current_sent = set(self._current_sent_emails())
+        if not current_sent:
             self._on_log("No successful transmissions to purge.", "WARNING")
             return
             
         current = self._get_recipients()
-        purged = [e for e in current if e.lower() not in self._successful_emails]
+        purged = [e for e in current if e.lower() not in current_sent]
         
         self._set_recipients(purged)
-        self._successful_emails = [] # Clear tracking after purge
         self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
 
     def _setup_delete_menu(self):
@@ -1335,6 +1637,29 @@ class EmailSenderPage(QWidget):
             return
         pos = self._btn_delete_menu.mapToGlobal(self._btn_delete_menu.rect().bottomLeft())
         self._delete_menu.exec(pos)
+
+    def _on_add_manual_recipient(self):
+        dialog = ManualRecipientDialog(self)
+        if self.window():
+            center = self.window().geometry().center()
+            dialog.move(center.x() - dialog.width() // 2, center.y() - dialog.height() // 2)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        email = dialog.recipient_email.strip()
+        email_key = email.lower()
+        existing = [self._recipient_list.item(i).email.lower() for i in range(self._recipient_list.count())]
+        if email_key in existing:
+            self._on_log(f"{email} is already in the queue.", "WARNING")
+            return
+
+        self._recipient_list.addItem(RecipientItem(email))
+        added_item = self._recipient_list.item(self._recipient_list.count() - 1)
+        self._recipient_list.setCurrentItem(added_item)
+        self._recipient_list.scrollToItem(added_item)
+        self._on_recipients_changed()
+        self._on_log(f"Added {email} to the queue.", "SUCCESS")
 
     def _on_delete_all(self):
         self._recipient_list.clear()
@@ -1377,12 +1702,13 @@ class EmailSenderPage(QWidget):
             item.setHidden(text not in item.email.lower())
 
     def _on_export(self):
-        if not self._successful_emails:
+        current_sent = self._current_sent_emails()
+        if not current_sent:
             self._on_log("No successful transmissions to export.", "WARNING")
             return
         path, _ = QFileDialog.getSaveFileName(self, "Export Successful Emails", "broadcast_sent.txt", "Text Files (*.txt)")
         if path:
-            with open(path, "w") as f: f.write("\n".join(self._successful_emails))
+            with open(path, "w") as f: f.write("\n".join(current_sent))
             self._on_log(f"Exported to {Path(path).name}", "SUCCESS")
 
     def _show_import_menu(self):
@@ -1664,10 +1990,10 @@ class EmailSenderPage(QWidget):
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
             cycle_started_at = time.monotonic()
+            message_signature = self._message_signature()
             
-            # Strict Block - Prevents duplicates even from Manual Test Broadcasts
-            if rec.lower() in self._successful_emails:
-                self._log(f"Skipping {rec} (Already recorded as sent in history).", "WARNING")
+            if self._was_message_sent(rec, message_signature):
+                self._log(f"Skipping {rec} (Already sent with the current message).", "WARNING")
                 continue
             
             # ── Robust Sending Logic ──
@@ -1734,9 +2060,8 @@ class EmailSenderPage(QWidget):
                         raise  # Re-raise non-rate-limit SMTP errors
                     
                 sent += 1
-                if rec.lower() not in self._successful_emails:
-                    self._successful_emails.append(rec.lower())
-                    self._append_outreach_history(rec)
+                self._record_successful_send(rec, message_signature)
+                self._refresh_recipient_history_state()
                     
                 self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
 
