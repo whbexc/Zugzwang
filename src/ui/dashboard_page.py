@@ -658,7 +658,6 @@ class DashboardPage(QWidget):
 
     def load_summary(self, total_records: int, total_emails: int, total_websites: int):
         self._saved_summary = (total_records, total_emails, total_websites)
-        self._load_recent_jobs_from_disk()
         self._refresh_stats()
 
     def _totals(self):

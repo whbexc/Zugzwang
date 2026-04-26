@@ -288,6 +288,11 @@ class MainWindow(FramelessWindow):
         self._startup_upgrade_prompt_pending = False
         self._active_solver_jobs: set[str] = set()
         self._solver_lock = threading.Lock()
+        self._pending_db_summary: tuple[int, int, int] | None = None
+        self._db_summary_timer = QTimer(self)
+        self._db_summary_timer.setSingleShot(True)
+        self._db_summary_timer.setInterval(120)
+        self._db_summary_timer.timeout.connect(self._flush_db_summary_update)
         self._upgrade_prompt_timer = QTimer(self)
         self._upgrade_prompt_timer.setInterval(10 * 60 * 1000)
         self._upgrade_prompt_timer.timeout.connect(self._show_periodic_upgrade_prompt)
@@ -767,9 +772,19 @@ class MainWindow(FramelessWindow):
 
     def _on_db_updated(self, records=None, **kw):
         records = records or []
-        self.titleBar.set_stats(len(records))
-        self.dashboard_page.load_summary(len(records), sum(1 for r in records if r.email), sum(1 for r in records if r.website))
-        self.dashboard_page.refresh()
+        total_records = len(records)
+        total_emails = sum(1 for r in records if r.email)
+        total_websites = sum(1 for r in records if r.website)
+        self.titleBar.set_stats(total_records)
+        self._pending_db_summary = (total_records, total_emails, total_websites)
+        self._db_summary_timer.start()
+
+    def _flush_db_summary_update(self) -> None:
+        if not self._pending_db_summary:
+            return
+        total_records, total_emails, total_websites = self._pending_db_summary
+        self._pending_db_summary = None
+        self.dashboard_page.load_summary(total_records, total_emails, total_websites)
 
     def _start_job(self, config: SearchConfig):
         if orchestrator.is_running: return
