@@ -16,11 +16,51 @@ CHANGELOG = [
             },
             {
                 "type": "fixed",
+                "text": "Settings Recovery Hardening — settings now save atomically with a backup file to protect Pro activation, Send drafts, and SMTP identity state from silent reset"
+            },
+            {
+                "type": "fixed",
+                "text": "Machine ID Recovery — if settings lose the stored machine identifier, ZUGZWANG now restores it from the persisted local machine ID file instead of falling back to an empty value"
+            },
+            {
+                "type": "fixed",
+                "text": "Send-State Protection — Send page persistence no longer wipes SMTP server settings during local edits or clear actions, preventing false 'SMTP Host not configured' failures"
+            },
+            {
+                "type": "fixed",
+                "text": "Launch Responsiveness — reduced startup/dashboard refresh pressure that could make Google Maps runs appear frozen or trigger temporary 'not responding' behavior on app launch"
+            },
+            {
+                "type": "fixed",
                 "text": "Recipient Queue Editing — inline email editing now uses a solid in-row editor so old text no longer bleeds through while typing"
             },
             {
                 "type": "fixed",
                 "text": "Recipient Queue Add Flow — manual recipient entry now uses a native app-styled dialog instead of the old system prompt"
+            },
+            {
+                "type": "improved",
+                "text": "Recipient Queue Controls — added icon actions for manual add, clear sent history, and smarter resend behavior when the composed message changes"
+            },
+            {
+                "type": "fixed",
+                "text": "Activity Log Cleanliness — internal startup and activation diagnostics no longer pollute the user-facing activity log"
+            },
+            {
+                "type": "fixed",
+                "text": "Jobsuche Flow Stability — Angebotsart, radius, and Detailansicht handling were hardened, with improved Kontakt panel / CAPTCHA recovery in detail pages"
+            },
+            {
+                "type": "fixed",
+                "text": "Headed Solver Reliability — duplicate CAPTCHA solver windows are now suppressed per job and shutdown is cleaner after manual solving"
+            },
+            {
+                "type": "improved",
+                "text": "Startup Upgrade Prompting — unsubscribed users now get a post-'What's New' activation prompt with recurring reminders while activated users stay quiet"
+            },
+            {
+                "type": "fixed",
+                "text": "Trial-to-Pro Transition — stale trial-capped search settings now recover correctly after activation instead of staying stuck at old free limits"
             },
         ]
     },

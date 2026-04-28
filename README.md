@@ -201,9 +201,19 @@ Recent work includes:
 
 - one-time upgrade reset of stale local UI/app state after update
 - scraped leads, sent-email history, send drafts, and Pro activation preserved across that reset
+- atomic settings persistence with backup recovery for license state, SMTP setup, send drafts, and sender profiles
+- machine ID recovery from the persisted local machine ID file if settings ever load without it
+- Send page protection against accidental SMTP host/port loss during local edits or clear actions
+- reduced startup/dashboard refresh pressure to improve Google Maps launch responsiveness and avoid false temporary freeze behavior
 - sender profiles with saved Gmail identities and password autofill
 - recipient queue inline editing fixes with solid in-row editor rendering
 - manual recipient add dialog styled to match the app
+- clear-sent-history control and message-sensitive resend tracking for the same recipient
+- cleaner activity log filtering so internal startup/activation traces stay out of the user activity feed
+- stronger Jobsuche filter, radius, Detailansicht, and Kontakt/CAPTCHA recovery behavior
+- duplicate headed CAPTCHA solver suppression and cleaner shutdown handling per job
+- recurring post-'What's New' upgrade prompting for unsubscribed users without re-prompting activated installs
+- trial-to-Pro max-results recovery so old trial-capped search values do not stay stuck after activation
 - resend logic now allows the same email when the message changed
 - Gmail per-recipient fresh-session delivery hardening
 - packaged Google Maps search fallback improvements

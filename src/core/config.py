@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,7 @@ class ConfigManager(QObject):
         super().__init__()
         self._upgrade_state_reset_applied = False
         self._settings_path = get_app_data_dir() / "settings.json"
+        self._settings_backup_path = get_app_data_dir() / "settings.backup.json"
         self._settings = self._load()
         if self._upgrade_state_reset_applied:
             self._save_sync()
@@ -118,18 +120,29 @@ class ConfigManager(QObject):
         db_worker.submit(self._refresh_history_cache_sync)
 
     def _load(self) -> AppSettings:
-        if self._settings_path.exists():
+        sources = [self._settings_path, self._settings_backup_path]
+        last_error = None
+        for path in sources:
+            if not path.exists():
+                continue
             try:
-                with open(self._settings_path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 previous_version = str(data.get("app_version", "") or "").strip()
                 settings = self._merge_with_defaults(data)
                 settings = self._reset_cached_state_for_upgrade(settings, previous_version)
                 settings.app_version = APP_VERSION
+                self._recover_persisted_machine_id(settings)
                 return settings
             except Exception as e:
-                logger.warning(f"Failed to load settings, using defaults: {e}")
-        return AppSettings(app_version=APP_VERSION)
+                last_error = e
+                logger.warning(f"Failed to load settings from {path.name}: {e}")
+
+        settings = AppSettings(app_version=APP_VERSION)
+        self._recover_persisted_machine_id(settings)
+        if last_error:
+            logger.warning("Falling back to default settings after load failure.")
+        return settings
 
     def _merge_with_defaults(self, data: dict) -> AppSettings:
         """Merge saved settings with defaults to handle new fields after upgrades."""
@@ -139,6 +152,18 @@ class ConfigManager(QObject):
             return AppSettings(**{k: defaults[k] for k in AppSettings.__dataclass_fields__})
         except Exception:
             return AppSettings()
+
+    def _recover_persisted_machine_id(self, settings: AppSettings) -> None:
+        if getattr(settings, "machine_id", ""):
+            return
+        try:
+            path = get_app_data_dir() / "machine_id.txt"
+            if path.exists():
+                machine_id = path.read_text(encoding="utf-8").strip().upper()
+                if len(machine_id) == 16:
+                    settings.machine_id = machine_id
+        except Exception as e:
+            logger.warning(f"Failed to recover machine ID from disk: {e}")
 
     @staticmethod
     def _preserved_upgrade_state(settings: AppSettings) -> dict[str, Any]:
@@ -199,8 +224,31 @@ class ConfigManager(QObject):
 
     def _save_sync(self) -> None:
         try:
-            with open(self._settings_path, "w", encoding="utf-8") as f:
-                json.dump(asdict(self._settings), f, indent=2, ensure_ascii=False)
+            payload = asdict(self._settings)
+            self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+            fd, temp_path = tempfile.mkstemp(
+                prefix="settings_",
+                suffix=".json.tmp",
+                dir=str(self._settings_path.parent),
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, self._settings_path)
+            finally:
+                try:
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                except Exception:
+                    pass
+
+            try:
+                shutil.copy2(self._settings_path, self._settings_backup_path)
+            except Exception as backup_error:
+                logger.warning(f"Failed to write settings backup: {backup_error}")
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
 
