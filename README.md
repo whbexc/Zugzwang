@@ -190,6 +190,12 @@ python build_with_browsers.py
 ### Build Windows installer
 
 ```powershell
+iscc installer.iss
+```
+
+Legacy fallback:
+
+```powershell
 makensis installer.nsi
 ```
 

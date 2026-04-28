@@ -164,7 +164,8 @@ def main():
     print("\n" + "=" * 60)
     print("  DONE")
     print(f"  Installer: {DIST_DIR / 'ZUGZWANG.exe'}")
-    print("  Run: makensis installer.nsi  (to build Setup.exe)")
+    print("  Run: iscc installer.iss  (preferred modern Setup.exe)")
+    print("  Legacy fallback: makensis installer.nsi")
     print("=" * 60)
 
 
