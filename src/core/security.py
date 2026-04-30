@@ -44,6 +44,14 @@ class LicenseManager:
         return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:16].upper()
 
     @staticmethod
+    def _emergency_machine_seed() -> str:
+        computer = os.environ.get("COMPUTERNAME", "").strip()
+        user = os.environ.get("USERNAME", "").strip()
+        home = str(Path.home()).strip()
+        seed = f"{computer}|{user}|{home}|{os.name}|{uuid.getnode()}"
+        return seed or f"fallback|{os.name}|{uuid.getnode()}"
+
+    @staticmethod
     def _get_windows_machine_guid() -> str:
         if os.name != "nt":
             return ""
@@ -89,18 +97,34 @@ class LicenseManager:
     @staticmethod
     def _candidate_machine_ids() -> list[str]:
         candidates: list[str] = []
+        try:
+            persisted = LicenseManager._load_persisted_machine_id()
+            if persisted:
+                candidates.append(persisted)
+        except Exception:
+            logger.warning("Failed loading persisted machine ID candidate.", exc_info=True)
 
-        persisted = LicenseManager._load_persisted_machine_id()
-        if persisted:
-            candidates.append(persisted)
+        try:
+            machine_guid = LicenseManager._get_windows_machine_guid()
+            if machine_guid:
+                candidates.append(LicenseManager._format_machine_id(f"{machine_guid}-{os.name}"))
+        except Exception:
+            logger.warning("Failed loading MachineGuid candidate.", exc_info=True)
 
-        machine_guid = LicenseManager._get_windows_machine_guid()
-        if machine_guid:
-            candidates.append(LicenseManager._format_machine_id(f"{machine_guid}-{os.name}"))
+        try:
+            # Legacy fallback for customers who already received keys from older builds.
+            legacy_mid = LicenseManager._format_machine_id(f"{uuid.getnode()}-{os.name}")
+            if legacy_mid:
+                candidates.append(legacy_mid)
+        except Exception:
+            logger.warning("Failed loading legacy machine ID candidate.", exc_info=True)
 
-        # Legacy fallback for customers who already received keys from older builds.
-        legacy_mid = LicenseManager._format_machine_id(f"{uuid.getnode()}-{os.name}")
-        candidates.append(legacy_mid)
+        try:
+            emergency_mid = LicenseManager._format_machine_id(LicenseManager._emergency_machine_seed())
+            if emergency_mid:
+                candidates.append(emergency_mid)
+        except Exception:
+            logger.warning("Failed loading emergency machine ID candidate.", exc_info=True)
 
         unique: list[str] = []
         seen: set[str] = set()
@@ -119,10 +143,21 @@ class LicenseManager:
         2. Windows MachineGuid-derived ID
         3. Legacy MAC-derived fallback
         """
-        candidates = LicenseManager._candidate_machine_ids()
-        machine_id = candidates[0] if candidates else LicenseManager._format_machine_id(f"{uuid.getnode()}-{os.name}")
-        LicenseManager._persist_machine_id(machine_id)
-        return machine_id
+        try:
+            candidates = LicenseManager._candidate_machine_ids()
+            machine_id = candidates[0] if candidates else ""
+            if not machine_id:
+                machine_id = LicenseManager._format_machine_id(LicenseManager._emergency_machine_seed())
+            LicenseManager._persist_machine_id(machine_id)
+            return machine_id
+        except Exception:
+            logger.error("Machine ID generation failed; using emergency fallback.", exc_info=True)
+            fallback = LicenseManager._format_machine_id(LicenseManager._emergency_machine_seed())
+            try:
+                LicenseManager._persist_machine_id(fallback)
+            except Exception:
+                logger.warning("Failed to persist emergency machine ID fallback.", exc_info=True)
+            return fallback
 
     @staticmethod
     def generate_license_key(machine_id: str) -> str:

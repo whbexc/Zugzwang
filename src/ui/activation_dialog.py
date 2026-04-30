@@ -122,7 +122,7 @@ class ActivationDialog(QDialog):
         mid_box_layout.setContentsMargins(14, 0, 14, 0)
         mid_box_layout.setSpacing(0)
         
-        self.mid_field = QLineEdit(LicenseManager.get_machine_id())
+        self.mid_field = QLineEdit()
         self.mid_field.setReadOnly(True)
         self.mid_field.setStyleSheet("""
             QLineEdit {
@@ -134,6 +134,7 @@ class ActivationDialog(QDialog):
                 letter-spacing: 0.5px;
             }
         """)
+        self._refresh_machine_id()
         
         copy_btn = QPushButton("Copy")
         copy_btn.setCursor(Qt.PointingHandCursor)
@@ -373,8 +374,17 @@ class ActivationDialog(QDialog):
             sys.exit(0)
         
     def _copy_id(self):
-        QGuiApplication.clipboard().setText(self.mid_field.text())
+        machine_id = self.mid_field.text().strip()
+        if not machine_id:
+            self._refresh_machine_id()
+            machine_id = self.mid_field.text().strip()
+        QGuiApplication.clipboard().setText(machine_id)
         InfoBar.success("Copied", "Machine ID copied to clipboard.", duration=2000, parent=self)
+
+    def _refresh_machine_id(self):
+        machine_id = (LicenseManager.get_machine_id() or "").strip().upper()
+        self.mid_field.setText(machine_id)
+        self.mid_field.setCursorPosition(0)
         
     def _activate(self):
         key = self.key_input.text().strip()

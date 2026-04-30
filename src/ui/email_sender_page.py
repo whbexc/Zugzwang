@@ -1608,13 +1608,17 @@ class EmailSenderPage(QWidget):
             except: pass
 
     def _on_purge_sent(self):
-        current_sent = set(self._current_sent_emails())
-        if not current_sent:
+        sent_emails = {email.strip().lower() for email in self._successful_history.keys() if email.strip()}
+        if not sent_emails:
             self._on_log("No successful transmissions to purge.", "WARNING")
             return
             
         current = self._get_recipients()
-        purged = [e for e in current if e.lower() not in current_sent]
+        purged = [e for e in current if e.strip().lower() not in sent_emails]
+
+        if len(purged) == len(current):
+            self._on_log("No queued recipients matched sent history.", "WARNING")
+            return
         
         self._set_recipients(purged)
         self._on_log(f"Purged sent emails from queue. {len(purged)} remaining.", "SUCCESS")
