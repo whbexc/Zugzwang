@@ -3,7 +3,7 @@
 ;   iscc installer.iss
 
 #define AppName "ZUGZWANG"
-#define AppVersion "1.0.9c"
+#define AppVersion "1.0.94"
 #define AppPublisher "ZUGZWANG"
 #define AppExeName "ZUGZWANG.exe"
 #define AppId "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
@@ -42,11 +42,11 @@ ChangesEnvironment=no
 CloseApplications=yes
 CloseApplicationsFilter=ZUGZWANG.exe
 RestartApplications=no
-VersionInfoVersion=1.0.9.3
+VersionInfoVersion=1.0.94.1
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Installer
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion=1.0.9.3
+VersionInfoProductVersion=1.0.94.1
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

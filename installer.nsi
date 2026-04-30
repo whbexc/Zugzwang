@@ -4,7 +4,7 @@
 ; Build: makensis installer.nsi
 
 !define APP_NAME "ZUGZWANG"
-!define APP_VERSION "1.0.9b"
+!define APP_VERSION "1.0.94"
 !define APP_PUBLISHER "ZUGZWANG"
 !define APP_EXE "ZUGZWANG.exe"
 !define APP_GUID "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"

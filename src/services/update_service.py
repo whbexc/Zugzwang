@@ -15,6 +15,7 @@ from ..core.config import config_manager
 logger = logging.getLogger(__name__)
 
 _VERSION_RE = re.compile(r"^\s*v?(\d+(?:\.\d+)*)([a-zA-Z]*)\s*$")
+_BUILD_RE = re.compile(r"build\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 
 
 def _parse_version_parts(raw: str) -> tuple[tuple[int, ...], str]:
@@ -61,6 +62,18 @@ def _compare_versions(current: str, latest: str) -> int:
         return -1
     return 0
 
+
+def _extract_release_build(release_data: dict) -> int:
+    for field in ("name", "body", "tag_name"):
+        text = str(release_data.get(field, "") or "")
+        match = _BUILD_RE.search(text)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return 0
+    return 0
+
 class UpdateWorker(QThread):
     """Background worker for update checks and downloads."""
     check_finished = Signal(bool, str, str)  # is_available, version, download_url
@@ -94,7 +107,7 @@ class UpdateWorker(QThread):
                 self.error.emit(str(e))
 
     def _check_for_updates(self):
-        from ..core.config import APP_VERSION
+        from ..core.config import APP_BUILD, APP_VERSION
         s = config_manager.settings
         repo_url = s.git_repo_url
         if not repo_url or "github.com/" not in repo_url:
@@ -118,15 +131,21 @@ class UpdateWorker(QThread):
                 
             data = response.json()
             latest_version = data.get("tag_name", "").lstrip("vV").strip()
+            latest_build = _extract_release_build(data)
             current_version = APP_VERSION.lstrip("vV").strip()
+            current_build = APP_BUILD
 
             # Only notify when GitHub has a version strictly newer than what is installed.
-            # Same version or dev-superior → silent, no popup.
+            # Same version + same/older build → silent, no popup.
             if not latest_version:
                 self.check_finished.emit(False, "", "")
                 return
 
-            if _compare_versions(current_version, latest_version) >= 0:
+            version_cmp = _compare_versions(current_version, latest_version)
+            if version_cmp > 0:
+                self.check_finished.emit(False, "", "")
+                return
+            if version_cmp == 0 and latest_build <= current_build:
                 self.check_finished.emit(False, "", "")
                 return
 
@@ -139,7 +158,10 @@ class UpdateWorker(QThread):
                     break
             
             if download_url:
-                self.check_finished.emit(True, latest_version, download_url)
+                display_version = latest_version
+                if latest_build > 0:
+                    display_version = f"{latest_version} (build {latest_build})"
+                self.check_finished.emit(True, display_version, download_url)
                 return
         
         self.check_finished.emit(False, "", "")

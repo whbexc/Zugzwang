@@ -19,7 +19,8 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.0.9c"
+APP_VERSION = "1.0.94"
+APP_BUILD = 1
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -132,13 +133,14 @@ class ConfigManager(QObject):
                 settings = self._merge_with_defaults(data)
                 settings = self._reset_cached_state_for_upgrade(settings, previous_version)
                 settings.app_version = APP_VERSION
+                settings.app_build = APP_BUILD
                 self._recover_persisted_machine_id(settings)
                 return settings
             except Exception as e:
                 last_error = e
                 logger.warning(f"Failed to load settings from {path.name}: {e}")
 
-        settings = AppSettings(app_version=APP_VERSION)
+        settings = AppSettings(app_version=APP_VERSION, app_build=APP_BUILD)
         self._recover_persisted_machine_id(settings)
         if last_error:
             logger.warning("Falling back to default settings after load failure.")
@@ -200,7 +202,7 @@ class ConfigManager(QObject):
             return settings
 
         preserved = self._preserved_upgrade_state(settings)
-        refreshed = AppSettings(app_version=APP_VERSION)
+        refreshed = AppSettings(app_version=APP_VERSION, app_build=APP_BUILD)
         for key, value in preserved.items():
             setattr(refreshed, key, value)
 
@@ -387,7 +389,7 @@ class ConfigManager(QObject):
         except Exception as e:
             logger.warning(f"Failed to remove cached settings file: {e}")
 
-        self._settings = AppSettings(app_version=APP_VERSION)
+        self._settings = AppSettings(app_version=APP_VERSION, app_build=APP_BUILD)
         for key, value in preserved.items():
             setattr(self._settings, key, value)
 

@@ -13,7 +13,7 @@ from qfluentwidgets import (
     FluentIcon, IconWidget, InfoBar
 )
 from .theme import Theme
-from ..core.config import APP_VERSION
+from ..core.config import APP_BUILD, APP_VERSION
 
 class UpdateDialog(QDialog):
     """
@@ -87,7 +87,7 @@ class UpdateDialog(QDialog):
         # Description
         desc = QLabel(
             f"A new version of ZUGZWANG is ready to install. "
-            f"You are currently using v{APP_VERSION}."
+            f"You are currently using v{APP_VERSION} (build {APP_BUILD})."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("""

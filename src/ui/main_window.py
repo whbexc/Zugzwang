@@ -535,7 +535,7 @@ class MainWindow(FramelessWindow):
         self._whatsnew_shortcut = QShortcut(QKeySequence("Ctrl+Shift+W"), self)
         self._whatsnew_shortcut.activated.connect(self._show_whats_new)
 
-        # Navigation: Ctrl+1..6
+        # Navigation: Ctrl+1..7
         for i in range(7):
             def _nav(checked=False, idx=i):
                 self._switch(idx)

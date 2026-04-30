@@ -1,15 +1,19 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.9c"
+APP_VERSION = "1.0.94"
 
 CHANGELOG = [
     {
-        "version": "1.0.9c",
-        "date": "April 25, 2026",
+        "version": "1.0.94",
+        "date": "April 30, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
         "changes": [
+            {
+                "type": "improved",
+                "text": "Internal Build Tracking — ZUGZWANG now keeps a separate app build number so same-version hotfix releases can still be enforced through the updater"
+            },
             {
                 "type": "fixed",
                 "text": "Upgrade State Reset — first launch after updating now refreshes stale local UI state automatically without touching scraped leads, sent-email history, or Pro activation"
@@ -364,8 +368,8 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.9c",
-        "date": "25 أبريل 2026",
+        "version": "1.0.94",
+        "date": "30 أبريل 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
         "type_labels": {
@@ -375,6 +379,10 @@ CHANGELOG_AR = [
             "removed": "مُزال"
         },
         "changes": [
+            {
+                "type": "improved",
+                "text": "تتبع رقم البناء الداخلي — أصبح لدى ZUGZWANG الآن رقم build منفصل حتى يمكن فرض إصلاحات بنفس رقم النسخة الظاهر عبر أداة التحديث"
+            },
             {
                 "type": "fixed",
                 "text": "إعادة ضبط حالة الترقية — أول تشغيل بعد التحديث يجدد حالة الواجهة المحلية القديمة تلقائياً بدون المساس بالعملاء المستخرجين أو سجل الإرسال أو تفعيل Pro"

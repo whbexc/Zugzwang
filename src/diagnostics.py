@@ -7,6 +7,7 @@ import sqlite3
 import asyncio
 from pathlib import Path
 from datetime import datetime
+from .core.config import get_logs_dir
 try:
     import psutil
     HAS_PSUTIL = True
@@ -17,9 +18,12 @@ from PySide6.QtCore import QTimer, QCoreApplication
 from PySide6.QtGui import QGuiApplication, QFontDatabase
 
 
-
-LOG_DIR = Path.cwd() / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+try:
+    LOG_DIR = get_logs_dir()
+except Exception:
+    # Last-resort fallback for very early startup failures.
+    LOG_DIR = Path.home() / "AppData" / "Roaming" / "ZUGZWANG" / "logs"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def _log(severity: str, module: str, message: str, filename: str = "freeze_watchdog.log"):
     """Write structured log messages to the console and specified file."""

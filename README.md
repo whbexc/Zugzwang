@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.0.9c-E5E5EA?style=for-the-badge&color=2C2C2E">
+<img alt="Version" src="https://img.shields.io/badge/version-1.0.94-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -201,10 +201,11 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.0.9c**
+**1.0.94**
 
 Recent work includes:
 
+- separate internal app build tracking so future hotfixes can force updates even when the visible version string stays the same
 - one-time upgrade reset of stale local UI/app state after update
 - scraped leads, sent-email history, send drafts, and Pro activation preserved across that reset
 - atomic settings persistence with backup recovery for license state, SMTP setup, send drafts, and sender profiles
