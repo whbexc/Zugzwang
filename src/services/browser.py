@@ -85,6 +85,8 @@ class BrowserSession:
         )
         self._screenshot_index = 0
         self._blocked_resource_types = self._build_blocked_resource_types()
+        self._closing = False
+        self._route_installed = False
         # Serializes concurrent browser-tab operations (new_page / navigate fallbacks)
         self.page_lock = asyncio.Lock()
 
@@ -198,7 +200,11 @@ class BrowserSession:
         
         logger.debug(f"[{self.job_id}] Creating browser context...")
         self._context = await self._browser.new_context(**context_kwargs)
-        await self._context.route("**/*", self._route_request)
+        # Do not install a global Playwright route interceptor here.
+        # On the current Windows/Python 3.14/Playwright driver stack, request
+        # interception can crash the Node transport with EPIPE while Maps is
+        # still loading. Blocking fonts/media is only an optimization, so keep
+        # the browser session stable and let Chromium load resources normally.
 
         # Anti-detection: override navigator.webdriver
         await self._context.add_init_script("""
@@ -214,8 +220,16 @@ class BrowserSession:
 
     async def stop(self) -> None:
         """Gracefully close all browser resources."""
+        self._closing = True
         try:
             if self._context:
+                if self._route_installed:
+                    try:
+                        await self._context.unroute("**/*", self._route_request)
+                    except Exception as e:
+                        logger.debug(f"[{self.job_id}] Could not remove browser route before close: {e}")
+                    finally:
+                        self._route_installed = False
                 await self._context.close()
                 self._context = None
             if self._browser:
@@ -231,13 +245,23 @@ class BrowserSession:
             self._context = None
             self._browser = None
             self._playwright = None
+            self._route_installed = False
 
     async def _route_request(self, route, request) -> None:
         """Skip heavyweight assets that are not needed for data extraction."""
-        if request.resource_type in self._blocked_resource_types:
-            await route.abort()
-            return
-        await route.continue_()
+        try:
+            if self._closing:
+                await route.abort()
+                return
+            if request.resource_type in self._blocked_resource_types:
+                await route.abort()
+                return
+            await route.continue_()
+        except Exception as e:
+            # Route callbacks can outlive the page/context during cancellation
+            # and shutdown. Let Playwright close quietly instead of leaking an
+            # unhandled task that can break the driver pipe.
+            logger.debug(f"[{self.job_id}] Ignored browser route callback during shutdown: {e}")
 
     async def new_page(self) -> "Page":
         if not self._context:

@@ -66,6 +66,7 @@ class ScrapingWorker(QObject):
             self.job.fail(str(e))
             event_bus.emit(event_bus.JOB_FAILED, job_id=self.job.id, error=str(e))
         finally:
+            self._drain_asyncio_loop()
             try:
                 self.orchestrator._loop.close()
             except Exception:
@@ -73,6 +74,24 @@ class ScrapingWorker(QObject):
             # Trigger clean QThread exit
             if hasattr(self.orchestrator, '_thread') and self.orchestrator._thread:
                 self.orchestrator._thread.quit()
+
+    def _drain_asyncio_loop(self):
+        """Cancel leftover Playwright callbacks before the worker loop closes."""
+        loop = self.orchestrator._loop
+        if not loop or loop.is_closed():
+            return
+
+        try:
+            pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+            if pending:
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            if hasattr(loop, "shutdown_default_executor"):
+                loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception as e:
+            logger.debug(f"Async worker loop drain skipped after cleanup error: {e}")
 
 class ScrapingOrchestrator:
     """

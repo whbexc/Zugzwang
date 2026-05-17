@@ -70,12 +70,6 @@ class AusbildungScraper:
         """Async generator that yields LeadRecord objects one by one."""
         page = await self.session.new_page()
         try:
-            # Block heavy assets — faster page loads, lower RAM
-            await page.route(
-                "**/*.{png,jpg,jpeg,gif,svg,woff,woff2}",
-                lambda route, _req: route.abort(),
-            )
-
             # ── Step 1: Navigate to search URL with radius ──
             url = _build_search_url(
                 self.config.job_title,

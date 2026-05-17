@@ -33,7 +33,7 @@ class MetricTile(QFrame):
                  icon: FluentIcon = FluentIcon.INFO,
                  color: str = "#0A84FF"):
         super().__init__()
-        self.setMinimumHeight(126)
+        self.setMinimumHeight(104)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
         self.setStyleSheet("""
@@ -45,8 +45,8 @@ class MetricTile(QFrame):
         """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(8)
 
         # ── Row 1: Icon + Meta Chip + Title ──────────────────────────────────
         top = QHBoxLayout()
@@ -101,9 +101,9 @@ class MetricTile(QFrame):
         self._value = QLabel(value)
         self._value.setStyleSheet(
             f"color: {color}; font-family: 'Segoe UI', 'PT Root UI', sans-serif; "
-            "font-size: 36px; font-weight: 700; background: transparent; border: none;"
+            "font-size: 32px; font-weight: 700; background: transparent; border: none;"
         )
-        self._value.setMinimumHeight(46)
+        self._value.setMinimumHeight(38)
         self._value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         root.addWidget(self._value)
 
@@ -180,31 +180,16 @@ class MonitorPage(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("MonitorPage { background: #1C1C1E; }")
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 32)
-        root.setSpacing(18)
-
-        # ── Page Header ────────────────────────────────────────────────────────
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 4)
-
-        self._page_title = QLabel(tr("monitor.title", self._language))
-        self._page_title.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 22px; font-weight: 600; letter-spacing: 0.3px;")
-        header_row.addWidget(self._page_title)
-        header_row.addStretch(1)
-
-        self._status_badge = QLabel(tr("monitor.status.idle", self._language))
-        self._status_badge.setAlignment(Qt.AlignCenter)
-        self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        header_row.addWidget(self._status_badge, 0, Qt.AlignVCenter)
-        root.addLayout(header_row)
+        root.setContentsMargins(28, 18, 28, 22)
+        root.setSpacing(0)
 
         # ── Workspace ─────────────────────────────────────────────────────────
         workspace = QHBoxLayout()
-        workspace.setSpacing(20)
+        workspace.setSpacing(16)
         root.addLayout(workspace, 1)
 
         left_col = QVBoxLayout()
-        left_col.setSpacing(20)
+        left_col.setSpacing(14)
         workspace.addLayout(left_col, 44)
 
         right_col = QVBoxLayout()
@@ -215,8 +200,8 @@ class MonitorPage(QWidget):
         hero = QFrame()
         hero.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(24, 24, 24, 24)
-        hero_layout.setSpacing(16)
+        hero_layout.setContentsMargins(20, 18, 20, 18)
+        hero_layout.setSpacing(12)
 
         title_row = QHBoxLayout()
         self._query_label = QLabel(tr("monitor.query.idle", self._language))
@@ -226,6 +211,11 @@ class MonitorPage(QWidget):
         self._status_line = QLabel(tr("monitor.status_line.idle", self._language))
         self._status_line.setStyleSheet("color: #8E8E93; font-family: '-apple-system', sans-serif; font-size: 12px;")
         title_row.addWidget(self._status_line, 0, Qt.AlignRight)
+        self._status_badge = QLabel(tr("monitor.status.idle", self._language))
+        self._status_badge.setAlignment(Qt.AlignCenter)
+        self._status_badge.setStyleSheet("color: #FF9F0A; background: #1C1C1E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
+        title_row.addSpacing(10)
+        title_row.addWidget(self._status_badge, 0, Qt.AlignRight)
         hero_layout.addLayout(title_row)
 
         # Progress bar spec
@@ -296,8 +286,8 @@ class MonitorPage(QWidget):
         self._card_errors = MetricTile(tr("monitor.metric.errors", self._language), "0", "warnings",    FluentIcon.INFO,   "#FF453A")
 
         tiles_grid = QGridLayout()
-        tiles_grid.setHorizontalSpacing(14)
-        tiles_grid.setVerticalSpacing(14)
+        tiles_grid.setHorizontalSpacing(12)
+        tiles_grid.setVerticalSpacing(12)
         tiles_grid.addWidget(self._card_found,  0, 0)
         tiles_grid.addWidget(self._card_emails, 0, 1)
         tiles_grid.addWidget(self._card_sites,  1, 0)
@@ -312,8 +302,8 @@ class MonitorPage(QWidget):
         self._session_card = QFrame()
         self._session_card.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
         session_layout = QVBoxLayout(self._session_card)
-        session_layout.setContentsMargins(20, 16, 20, 16)
-        session_layout.setSpacing(12)
+        session_layout.setContentsMargins(18, 14, 18, 14)
+        session_layout.setSpacing(9)
 
         session_head = QHBoxLayout()
         session_lbl = QLabel("SESSION SNAPSHOT")
@@ -335,10 +325,10 @@ class MonitorPage(QWidget):
             tile = QFrame()
             tile.setStyleSheet("QFrame { background: #1C1C1E; border-radius: 8px; border: none; }")
             tile_l = QVBoxLayout(tile)
-            tile_l.setContentsMargins(12, 8, 12, 8)
-            tile_l.setSpacing(2)
+            tile_l.setContentsMargins(10, 7, 10, 7)
+            tile_l.setSpacing(1)
             if tall:
-                tile.setMinimumHeight(60)
+                tile.setMinimumHeight(52)
             title_lbl = QLabel(title.upper())
             title_lbl.setStyleSheet("color: #636366; font-family: '-apple-system', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 1.2px;")
             value_lbl = QLabel(value)
@@ -350,7 +340,7 @@ class MonitorPage(QWidget):
 
         detail_grid = QGridLayout()
         detail_grid.setHorizontalSpacing(8)
-        detail_grid.setVerticalSpacing(8)
+        detail_grid.setVerticalSpacing(7)
         self._snapshot_source, self._snapshot_source_value = _snapshot_tile("Source", "-")
         self._snapshot_city, self._snapshot_city_value = _snapshot_tile("City", "-")
         self._snapshot_limit, self._snapshot_limit_value = _snapshot_tile("Target", "-")
