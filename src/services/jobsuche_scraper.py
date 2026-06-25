@@ -32,6 +32,7 @@ from .website_crawler import WebsiteEmailCrawler
 from .email_extractor import (
     normalize_phone, normalize_website,
     extract_emails_from_html, deduplicate_emails,
+    extract_contact_person_from_text, extract_contact_person_from_html
 )
 from ..core.events import event_bus
 from ..core.logger import get_logger
@@ -1296,6 +1297,9 @@ class JobsucheScraper:
                 candidate = company_match.group(1).strip()
                 if 'sicherheitsabfrage' not in candidate.lower() and 'ergebnis' not in candidate.lower():
                     record.company_name = candidate
+
+        if not record.contact_person:
+            record.contact_person = extract_contact_person_from_text(panel_text or "") or extract_contact_person_from_html(panel_html or "")
 
         # Always save if we have useful signal, even with partial data
         has_useful_data = (

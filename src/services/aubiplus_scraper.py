@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 from urllib.parse import urljoin, urlparse
 
 from .browser import BrowserSession, BrowserError
+from .email_extractor import extract_contact_person_from_html
 from ..core.security import LicenseManager
 from ..core.events import event_bus
 from ..core.logger import get_logger
@@ -570,6 +571,9 @@ class AubiPlusScraper:
                             contact_person = name
                             break
                 break
+
+        if not contact_person:
+            contact_person = extract_contact_person_from_html(html) or ""
 
         # 5. Email — try static HTML first (most listings won't have it)
         # "E-Mail anzeigen" means it's JS-protected → _click_reveal_email handles it

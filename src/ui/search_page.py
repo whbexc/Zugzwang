@@ -858,20 +858,17 @@ class SearchPage(QWidget):
                 if not self.window().show_activation_dialog():
                     return
             
-            # Enforce strict 20-scrap limit for trial users
+            # Enforce strict 20-scrap limit for trial users silently
             if max_results > 20:
-                from .components import ZugzwangDialog
-                res = ZugzwangDialog(
-                    tr("search.dialog.trial.title", self._language),
-                    tr("search.dialog.trial.body", self._language),
-                    self
-                ).exec()
-                if res:
-                    if not self.window().show_activation_dialog():
-                        return
-                # Force to 20 if they skip activation
                 max_results = 20
                 self._max_results_input.setText("20")
+                from qfluentwidgets import InfoBar
+                InfoBar.warning(
+                    tr("search.dialog.trial.title", self._language),
+                    "Trial limit enforced. Max limits capped at 20.",
+                    duration=3000,
+                    parent=self.window()
+                )
         
         job_title = self._job_title.text().strip()
         if not job_title:

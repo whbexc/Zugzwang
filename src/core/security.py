@@ -20,6 +20,8 @@ _ADMIN_OVERRIDE_SEED_HASH = "b216dd4a3e0a43535b926069a969d261270205d5893e03d8b63
 _SALT_HASH                = "4848e7c8d786a16987ec133df5b7da6e4abe69460060d099bdfd90279cd9ec96"
 
 MAX_FREE_TRIAL_SCRAPS = 20
+MAX_FREE_TRIAL_PDFS = 5
+MAX_FREE_TRIAL_EMAILS = 20
 
 class LicenseManager:
     """
@@ -287,6 +289,51 @@ class LicenseManager:
             return False
         if LicenseManager.is_active():
             return True
+
+    @staticmethod
+    def get_trial_status() -> dict:
+        """
+        Returns a dictionary containing trial usage details.
+        Handles date-based reset.
+        """
+        is_active = LicenseManager.is_active()
+        settings = config_manager.settings
+        
+        if is_active:
+            return {
+                "used": 0,
+                "remaining": 999999,
+                "total": 999999,
+                "is_active": True
+            }
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        if settings.trial_last_reset_date != today:
+            # New day, reset counter
+            config_manager.update(
+                trial_scraps_count=0,
+                trial_last_reset_date=today
+            )
+            settings = config_manager.settings # Refresh local ref
+        
+        used = 0
+        remaining = 20
+        
+        return {
+            "used": used,
+            "remaining": remaining,
+            "total": MAX_FREE_TRIAL_SCRAPS,
+            "is_active": False
+        }
+
+    @staticmethod
+    def can_extract() -> bool:
+        """Checks if the user is allowed to extract another lead."""
+        if LicenseManager.is_banned(config_manager.settings.license_key):
+            return False
+        if LicenseManager.is_active():
+            return True
             
         status = LicenseManager.get_trial_status()
         logger.debug(f"Trial status check: {status['remaining']} remaining / {status['used']} used")
@@ -298,3 +345,67 @@ class LicenseManager:
         if not LicenseManager.is_active():
             current_count = config_manager.settings.trial_scraps_count
             config_manager.update(trial_scraps_count=current_count + 1)
+
+    @staticmethod
+    def get_pdf_trial_status() -> dict:
+        is_active = LicenseManager.is_active()
+        settings = config_manager.settings
+        
+        if is_active:
+            return {"used": 0, "remaining": 999999, "total": 999999, "is_active": True}
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        if settings.trial_pdf_last_reset_date != today:
+            config_manager.update(trial_pdf_export_count=0, trial_pdf_last_reset_date=today)
+            settings = config_manager.settings
+        
+        used = settings.trial_pdf_export_count
+        remaining = max(0, MAX_FREE_TRIAL_PDFS - used)
+        return {"used": used, "remaining": remaining, "total": MAX_FREE_TRIAL_PDFS, "is_active": False}
+
+    @staticmethod
+    def can_export_pdf(count: int = 1) -> bool:
+        if LicenseManager.is_banned(config_manager.settings.license_key):
+            return False
+        if LicenseManager.is_active():
+            return True
+        status = LicenseManager.get_pdf_trial_status()
+        return status["remaining"] >= count
+
+    @staticmethod
+    def record_pdf_export(count: int = 1):
+        if not LicenseManager.is_active():
+            current_count = config_manager.settings.trial_pdf_export_count
+            config_manager.update(trial_pdf_export_count=current_count + count)
+
+    @staticmethod
+    def get_email_trial_status() -> dict:
+        is_active = LicenseManager.is_active()
+        settings = config_manager.settings
+        
+        if is_active:
+            return {"used": 0, "remaining": 999999, "total": 999999, "is_active": True}
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        if settings.trial_email_last_reset_date != today:
+            config_manager.update(trial_email_count=0, trial_email_last_reset_date=today)
+            settings = config_manager.settings
+        
+        used = settings.trial_email_count
+        remaining = max(0, MAX_FREE_TRIAL_EMAILS - used)
+        return {"used": used, "remaining": remaining, "total": MAX_FREE_TRIAL_EMAILS, "is_active": False}
+
+    @staticmethod
+    def can_send_email(count: int = 1) -> bool:
+        if LicenseManager.is_banned(config_manager.settings.license_key):
+            return False
+        if LicenseManager.is_active():
+            return True
+        status = LicenseManager.get_email_trial_status()
+        return status["remaining"] >= count
+
+    @staticmethod
+    def record_email_send(count: int = 1):
+        if not LicenseManager.is_active():
+            current_count = config_manager.settings.trial_email_count
+            config_manager.update(trial_email_count=current_count + count)

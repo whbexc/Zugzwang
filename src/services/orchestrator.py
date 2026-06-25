@@ -110,6 +110,7 @@ class ScrapingOrchestrator:
         self._import = ImportService()
         self._memory_lock = threading.Lock()
         self._known_record_ids: set[str] = set()
+        self._past_threads: list[QThread] = []
         # O(1) id-keyed dict; preserves insertion order (Python 3.7+)
         self._app_memory_records: dict[str, LeadRecord] = {}
         self._last_progress_emit_ts: float = 0.0
@@ -157,6 +158,10 @@ class ScrapingOrchestrator:
 
         job = ScrapingJob(config=config)
         self._current_job = job
+
+        if getattr(self, '_thread', None) is not None:
+            self._past_threads.append(self._thread)
+        self._past_threads = [t for t in self._past_threads if t.isRunning()]
 
         self._thread = QThread()
         self._worker = ScrapingWorker(self, job)
@@ -369,9 +374,6 @@ class ScrapingOrchestrator:
             self._known_record_ids.clear()
             self._app_memory_records.clear()
 
-        memory_path = Path(get_memory_db_path())
-        if memory_path.exists():
-            memory_path.unlink()
 
         event_bus.emit(event_bus.DB_UPDATED, records=[])
 

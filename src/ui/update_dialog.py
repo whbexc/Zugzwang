@@ -4,20 +4,17 @@ macOS-style UI for version alerts and download progress.
 """
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel, 
-    QFrame, QPushButton, QProgressBar
+    QFrame, QPushButton, QProgressBar, QSizePolicy
 )
-from qfluentwidgets import (
-    FluentIcon, IconWidget, InfoBar
-)
-from .theme import Theme
+from qfluentwidgets import InfoBar
 from ..core.config import APP_BUILD, APP_VERSION
 
 class UpdateDialog(QDialog):
     """
-    Premium update notification screen.
+    Premium Apple-style update notification screen.
     """
     
     update_started = Signal(str) # download_url
@@ -27,145 +24,84 @@ class UpdateDialog(QDialog):
         self.new_version = new_version
         self.download_url = download_url
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Dialog)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self._drag_pos = None
+        self.setFixedSize(340, 210)
         
         self._build_ui()
         
     def _build_ui(self):
-        self.setFixedSize(440, 320)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        bg = QWidget()
+        bg.setStyleSheet("QWidget { background: rgba(40, 40, 40, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; }")
+        bg_layout = QVBoxLayout(bg)
+        bg_layout.setContentsMargins(24, 24, 24, 24)
+        bg_layout.setSpacing(8)
+
+        # Title
+        title_lbl = QLabel("Software Update")
+        title_lbl.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 16px; font-weight: 600; background: transparent; border: none;")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        bg_layout.addWidget(title_lbl)
         
-        self.container = QFrame(self)
-        self.container.setGeometry(0, 0, 440, 320)
-        self.container.setObjectName("MainContainer")
-        self.container.setStyleSheet("""
-            QFrame#MainContainer {
-                background: #1C1C1E;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 20px;
-            }
-        """)
-        
-        layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(20)
-        
-        # Header
-        header = QHBoxLayout()
-        header.setSpacing(16)
-        
-        icon = IconWidget(FluentIcon.UPDATE)  # Or CLOUD_DOWNLOAD
-        icon.setFixedSize(48, 48)
-        icon.setStyleSheet("color: #0A84FF;")
-        header.addWidget(icon)
-        
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(2)
-        
-        title = QLabel("Software Update")
-        title.setStyleSheet("""
-            color: white; 
-            font-family: "-apple-system", "PT Root UI", sans-serif; 
-            font-size: 20px; 
-            font-weight: 700;
-        """)
-        title_layout.addWidget(title)
-        
+        # Subtitle
         ver_label = QLabel(f"Version {self.new_version} is available")
-        ver_label.setStyleSheet("""
-            color: #8E8E93; 
-            font-family: "-apple-system", "PT Root UI", sans-serif; 
-            font-size: 13px;
-        """)
-        title_layout.addWidget(ver_label)
-        header.addLayout(title_layout)
-        header.addStretch()
+        ver_label.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; font-weight: 500; background: transparent; border: none;")
+        ver_label.setAlignment(Qt.AlignCenter)
+        bg_layout.addWidget(ver_label)
         
-        layout.addLayout(header)
-        
+        bg_layout.addSpacing(4)
+
         # Description
-        desc = QLabel(
-            f"A new version of ZUGZWANG is ready to install. "
-            f"You are currently using v{APP_VERSION} (build {APP_BUILD})."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("""
-            color: #D1D1D6; 
-            font-family: "-apple-system", "PT Root UI", sans-serif; 
-            font-size: 14px; 
-            line-height: 1.4;
-        """)
-        layout.addWidget(desc)
-        
-        layout.addStretch()
-        
-        # Progress Bar (Hidden initially)
+        desc_text = f"A new version of ZUGZWANG is ready to install.\nYou are currently using v{APP_VERSION} (build {APP_BUILD})."
+        desc_lbl = QLabel(desc_text)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setAlignment(Qt.AlignCenter)
+        desc_lbl.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; font-weight: 400; background: transparent; border: none; line-height: 1.4;")
+        bg_layout.addWidget(desc_lbl, 1)
+
+        # Progress Bar & Status (Hidden initially)
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #2C2C2E;
-                border: none;
-                border-radius: 3px;
-            }
-            QProgressBar::chunk {
-                background: #0A84FF;
-                border-radius: 3px;
-            }
+            QProgressBar { background: rgba(255, 255, 255, 0.1); border: none; border-radius: 3px; }
+            QProgressBar::chunk { background: #0A84FF; border-radius: 3px; }
         """)
-        layout.addWidget(self.progress_bar)
+        bg_layout.addWidget(self.progress_bar)
         
         self.status_label = QLabel("")
         self.status_label.setVisible(False)
-        self.status_label.setStyleSheet("color: #8E8E93; font-size: 11px;")
-        layout.addWidget(self.status_label)
-        
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: #8E8E93; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; background: transparent; border: none;")
+        bg_layout.addWidget(self.status_label)
+
         # Action Buttons
         self.btn_layout = QHBoxLayout()
+        self.btn_layout.setContentsMargins(0, 10, 0, 0)
         self.btn_layout.setSpacing(12)
-        
+
         self.later_btn = QPushButton("Later")
-        self.later_btn.setFixedSize(120, 40)
         self.later_btn.setCursor(Qt.PointingHandCursor)
-        self.later_btn.setStyleSheet("""
-            QPushButton {
-                background: #2C2C2E;
-                border: 1px solid #3A3A3C;
-                border-radius: 10px;
-                color: white;
-                font-family: "-apple-system", sans-serif;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            QPushButton:hover { background: #3A3A3C; }
-        """)
+        self.later_btn.setFixedHeight(32)
+        self.later_btn.setStyleSheet("QPushButton { background: rgba(255, 255, 255, 0.1); color: white; border: none; border-radius: 6px; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; font-weight: 500; } QPushButton:hover { background: rgba(255, 255, 255, 0.15); }")
         self.later_btn.clicked.connect(self.reject)
         
         self.update_btn = QPushButton("Update Now")
-        self.update_btn.setFixedSize(140, 40)
         self.update_btn.setCursor(Qt.PointingHandCursor)
-        self.update_btn.setStyleSheet("""
-            QPushButton {
-                background: #0A84FF;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                font-family: "-apple-system", sans-serif;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background: #409CFF; }
-        """)
+        self.update_btn.setFixedHeight(32)
+        self.update_btn.setStyleSheet("QPushButton { background: #0A84FF; color: white; border: none; border-radius: 6px; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600; } QPushButton:hover { background: rgba(10, 132, 255, 0.8); }")
         self.update_btn.clicked.connect(self._start_update)
-        
-        self.btn_layout.addStretch()
+
         self.btn_layout.addWidget(self.later_btn)
         self.btn_layout.addWidget(self.update_btn)
         
-        layout.addLayout(self.btn_layout)
+        bg_layout.addLayout(self.btn_layout)
+        layout.addWidget(bg)
 
     def _start_update(self):
         self.update_btn.setEnabled(False)
@@ -181,17 +117,7 @@ class UpdateDialog(QDialog):
 
     def set_error(self, msg: str):
         self.status_label.setText(f"Error: {msg}")
-        self.status_label.setStyleSheet("color: #FF453A; font-size: 11px;")
+        self.status_label.setStyleSheet("color: #FF453A; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; background: transparent; border: none;")
         self.update_btn.setEnabled(True)
         self.later_btn.setEnabled(True)
         InfoBar.error("Update Failed", msg, duration=5000, parent=self)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
-            self.move(event.globalPos() - self._drag_pos)
-            event.accept()

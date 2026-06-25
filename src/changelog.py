@@ -1,14 +1,62 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.0.94"
+APP_VERSION = "1.1.0 Beta"
 
 CHANGELOG = [
     {
-        "version": "1.0.94",
-        "date": "April 30, 2026",
+        "version": "1.1.0 Beta",
+        "date": "June 26, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Dynamic Anschreiben Personalization — automatically generate perfectly tailored and personalized cover letters for every single lead"
+            },
+            {
+                "type": "new",
+                "text": "Fail-Forward Batch Exports — seamlessly falls back to attaching your raw uploaded PDF for leads that exceed your daily custom PDF limit without halting the workflow"
+            },
+            {
+                "type": "new",
+                "text": "Auto-Clamped Broadcasting — mass email broadcasts now automatically clamp to your remaining limit instead of blocking the entire batch"
+            },
+            {
+                "type": "improved",
+                "text": "Ausbildung Engine Upgrade — completely refactored the extraction engine to support robust URL-based radius parameters and true infinite-scroll pagination"
+            },
+            {
+                "type": "improved",
+                "text": "Scraping Latency Optimizations — massively reduced search latency by stripping out legacy hardcoded delays and streamlining intelligent browser timeouts"
+            },
+            {
+                "type": "improved",
+                "text": "Intrusive Popup Removal — completely removed hard-blocking 'Activate Pro' dialogs from all export and email functions, replacing them with elegant banners"
+            },
+            {
+                "type": "improved",
+                "text": "Edit Page Redesign — comprehensive rewrite of the editor UI for better responsiveness, cleaner spacing, and strict adherence to the premium macOS dark theme"
+            },
+            {
+                "type": "fixed",
+                "text": "Data Mapping Accuracy — resolved a parsing bug where the lead's city was incorrectly displaying inside the company name field in the activity stream"
+            },
+            {
+                "type": "fixed",
+                "text": "Progress Monitor Stability — eliminated a UI race condition in the Monitor page to ensure the extraction progress bar accurately reaches 100% upon completion"
+            },
+            {
+                "type": "fixed",
+                "text": "Visual Polish — fixed dark artifacting behind popup text and resolved UI layout overflows across the Settings and Email Sender pages"
+            }
+        ]
+    },
+    {
+        "version": "1.0.94",
+        "date": "April 30, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -368,10 +416,64 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.0.94",
-        "date": "30 أبريل 2026",
+        "version": "1.1.0 Beta",
+        "date": "26 يونيو 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "تخصيص ديناميكي لخطاب التقديم — توليد خطابات تقديم مخصصة ومصاغة بذكاء لكل شركة تلقائياً وبكل احترافية"
+            },
+            {
+                "type": "new",
+                "text": "تصدير الدفعات بمرونة — يتخطى الحد اليومي عبر إرفاق سيرتك الذاتية الأصلية للعملاء المتبقين دون تعطيل سير العمل"
+            },
+            {
+                "type": "new",
+                "text": "تقييد البث الذكي — بث رسائل البريد يقوم تلقائياً بضبط الدفعة لتتناسب مع الحد المتبقي بدل حظر العملية بالكامل"
+            },
+            {
+                "type": "improved",
+                "text": "ترقية محرك Ausbildung — إعادة بناء محرك الاستخراج لدعم نطاقات البحث المستندة إلى الروابط والتمرير اللانهائي الحقيقي"
+            },
+            {
+                "type": "improved",
+                "text": "تسريع الاستخراج — تقليل كبير في وقت الانتظار من خلال إزالة التأخيرات القديمة وتحسين مهل المتصفح الذكية"
+            },
+            {
+                "type": "improved",
+                "text": "إزالة النوافذ المزعجة — إزالة نوافذ التفعيل المعرقلة من جميع وظائف التصدير واستبدالها بإشعارات أنيقة"
+            },
+            {
+                "type": "improved",
+                "text": "إعادة تصميم صفحة التحرير — إعادة كتابة واجهة المحرر لتحسين الاستجابة والالتزام بمظهر macOS الداكن الفاخر"
+            },
+            {
+                "type": "fixed",
+                "text": "دقة تعيين البيانات — حل مشكلة تقنية حيث كان اسم المدينة يظهر بالخطأ داخل حقل اسم الشركة في سجل النشاط"
+            },
+            {
+                "type": "fixed",
+                "text": "استقرار شريط التقدم — القضاء على خلل برمجي في صفحة المراقبة لضمان وصول شريط الاستخراج إلى 100% بدقة"
+            },
+            {
+                "type": "fixed",
+                "text": "تحسينات بصرية — إصلاح المربعات الداكنة خلف النصوص المنبثقة وحل مشكلة تجاوز وتداخل العناصر في صفحة الإعدادات"
+            }
+        ]
+    },
+    {
+        "version": "1.0.94",
+        "date": "30 أبريل 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

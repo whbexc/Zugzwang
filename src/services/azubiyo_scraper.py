@@ -7,6 +7,7 @@ import asyncio
 from typing import AsyncGenerator
 
 from .browser import BrowserSession, BrowserError
+from .email_extractor import extract_contact_person_from_text
 from ..core.security import LicenseManager
 from ..core.events import event_bus
 from ..core.logger import get_logger
@@ -225,6 +226,14 @@ class AzubiyoScraper:
                     website = href
                     break
                     
+            # Extract Contact Person via NLP fallback
+            contact_person = ""
+            try:
+                page_text = await detail_page.evaluate("document.body.innerText")
+                contact_person = extract_contact_person_from_text(page_text) or ""
+            except Exception:
+                pass
+                
         except Exception as e:
             logger.warning(f"[{self.job_id}] Error extracting {url}: {e}")
             self._total_errors += 1
@@ -249,7 +258,7 @@ class AzubiyoScraper:
             address=address,
             phone=phone,
             email=email,
-            contact_person="",
+            contact_person=contact_person if 'contact_person' in locals() else "",
             job_title=job_title,
         ).normalize()
         

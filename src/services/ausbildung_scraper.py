@@ -15,6 +15,7 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 
 from .browser import BrowserSession
+from .email_extractor import extract_contact_person_from_html
 from ..core.logger import get_logger
 from ..core.models import LeadRecord, SearchConfig, SourceType
 
@@ -351,6 +352,9 @@ class AusbildungScraper:
         el = doc.select_one(".job-posting-contact-person__name")
         if el:
             contact = el.get_text(strip=True) or None
+            
+        if not contact:
+            contact = extract_contact_person_from_html(html)
 
         # ── Company name ──
         company: str | None = None

@@ -22,6 +22,7 @@ from qfluentwidgets import (
 from qframelesswindow import FramelessWindow, TitleBar
 
 from .dashboard_page import DashboardPage
+from .edit_page import EditPage
 from .log_viewer_page import LogViewerPage
 from .monitor_page import MonitorPage
 from .results_page import ResultsPage
@@ -261,7 +262,7 @@ class MainWindow(FramelessWindow):
         self.setWindowTitle(f"{tr('app.title', self._language)} {APP_VERSION}")
         self.setWindowIcon(load_icon("logo-mark.png"))
         self.setTitleBar(_CustomTitleBar(self))
-        self.resize(1280, 800); self.setMinimumSize(1000, 650)
+        self.resize(1600, 920); self.setMinimumSize(1280, 720)
         self.setStyleSheet(_GLOBAL_CSS + APP_STYLESHEET)
         QApplication.instance().setLayoutDirection(Qt.RightToLeft if is_rtl(self._language) else Qt.LeftToRight)
 
@@ -279,7 +280,8 @@ class MainWindow(FramelessWindow):
             3: MonitorPage,
             4: EmailSenderPage,
             5: SettingsPage,
-            6: LogViewerPage
+            6: LogViewerPage,
+            7: EditPage,
         }
         
         self._jobs = []
@@ -353,8 +355,9 @@ class MainWindow(FramelessWindow):
         self._nav_layout.setContentsMargins(0, 0, 0, 0); self._nav_layout.setSpacing(4)
         self._nav_layout.setAlignment(Qt.AlignCenter)
         
-        # Full-width Stack
-        self._stack = QStackedWidget(); self._stack.setStyleSheet(f"background: {_BG};")
+        self._stack = QStackedWidget()
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._stack.setStyleSheet(f"background: {_BG};")
         root.addWidget(self._stack, 1)
 
         # Map identifiers for text buttons
@@ -362,6 +365,7 @@ class MainWindow(FramelessWindow):
             (0, tr("nav.dashboard", self._language)),
             (1, tr("nav.search", self._language)),
             (2, tr("nav.statistics", self._language)),
+            (7, tr("nav.edit", self._language)),
             (3, tr("nav.monitor", self._language)),
             (4, tr("nav.send", self._language)),
             (5, tr("nav.settings", self._language)),
@@ -373,13 +377,16 @@ class MainWindow(FramelessWindow):
         self._stack.addWidget(self.dashboard_page)
         
         # Create spacers/placeholders in the stack for others to maintain indices
-        for _ in range(1, 7):
+        for _ in range(1, 8):
             placeholder = QWidget()
             self._stack.addWidget(placeholder)
 
         for idx, label in self._page_config:
             btn = _HeaderButton(label)
-            btn.clicked.connect(lambda _, i=idx: self._switch(i))
+            if idx == 7:
+                btn.clicked.connect(self._open_edit_page)
+            else:
+                btn.clicked.connect(lambda _, i=idx: self._switch(i))
             self._nav_layout.addWidget(btn)
             self._page_btns[idx] = btn
 
@@ -424,6 +431,9 @@ class MainWindow(FramelessWindow):
         for i, btn in self._page_btns.items():
             btn.setChecked(i == idx)
 
+    def _open_edit_page(self):
+        self._switch(7)
+
     def _wire_lazy_signals(self, idx: int, instance: QWidget):
         """Connect signals for pages created on-demand."""
         if idx == 1: # SearchPage
@@ -435,6 +445,8 @@ class MainWindow(FramelessWindow):
             instance.scrape_more_requested.connect(self._start_job)
         elif idx == 4: # EmailSenderPage
             pass # Currently no unique signals to MainWindow
+        elif idx == 7: # EditPage
+            instance.send_emails_to_sender.connect(self._on_send_emails)
 
     def switchTo(self, page: QWidget):
         idx = self._stack.indexOf(page)
@@ -535,11 +547,19 @@ class MainWindow(FramelessWindow):
         self._whatsnew_shortcut = QShortcut(QKeySequence("Ctrl+Shift+W"), self)
         self._whatsnew_shortcut.activated.connect(self._show_whats_new)
 
-        # Navigation: Ctrl+1..7
-        for i in range(7):
-            def _nav(checked=False, idx=i):
-                self._switch(idx)
-            QShortcut(QKeySequence(f"Ctrl+{i+1}"), self, activated=_nav)
+        # Navigation: Ctrl+1..8 follows the visible top-nav order.
+        nav_shortcuts = [
+            ("Ctrl+1", lambda: self._switch(0)),
+            ("Ctrl+2", lambda: self._switch(1)),
+            ("Ctrl+3", lambda: self._switch(2)),
+            ("Ctrl+4", self._open_edit_page),
+            ("Ctrl+5", lambda: self._switch(3)),
+            ("Ctrl+6", lambda: self._switch(4)),
+            ("Ctrl+7", lambda: self._switch(5)),
+            ("Ctrl+8", lambda: self._switch(6)),
+        ]
+        for sequence, handler in nav_shortcuts:
+            QShortcut(QKeySequence(sequence), self, activated=handler)
 
         # Ctrl+, → Settings
         QShortcut(QKeySequence("Ctrl+,"), self, activated=lambda: self._switch(5))
@@ -992,4 +1012,6 @@ class MainWindow(FramelessWindow):
             results_page.load_records(records)
 
     def paintEvent(self, e):
-        painter = QPainter(self); painter.fillRect(self.rect(), QColor(_BG))
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(_BG))
+        painter.end()

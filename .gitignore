@@ -7,6 +7,8 @@ __pycache__/
 build/
 dist/
 *.spec
+Output/
+ZUGZWANG_Setup_*.exe
 
 # PyInstaller
 *.exe
@@ -48,6 +50,18 @@ node_modules/
 # Temp files
 .tmp_*/
 tmp_*/
+tmp/
+
+# Scratch and Agents
+scratch/
+.agents/
+
+# Temporary Scripting Files
+add_changelog_feature.py
+expand_changelog.py
+update_changelog.py
+update_version.py
+test_*.py
 
 # Local Settings & Sensitive Data
 settings.json

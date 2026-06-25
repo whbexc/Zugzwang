@@ -310,94 +310,84 @@ class ZugzwangDialog(QDialog):
     Premium macOS ZUGZWANG Style Dialog.
     Centered text, high-fidelity geometry, and Apple-style buttons to match Image 3.
     """
-    def __init__(self, title: str, message: str, parent=None, destructive: bool = False):
+    def __init__(self, title: str, message: str, parent=None, confirm_text: str = "OK", cancel_text: str = "Cancel", single_button: bool = False, destructive: bool = False):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(480, 260)
+        self.setFixedSize(320, 160)
         self._drag_pos = None
         
         # Main shadow/glass container
         self.container = QFrame(self)
         self.container.setObjectName("DialogContainer")
-        self.container.setFixedSize(480, 260)
+        self.container.setFixedSize(320, 160)
         self.container.setStyleSheet("""
             QFrame#DialogContainer {
-                background-color: #1E1E1E;
-                border: 1px solid #323232;
-                border-radius: 18px;
+                background: rgba(40, 40, 40, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 14px;
             }
         """)
         
         layout = QVBoxLayout(self.container)
-        layout.setContentsMargins(40, 42, 40, 36)
-        layout.setSpacing(12)
-        
-        # Header/Text area
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(10)
-        text_layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(8)
         
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'PT Root UI', 'PT Root UI'; font-size: 26px; font-weight: 800; background: transparent;")
+        self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 16px; font-weight: 600; background: transparent; border: none;")
         self.title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.title_label)
         
         self.message_label = QLabel(message)
-        self.message_label.setStyleSheet("color: #D1D1D6; font-family: 'PT Root UI', 'PT Root UI'; font-size: 15px; font-weight: 400; line-height: 1.4; background: transparent;")
+        self.message_label.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-family: 'SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; font-weight: 400; background: transparent; border: none; line-height: 1.2;")
         self.message_label.setAlignment(Qt.AlignCenter)
         self.message_label.setWordWrap(True)
+        layout.addWidget(self.message_label, 1)
         
-        text_layout.addWidget(self.title_label)
-        text_layout.addWidget(self.message_label)
-        layout.addLayout(text_layout)
-        
-        layout.addStretch()
-        
-        # Action Row
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(16)
-        btn_layout.setAlignment(Qt.AlignCenter)
-        
-        # OK Button (Red #FF453A)
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.setFixedSize(160, 48)
-        self.ok_btn.setCursor(Qt.PointingHandCursor)
-        self.ok_btn.setStyleSheet("""
-            QPushButton {
-                background: #FF453A;
-                border: none;
-                border-radius: 14px;
-                color: #FFFFFF;
-                font-family: 'PT Root UI', 'PT Root UI';
-                font-size: 16px;
-                font-weight: 700;
-            }
-            QPushButton:hover { background: #FF5C52; }
-            QPushButton:pressed { background: #E03E34; }
-        """)
-        self.ok_btn.clicked.connect(self.accept)
+        btn_layout.setContentsMargins(0, 8, 0, 0)
+        btn_layout.setSpacing(10)
         
         # Cancel Button (Dark #2C2C2E)
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setFixedSize(160, 48)
-        self.cancel_btn.setCursor(Qt.PointingHandCursor)
-        self.cancel_btn.setStyleSheet("""
-            QPushButton {
-                background: #2C2C2E;
-                border: 1px solid #3A3A3C;
-                border-radius: 14px;
-                color: #FFFFFF;
-                font-family: 'PT Root UI', 'PT Root UI';
-                font-size: 16px;
-                font-weight: 500;
-            }
-            QPushButton:hover { background: #3A3A3C; border-color: #48484A; }
-            QPushButton:pressed { background: #242426; }
+        if not single_button:
+            self.cancel_btn = QPushButton(cancel_text)
+            self.cancel_btn.setFixedHeight(32)
+            self.cancel_btn.setCursor(Qt.PointingHandCursor)
+            self.cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.1);
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-family: 'SF Pro Text', 'PT Root UI', sans-serif;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.15); }
+            """)
+            self.cancel_btn.clicked.connect(self.reject)
+            btn_layout.addWidget(self.cancel_btn)
+            
+        # OK/Confirm Button (Red #FF453A or #0A84FF)
+        self.ok_btn = QPushButton(confirm_text)
+        self.ok_btn.setFixedHeight(32)
+        self.ok_btn.setCursor(Qt.PointingHandCursor)
+        # Choose color dynamically based on text or destructive flag
+        color = "#FF453A" if destructive or "Delete" in confirm_text or "Wipe" in title else "#0A84FF"
+        self.ok_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {color};
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-family: 'SF Pro Text', 'PT Root UI', sans-serif;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background: {color}CC; }}
         """)
-        self.cancel_btn.clicked.connect(self.reject)
-        
+        self.ok_btn.clicked.connect(self.accept)
         btn_layout.addWidget(self.ok_btn)
-        btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
         
         if parent:

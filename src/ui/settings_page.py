@@ -575,8 +575,21 @@ class SettingsPage(QWidget):
         self._lic_desc = QLabel(tr("settings.license.activating", self._language)); self._lic_desc.setStyleSheet("background: transparent; border: none;")
         lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
         
-        self._btn_activate = PrimaryPushButton(tr("settings.button.activate", self._language))
-        self._btn_activate.setFixedHeight(36)
+        self._btn_activate = _QPBtn(tr("settings.button.activate", self._language))
+        self._btn_activate.setFixedHeight(30)
+        self._btn_activate.setCursor(Qt.PointingHandCursor)
+        self._btn_activate.setStyleSheet("""
+            QPushButton {
+                background: #0A84FF;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                font-family: "-apple-system", "SF Pro Text", sans-serif;
+                font-size: 13px; font-weight: 600;
+                padding: 0 16px;
+            }
+            QPushButton:hover { background: #0070DF; }
+        """)
         self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language))
         self._btn_deactivate.setFixedHeight(36)
         self._btn_deactivate.setStyleSheet(Theme.secondary_button())

@@ -19,6 +19,8 @@ from .email_extractor import (
     normalize_website,
     normalize_phone,
     _is_valid_email,
+    extract_contact_person_from_html,
+    extract_contact_person_from_text,
 )
 from ..core.config import config_manager
 from ..core.logger import get_logger
@@ -202,7 +204,7 @@ class WebsiteEmailCrawler:
         job_id: Optional[str] = None,
         bypass_cache: bool = False,
         extract_social: bool = False,
-    ) -> tuple[list[str], Optional[str], Optional[str], dict[str, str]]:
+    ) -> tuple[list[str], Optional[str], Optional[str], dict[str, str], Optional[str]]:
         website = normalize_website(website)
         cache_key = self._cache_key(website, company_name)
         socials: dict[str, str] = {}
@@ -221,6 +223,7 @@ class WebsiteEmailCrawler:
         best_emails: list[str] = []
         best_phone: Optional[str] = None
         best_source: Optional[str] = None
+        best_contact: Optional[str] = None
         best_priority = 99
 
         for idx, url in enumerate(candidate_urls):
@@ -242,10 +245,11 @@ class WebsiteEmailCrawler:
             emails = data["emails"]
             emails = self._filter_usable_emails(emails)
             phone = data["phone"]
+            contact_person = data.get("contact_person")
             if extract_social:
                 socials.update(data["socials"])
 
-            if not emails and not phone:
+            if not emails and not phone and not contact_person:
                 continue
 
             is_high_quality = any(
@@ -259,13 +263,14 @@ class WebsiteEmailCrawler:
             ):
                 best_emails = emails or best_emails
                 best_phone = phone or best_phone
+                best_contact = contact_person or best_contact
                 best_source = url
                 best_priority = priority
-                if priority == 0 and best_emails and best_phone:
+                if priority == 0 and best_emails and best_phone and best_contact:
                     break
 
-        result = (best_emails, best_phone, best_source, socials)
-        self._all_contact_cache[cache_key] = (list(best_emails), best_phone, best_source, dict(socials))
+        result = (best_emails, best_phone, best_source, socials, best_contact)
+        self._all_contact_cache[cache_key] = (list(best_emails), best_phone, best_source, dict(socials), best_contact)
         return result
 
     def _extract_page_data(self, url: str, html: str, discover: bool, extract_social: bool) -> dict:
@@ -282,6 +287,7 @@ class WebsiteEmailCrawler:
             emails = deduplicate_emails(extract_emails_from_html(html))
             
         phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
+        contact_person = extract_contact_person_from_html(html)
         
         socials = {}
         if extract_social:
@@ -291,6 +297,7 @@ class WebsiteEmailCrawler:
             "discovered": discovered,
             "emails": emails,
             "phone": phone,
+            "contact_person": contact_person,
             "socials": socials
         }
 

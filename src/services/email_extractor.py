@@ -166,6 +166,36 @@ _SOURCE_KEYWORDS: list[tuple[str, EmailSource]] = [
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def extract_contact_person_from_text(text: str) -> Optional[str]:
+    """Extract HR contact (Frau / Herr) using NLP regex heuristic."""
+    if not text:
+        return None
+    # We look for "Frau" or "Herr" followed by 1 to 5 capitalized words or specific prefixes (Dr., von, etc).
+    pattern = r'\b(Frau|Herr)\s+((?:(?:[A-ZÄÖÜ][a-zA-Zäöüß\-]+|Dr\.|Prof\.|med\.|von|van|der|de|zu|und|den)\s*){1,5})'
+    matches = re.findall(pattern, text)
+    
+    # We want to pick the most likely candidate. Usually the first one that appears
+    # near 'Ansprechpartner', 'Kontakt' or 'Bewerbung' is best, but to keep it simple and robust
+    # we just take the first valid match in the text.
+    for m in matches:
+        salutation = m[0]
+        # Clean trailing punctuation
+        name = re.sub(r'[\s,;:!\?]+$', '', m[1]).strip()
+        # Avoid weird captures: name should be reasonably long and not start with 'und'
+        if name and len(name) > 2 and not name.lower().startswith("und"):
+            return f"{salutation} {name}"
+            
+    return None
+
+def extract_contact_person_from_html(html: str) -> Optional[str]:
+    """Extract HR contact from HTML by stripping tags and applying NLP regex."""
+    if not html:
+        return None
+    text = _strip_html_tags(html)
+    return extract_contact_person_from_text(text)
+
+
+
 def extract_emails_from_text(text: str) -> list[str]:
     """Extract all valid, unique emails from a plain text string."""
     if not text:

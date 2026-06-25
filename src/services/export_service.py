@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 # Column headers in display order
 EXPORT_COLUMNS = [
     "id", "source_type", "company_name", "job_title", "category",
-    "email", "email_source_page", "phone", "website",
+    "email", "email_source_page", "phone", "website", "contact_person",
     "address", "city", "region", "postal_code", "country",
     "rating", "review_count", "description", "publication_date",
     "source_url", "maps_url", "search_query", "scraped_at", "notes",
@@ -252,6 +252,7 @@ class ExportService:
         conn = sqlite3.connect(path)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
+            self._init_db(conn)
             leads_rows = conn.execute(f"SELECT {','.join(EXPORT_COLUMNS)} FROM leads").fetchall()
             records = []
             seen_ids: set[str] = set()
@@ -292,11 +293,6 @@ class ExportService:
             conn.close()
 
     def _init_db(self, conn: sqlite3.Connection) -> None:
-        # Optimization: Check if tables exist before attempting creation to save MAIN thread time
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'")
-        if cursor.fetchone():
-            return
-
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
@@ -315,6 +311,13 @@ class ExportService:
                 PRIMARY KEY (id)
             )
         """)
+        existing = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(leads)").fetchall()
+        }
+        for column in EXPORT_COLUMNS:
+            if column not in existing:
+                conn.execute(f"ALTER TABLE leads ADD COLUMN {column} TEXT")
         conn.commit()
 
     def generate_filename(self, prefix: str, extension: str) -> str:

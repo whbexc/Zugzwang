@@ -224,34 +224,30 @@ class RecipientListWidget(QListWidget):
         copy_sel = None
         del_act = None
 
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background: #2C2C2E; color: white; border: 1px solid #3A3A3C; border-radius: 8px; font-family: 'PT Root UI'; font-size: 13px; padding: 4px; }
-            QMenu::item { padding: 6px 24px 6px 12px; border-radius: 4px; }
-            QMenu::item:selected { background: #0A84FF; }
-            QMenu::separator { height: 1px; background: #3A3A3C; margin: 4px 0; }
-        """)
+        from qfluentwidgets import RoundMenu, Action, FluentIcon
+        menu = RoundMenu(parent=self)
 
         # Item-specific actions
         if item:
-            copy_this = menu.addAction("Copy This Email")
-            move_top_act = menu.addAction("Move to Top")
+            copy_this = Action(FluentIcon.COPY, "Copy This Email", self)
+            menu.addAction(copy_this)
+            move_top_act = Action(FluentIcon.UP, "Move to Top", self)
+            menu.addAction(move_top_act)
             menu.addSeparator()
 
         # Selection actions
         if len(selected) > 1:
-            copy_sel = menu.addAction(f"Copy Selected ({len(selected)})")
-        else:
-            copy_sel = None
+            copy_sel = Action(FluentIcon.COPY, f"Copy Selected ({len(selected)})", self)
+            menu.addAction(copy_sel)
 
-        copy_all = menu.addAction("Copy All Queue")
+        copy_all = Action(FluentIcon.COPY, "Copy All Queue", self)
+        menu.addAction(copy_all)
         menu.addSeparator()
 
         # Multi-delete if selected
         if len(selected) > 0:
-            del_act = menu.addAction(f"Remove {'Selection' if len(selected) > 1 else 'Email'}")
-        else:
-            del_act = None
+            del_act = Action(FluentIcon.DELETE, f"Remove {'Selection' if len(selected) > 1 else 'Email'}", self)
+            menu.addAction(del_act)
 
         action = menu.exec(self.mapToGlobal(pos))
         
@@ -588,6 +584,29 @@ class EmailSenderPage(QWidget):
     def _record_successful_send(self, email: str, signature: str):
         email_key = email.strip().lower()
         signatures = self._successful_history.setdefault(email_key, set())
+        
+        # Mark as sent in the database so Edit Page and other components know
+        import sqlite3
+        from datetime import datetime
+        from ..core.config import get_memory_db_path
+        from ..core.events import event_bus, EventBus
+        try:
+            now = datetime.utcnow().isoformat()
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = conn.execute("SELECT id FROM leads WHERE email = ? LIMIT 1", (email_key,)).fetchone()
+            if row:
+                lead_id = row[0]
+                conn.execute(
+                    "INSERT INTO letter_state (lead_id, sent_at) VALUES (?, ?) "
+                    "ON CONFLICT(lead_id) DO UPDATE SET sent_at=excluded.sent_at",
+                    (lead_id, now)
+                )
+                conn.commit()
+                event_bus.emit(EventBus.DB_UPDATED, records=[])
+            conn.close()
+        except Exception as e:
+            self._log(f"Failed to update lead status in DB: {e}", "WARNING")
+            
         if signature in signatures:
             return
         signatures.add(signature)
@@ -1392,9 +1411,8 @@ class EmailSenderPage(QWidget):
         recipient = url.toString().split(":")[-1]
         error_msg = self._error_vault.get(recipient, "No detailed error captured.")
         
-        from qfluentwidgets import MessageBox
-        box = MessageBox("Transmission Error Detail", f"Recipient: {recipient}\n\n{error_msg}", self)
-        box.cancelButton.hide()
+        from .components import ZugzwangDialog
+        box = ZugzwangDialog("Transmission Error", f"Recipient: {recipient}\n\n{error_msg}", self, single_button=True)
         box.exec()
 
     def _toggle_preview(self):
@@ -1892,6 +1910,17 @@ class EmailSenderPage(QWidget):
     def _send_test(self):
         recs = self._get_recipients()
         if not recs: return self._on_log("No recipients in queue.", "ERROR")
+        
+        from ..core.security import LicenseManager
+        if not LicenseManager.can_send_email(1):
+            from .activation_dialog import ActivationDialog
+            status = LicenseManager.get_email_trial_status()
+            self._signals.log.emit(f"Send Failed: Reached daily limit of {status['total']} emails.", "ERROR")
+            dlg = ActivationDialog(self)
+            dlg.exec()
+            if not LicenseManager.can_send_email(1):
+                return
+                
         self._log(f"Executing test broadcast to {recs[0]}...")
         self._set_sending_state(True)
         threading.Thread(target=self._worker_send, args=([recs[0]],), daemon=True).start()
@@ -1899,6 +1928,33 @@ class EmailSenderPage(QWidget):
     def _send_all(self):
         recs = self._get_recipients()
         if not recs: return self._on_log("Recipient queue empty.", "ERROR")
+        
+        from ..core.security import LicenseManager
+        count = len(recs)
+        status = LicenseManager.get_email_trial_status()
+        
+        if not LicenseManager.is_active() and count > status['remaining']:
+            if status['remaining'] <= 0:
+                from .activation_dialog import ActivationDialog
+                self._signals.log.emit(f"Broadcast blocked: 0 emails remaining.", "ERROR")
+                dlg = ActivationDialog(self)
+                dlg.exec()
+                if not LicenseManager.can_send_email(1):
+                    return
+            else:
+                self._signals.log.emit(f"Broadcast of {count} emails clamped to remaining limit of {status['remaining']}.", "WARNING")
+                recs = recs[:status['remaining']]
+                from qfluentwidgets import InfoBar, InfoBarPosition
+                InfoBar.warning(
+                    title="Trial Limit Active",
+                    content=f"Your batch has been automatically clamped to your remaining limit of {status['remaining']} emails. Upgrade to Pro for unlimited broadcasts.",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=6000,
+                    parent=self.window()
+                )
+                
         self._log("Initiating global broadcast...")
         self._set_sending_state(True)
         threading.Thread(target=self._worker_send, args=(recs,), daemon=True).start()
@@ -1981,23 +2037,38 @@ class EmailSenderPage(QWidget):
                     self._signals.finished.emit(0, 0, False)
                 return
 
+        # Filter already sent recipients before applying batch size
+        message_signature = self._message_signature()
+        filtered_recipients = []
+        skipped_count = 0
+        for rec in recipients:
+            if self._was_message_sent(rec, message_signature):
+                skipped_count += 1
+            else:
+                filtered_recipients.append(rec)
+                
+        recipients = filtered_recipients
+        if skipped_count > 0:
+            self._log(f"Skipped {skipped_count} recipient(s) (already sent).", "WARNING")
+            
+        if not recipients:
+            self._log("No new recipients to email. Broadcast finished.", "SUCCESS")
+            self._signals.finished.emit(0, 0, True)
+            return
+
         # Respect Batch Size
         try: 
             bs = int(self._batch_size.text().strip())
             if bs < len(recipients):
                 self._log(f"Limiting broadcast to batch size of {bs}...", "WARNING")
                 recipients = recipients[:bs]
-                total = bs
         except: pass
+
+        total = len(recipients)
 
         for i, rec in enumerate(recipients):
             if self._stop_requested: break
             cycle_started_at = time.monotonic()
-            message_signature = self._message_signature()
-            
-            if self._was_message_sent(rec, message_signature):
-                self._log(f"Skipping {rec} (Already sent with the current message).", "WARNING")
-                continue
             
             # ── Robust Sending Logic ──
             try:
@@ -2063,10 +2134,12 @@ class EmailSenderPage(QWidget):
                         raise  # Re-raise non-rate-limit SMTP errors
                     
                 sent += 1
+                from ..core.security import LicenseManager
+                LicenseManager.record_email_send(1)
                 self._record_successful_send(rec, message_signature)
                 self._refresh_recipient_history_state()
                     
-                self._log(f"Sent to {rec} ({i+1}/{total})", "INFO")
+                self._log(f"✓ Sent to {rec} ({i+1}/{total})", "SUCCESS")
 
             except Exception as e:
                 if self._stop_requested: break
@@ -2094,6 +2167,20 @@ class EmailSenderPage(QWidget):
 
 
 
+    def _salutation(self, contact_person: str | None) -> str:
+        name  = (contact_person or "").strip()
+        if not name:
+            return "Sehr geehrte Damen und Herren,"
+        first = name.split()[0].strip(" ,.;:").lower()
+        import re
+        if first in {"frau", "ms", "mrs"}:
+            clean = re.sub(r"^(frau|ms|mrs)\s+", "", name, flags=re.IGNORECASE).strip()
+            return f"Sehr geehrte Frau {clean},"
+        if first in {"herr", "mr"}:
+            clean = re.sub(r"^(herr|mr)\s+", "", name, flags=re.IGNORECASE).strip()
+            return f"Sehr geehrter Herr {clean},"
+        return f"Guten Tag {name},"
+
     def _build_message(self, recipient: str) -> MIMEMultipart:
         msg = MIMEMultipart()
         msg["From"] = f"{self._from_name.text()} <{self._smtp_user.text().strip()}>"
@@ -2104,9 +2191,51 @@ class EmailSenderPage(QWidget):
             
         msg["To"] = recipient
         msg["Subject"] = self._subject.text()
-        msg.attach(MIMEText(self._body_text.toPlainText(), "html" if self._type_toggle.isChecked() else "plain"))
+        
+        body_text = self._body_text.toPlainText()
+        
+        import sqlite3
+        import re
+        import os
+        from ..core.config import get_memory_db_path, get_exports_dir
+        
+        anrede = "Sehr geehrte Damen und Herren,"
+        company = "Firma"
+        job_title = "Ausbildung"
+        sender_name = ""
+        sender_beruf = ""
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = conn.execute("SELECT contact_person, company_name, job_title FROM leads WHERE email = ? LIMIT 1", (recipient,)).fetchone()
+            if row:
+                anrede = self._salutation(row[0])
+                if row[1]: company = row[1]
+                if row[2]: job_title = row[2]
+                
+            sender_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_name'").fetchone()
+            if sender_row and sender_row[0]:
+                sender_name = sender_row[0]
+                
+            beruf_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_beruf'").fetchone()
+            if beruf_row and beruf_row[0]:
+                sender_beruf = beruf_row[0]
+            conn.close()
+        except Exception:
+            pass
+            
+        if not sender_name:
+            from ..core.config import config_manager
+            sender_name = config_manager.settings.email_from_name
+            
+        if not sender_name:
+            sender_name = "Bewerber"
+            
+        body_text = body_text.replace("{{ANREDE}}", anrede)
+        body_text = body_text.replace("{{COMPANY}}", company)
+        
+        msg.attach(MIMEText(body_text, "html" if self._type_toggle.isChecked() else "plain"))
 
-        # Attach files
+        # Attach standard files
         for file_path in self._attachments:
             if not os.path.exists(file_path):
                 continue
@@ -2118,13 +2247,59 @@ class EmailSenderPage(QWidget):
                 
                 encoders.encode_base64(part)
                 filename = os.path.basename(file_path)
-                part.add_header(
-                    "Content-Disposition",
-                    f"attachment; filename=\"{filename}\""
-                )
+                part.add_header("Content-Disposition", "attachment", filename=filename)
                 msg.attach(part)
             except Exception as e:
                 self._log(f"Failed to attach {file_path}: {e}", "ERROR")
+
+        # Attach dynamically generated lead PDF
+        def sanitize(v):
+            return re.sub(r'[<>:"/\\|?*]', '_', v)
+            
+        beruf_san = sanitize(sender_beruf or job_title or "Ausbildung")
+        firma_san = sanitize(company)
+        sender_san = sanitize(sender_name)
+        
+        pdf_filename = f"Bewerbung als {beruf_san} - {sender_san} @ {firma_san}.pdf"
+        generic_pdf_filename = f"Bewerbung als {beruf_san} - {sender_san}.pdf"
+        
+        dynamic_pdf_path = get_exports_dir() / pdf_filename
+        generic_pdf_path = get_exports_dir() / generic_pdf_filename
+        raw_pdf_path = get_exports_dir() / "Bewerbung_Raw_Uploaded.pdf"
+        
+        if dynamic_pdf_path.exists():
+            try:
+                part = MIMEBase("application", "pdf")
+                with open(dynamic_pdf_path, "rb") as f:
+                    part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=pdf_filename)
+                msg.attach(part)
+            except Exception as e:
+                raise RuntimeError(f"Failed to attach generated PDF {pdf_filename}: {e}")
+        elif generic_pdf_path.exists():
+            try:
+                part = MIMEBase("application", "pdf")
+                with open(generic_pdf_path, "rb") as f:
+                    part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=generic_pdf_filename)
+                msg.attach(part)
+            except Exception as e:
+                raise RuntimeError(f"Failed to attach generic PDF {generic_pdf_filename}: {e}")
+        elif raw_pdf_path.exists():
+            try:
+                part = MIMEBase("application", "pdf")
+                with open(raw_pdf_path, "rb") as f:
+                    part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=generic_pdf_filename) # Use generic filename to look professional
+                msg.attach(part)
+            except Exception as e:
+                raise RuntimeError(f"Failed to attach raw PDF {raw_pdf_path}: {e}")
+        else:
+            if not self._attachments:
+                raise FileNotFoundError(f"No PDF found. Tried dynamic ({pdf_filename}), generic ({generic_pdf_filename}), and raw ({raw_pdf_path}). Please generate it in the Edit Page first, or manually attach a CV.")
 
         return msg
 
@@ -2147,7 +2322,7 @@ class EmailSenderPage(QWidget):
         except ValueError:
             raise ValueError(f"Invalid SMTP Port: '{port_txt}'. Must be a number.")
 
-        timeout = 60
+        timeout = 300
         # Auto-select protocol: port 465 = Implicit SSL; everything else = plain+STARTTLS
         use_implicit_ssl = (port == 465)
         try:
@@ -2318,7 +2493,17 @@ class EmailSenderPage(QWidget):
         self._tls_switch.setChecked(s.email_smtp_tls)
         self._type_toggle.setChecked(s.email_body_html)
         self._subject.setText(s.email_subject)
-        self._body_text.setPlainText(s.email_body)
+        
+        if s.email_body:
+            self._body_text.setPlainText(s.email_body)
+        else:
+            self._body_text.setPlainText(
+                "{{ANREDE}}\n\n"
+                "gerne möchte ich mich um den von Ihnen ausgeschriebenen Ausbildungsplatz bewerben. "
+                "Im Anhang finden Sie meine Bewerbungsunterlagen als PDF-Datei.\n\n"
+                "Bei Rückfragen stehe ich Ihnen gerne zur Verfügung. Ich freue mich, von Ihnen zu hören!\n\n"
+                "Mit freundlichen Grüßen"
+            )
         self._interval_input.setText(s.email_interval)
         self._attachments = [
             path for path in (s.email_attachments or "").split("\n")

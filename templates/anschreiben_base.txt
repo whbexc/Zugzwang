@@ -1,0 +1,33 @@
+{{SENDER_NAME}}
+{{SENDER_EMAIL}}, {{SENDER_PHONE}}
+
+
+
+{{SENDER_CITY}}, {{DATUM}}
+
+
+zu <b>{{FIRMA}}</b>
+
+
+<b>BEWERBUNG UM EINE AUSBILDUNG ALS {{BERUF}}</b>
+
+z. Hd. der Personalabteilung
+
+
+{{ANREDE}}
+
+
+
+
+
+
+mein Name ist {{SENDER_NAME}}, und hiermit bewerbe ich mich mit großem Interesse um einen Ausbildungsplatz als {{BERUF}} in Ihrem Unternehmen. Durch meine bisherigen Erfahrungen und meine ausgeprägte Motivation bin ich überzeugt, einen wertvollen Beitrag in Ihrem Team leisten zu können.
+
+Die Entscheidung für diesen Berufsbereich beruht auf meinem starken Interesse und meinen praktischen Vorerfahrungen, die mich optimal auf die Anforderungen dieser Position vorbereitet haben. Ich schätze besonders die Möglichkeit, mich beruflich und persönlich in einem dynamischen Umfeld wie dem Ihren weiterzuentwickeln.
+
+Ich zeichne mich durch eine hohe Lernbereitschaft, Zuverlässigkeit und eine selbstständige Arbeitsweise aus. In der Zusammenarbeit mit anderen lege ich großen Wert auf Teamgeist, offene Kommunikation und gegenseitige Unterstützung. Darüber hinaus bin ich flexibel und offen für neue Herausforderungen.
+
+Gerne überzeuge ich Sie in einem persönlichen Gespräch von meinen Qualifikationen und meiner Motivation. Über eine Einladung zu einem Vorstellungsgespräch freue ich mich sehr. Für eventuelle Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung.
+
+
+Mit freundlichen Grüßen

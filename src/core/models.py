@@ -416,6 +416,7 @@ class AppSettings:
     results_per_page: int = 50
     app_language: str = "en"
     column_visibility: str = ""       # JSON: ResultsPage column visibility
+    results_table_state: str = ""     # Hex: ResultsPage table header state
     last_seen_version: str = ""       # For "What's New" popup trigger
 
     email_smtp_host: str = "smtp.gmail.com"
@@ -434,6 +435,7 @@ class AppSettings:
     email_interval: str = "5"
     email_recipients: str = ""
     email_attachments: str = ""
+    bewerbung_anschreiben_page: int = 1
 
     # Security & Licensing
     machine_id: str = ""
@@ -445,10 +447,14 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.0.94"
+    app_version: str = "1.1.0 Beta"
     app_build: int = 1
 
 
     # Free Trial Tracking
     trial_scraps_count: int = 0
     trial_last_reset_date: str = "" # ISO format date: YYYY-MM-DD
+    trial_pdf_export_count: int = 0
+    trial_pdf_last_reset_date: str = ""
+    trial_email_count: int = 0
+    trial_email_last_reset_date: str = ""

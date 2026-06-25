@@ -169,10 +169,10 @@ class GoogleMapsScraper:
             self._interaction_queue.put_nowait({"type": "solver_complete", "cookies": cookies})
 
     async def _enrich_record_contacts(self, record: LeadRecord) -> list[LeadRecord]:
-        if not self.crawler or not record.website or (record.email and record.phone):
+        if not self.crawler or not record.website or (record.email and record.phone and record.contact_person):
             return [record]
 
-        emails, phone, source, socials = await self.crawler.find_all_contact_info(
+        emails, phone, source, socials, contact_person = await self.crawler.find_all_contact_info(
             record.website,
             record.company_name,
             self.job_id,
@@ -195,6 +195,8 @@ class GoogleMapsScraper:
             record.email_source_page = source
         if phone and not record.phone:
             record.phone = phone
+        if contact_person and not record.contact_person:
+            record.contact_person = contact_person
         if socials:
             record.linkedin = socials.get("linkedin")
             record.twitter = socials.get("twitter")
@@ -340,6 +342,20 @@ class GoogleMapsScraper:
                     enriched_records = [record]
 
                 for enriched in enriched_records:
+                    if self._cancelled or results_count >= self.config.max_results:
+                        break
+                        
+                    if not LicenseManager.can_extract():
+                        logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                        event_bus.emit(
+                            event_bus.JOB_LOG,
+                            job_id=self.job_id,
+                            message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                            level="WARNING",
+                        )
+                        event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                        return
+
                     dedupe_key = enriched.stable_id()
                     if dedupe_key in emitted_keys:
                         continue
@@ -385,6 +401,20 @@ class GoogleMapsScraper:
                         enriched_records = [record]
 
                     for enriched in enriched_records:
+                        if self._cancelled or results_count >= self.config.max_results:
+                            break
+                            
+                        if not LicenseManager.can_extract():
+                            logger.warning(f"[{self.job_id}] Free trial limit reached (20/day). Stopping.")
+                            event_bus.emit(
+                                event_bus.JOB_LOG,
+                                job_id=self.job_id,
+                                message="Free trial limit reached (20 scraps/day). Please upgrade to Professional.",
+                                level="WARNING",
+                            )
+                            event_bus.emit(event_bus.TRIAL_LIMIT_REACHED, job_id=self.job_id)
+                            return
+
                         dedupe_key = enriched.stable_id()
                         if dedupe_key in emitted_keys:
                             continue

@@ -19,3 +19,7 @@ certifi>=2024.0.0
 # Diagnostic utilities
 psutil>=5.9.0
 
+# PDF Bewerbungsmappe Export Pipeline
+pypdf>=4.0.0
+reportlab>=4.0.0
+

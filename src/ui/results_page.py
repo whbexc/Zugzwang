@@ -1395,6 +1395,24 @@ class ResultsPage(QWidget):
             is_visible = not self._table.isColumnHidden(idx)
             self._columns_menu.add_column(title, idx, is_visible)
 
+        # ── Restore Table Header State ───────────────────────────────────────
+        import binascii
+        saved_state = config_manager.settings.results_table_state
+        if saved_state:
+            try:
+                self._table.horizontalHeader().restoreState(binascii.unhexlify(saved_state))
+            except Exception: pass
+
+        self._table.horizontalHeader().sectionResized.connect(self._save_table_state)
+        self._table.horizontalHeader().sectionMoved.connect(self._save_table_state)
+        self._table.horizontalHeader().sortIndicatorChanged.connect(self._save_table_state)
+
+    def _save_table_state(self, *args):
+        import binascii
+        state = self._table.horizontalHeader().saveState()
+        config_manager.settings.results_table_state = binascii.hexlify(state.data()).decode('utf-8')
+        config_manager.save()
+
 
 
     def _show_source_menu(self):
@@ -1535,16 +1553,12 @@ class ResultsPage(QWidget):
         text = ""
         ext = Path(path).suffix.lower()
         try:
-            if ext in (".txt", ".csv"):
+            if ext == ".xlsx":
+                self._parse_and_import_excel(path)
+                return
+            elif ext in (".txt", ".csv"):
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
                     text = f.read()
-            elif ext == ".xlsx":
-                import openpyxl
-                wb = openpyxl.load_workbook(path, data_only=True)
-                for sheet in wb.worksheets:
-                    for row in sheet.iter_rows(values_only=True):
-                        row_strs = [str(cell) for cell in row if cell is not None]
-                        text += " ".join(row_strs) + "\n"
             elif ext == ".docx":
                 import zipfile
                 import xml.etree.ElementTree as ET
@@ -1560,6 +1574,65 @@ class ResultsPage(QWidget):
         except Exception as e:
             from qfluentwidgets import InfoBar
             InfoBar.error("Import Failed", str(e), duration=4000, parent=self)
+
+    def _parse_and_import_excel(self, path: str):
+        import openpyxl
+        import time
+        from ..core.models import LeadRecord, SourceType
+        from ..services.export_service import EXPORT_COLUMNS
+
+        wb = openpyxl.load_workbook(path, data_only=True)
+        sheet = wb.active
+        
+        # Read headers from first row
+        headers = []
+        for cell in sheet[1]:
+            val = str(cell.value).strip().lower().replace(" ", "_") if cell.value else ""
+            headers.append(val)
+            
+        # Check if it looks like an exported Excel file (has our EXPORT_COLUMNS)
+        is_structured = any(col in headers for col in ["company_name", "email", "job_title"])
+        
+        added = 0
+        if is_structured:
+            # Parse structured data
+            for row in sheet.iter_rows(min_row=2, values_only=True):
+                row_data = {}
+                for idx, val in enumerate(row):
+                    if idx < len(headers) and headers[idx]:
+                        row_data[headers[idx]] = str(val).strip() if val is not None else ""
+                
+                email = row_data.get("email", "")
+                phone = row_data.get("phone", "")
+                if email or phone:
+                    record_dict = {k: row_data.get(k) for k in EXPORT_COLUMNS if k in row_data}
+                    record_dict["source_type"] = SourceType.MANUAL.value
+                    record_dict["search_query"] = "Excel Import"
+                    record_dict["scraped_at"] = time.time()
+                    
+                    if "company_name" not in record_dict or not record_dict["company_name"]:
+                        record_dict["company_name"] = "Imported Lead"
+                        
+                    record = LeadRecord.from_dict(record_dict)
+                    self._record_queue.put(record)
+                    added += 1
+        else:
+            # Fallback to unstructured text extraction
+            text = ""
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    row_strs = [str(cell) for cell in row if cell is not None]
+                    text += " ".join(row_strs) + "\n"
+            self._parse_and_import_text(text)
+            return
+
+        if added > 0:
+            from qfluentwidgets import InfoBar
+            InfoBar.success("Excel Import Successful", f"Imported {added} structured leads.", duration=3000, parent=self)
+            self._drain_queue()
+        else:
+            from qfluentwidgets import InfoBar
+            InfoBar.warning("No Data", "Could not find valid records in the Excel file.", duration=3000, parent=self)
 
     def _parse_and_import_text(self, text: str):
         import re, time
@@ -1843,14 +1916,54 @@ class ResultsPage(QWidget):
         if not selected:
             return
         source_rows = sorted([self._proxy.mapToSource(i).row() for i in selected], reverse=True)
+        
+        # Get IDs to remove from database before removing from model
+        records_to_remove = [self._model.get_record(row) for row in source_rows]
+        ids_to_remove = [r.id for r in records_to_remove if r and r.id]
+        
+        # Remove from UI model
         self._model.remove_records_by_indices(source_rows)
         self._clear_selection()
         self._update_count_label()
+        
+        # Remove from SQLite database
+        if ids_to_remove:
+            try:
+                import sqlite3
+                from ..core.config import get_memory_db_path
+                from ..core.events import EventBus, event_bus
+                
+                conn = sqlite3.connect(get_memory_db_path(), timeout=10.0)
+                placeholders = ",".join(["?"] * len(ids_to_remove))
+                conn.execute(f"DELETE FROM leads WHERE id IN ({placeholders})", ids_to_remove)
+                conn.commit()
+                conn.close()
+                event_bus.emit(EventBus.DB_UPDATED, records=[])
+            except Exception as e:
+                print(f"[ResultsPage] Failed to delete records from DB: {e}")
 
     def _remove_all_records(self):
         self._model.clear_records()
         self._clear_selection()
         self._update_count_label()
+        
+        # Clear orchestrator memory
+        from ..services.orchestrator import orchestrator
+        orchestrator.clear_app_memory()
+        
+        # Remove all from SQLite database
+        try:
+            import sqlite3
+            from ..core.config import get_memory_db_path
+            from ..core.events import EventBus, event_bus
+            
+            conn = sqlite3.connect(get_memory_db_path(), timeout=10.0)
+            conn.execute("DELETE FROM leads")
+            conn.commit()
+            conn.close()
+            event_bus.emit(EventBus.DB_UPDATED, records=[])
+        except Exception as e:
+            print(f"[ResultsPage] Failed to delete all records from DB: {e}")
 
     def _copy_all_emails_in_view(self):
         records = self._get_visible_records()
@@ -2060,8 +2173,4 @@ class ResultsPage(QWidget):
             destructive=True
         )
         if msg.exec():
-            from ..services.orchestrator import orchestrator
-            orchestrator.clear_app_memory() # Actually delete the DB file
-            self._model.clear_records()
-            self._update_count_label()
-            self._show_placeholder_state()
+            self._remove_all_records()
