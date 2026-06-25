@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.0.94-E5E5EA?style=for-the-badge&color=2C2C2E">
+<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -201,9 +201,18 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.0.94**
+**1.1.0 Beta**
 
 Recent work includes:
+
+- Fail-Forward Batch Exports — seamlessly falls back to attaching your raw uploaded PDF for leads that exceed your daily custom PDF limit without halting the workflow
+- Auto-Clamped Broadcasting — mass email broadcasts now automatically clamp to your remaining limit instead of blocking the entire batch
+- Dynamic Anschreiben Personalization — automatically generate perfectly tailored and personalized cover letters for every single lead
+- Intrusive Popup Removal — completely removed hard-blocking 'Activate Pro' dialogs from all export and email functions, replacing them with elegant banners
+- Edit Page Redesign — comprehensive rewrite of the editor UI for better responsiveness, cleaner spacing, and strict adherence to the premium macOS dark theme
+- Ausbildung Engine Upgrade — completely refactored the extraction engine to support robust URL-based radius parameters and true infinite-scroll pagination
+- Scraping Latency Optimizations — massively reduced search latency by stripping out legacy hardcoded delays and streamlining intelligent browser timeouts
+- Visual Polish — fixed dark artifacting behind popup text and resolved UI layout overflows across the Settings and Email Sender pages
 
 - separate internal app build tracking so future hotfixes can force updates even when the visible version string stays the same
 - one-time upgrade reset of stale local UI/app state after update
