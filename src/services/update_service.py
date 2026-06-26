@@ -14,7 +14,7 @@ from ..core.config import config_manager
 
 logger = logging.getLogger(__name__)
 
-_VERSION_RE = re.compile(r"^\s*v?(\d+(?:\.\d+)*)([a-zA-Z]*)\s*$")
+_VERSION_RE = re.compile(r"^\s*v?(\d+(?:\.\d+)*)(.*)$")
 _BUILD_RE = re.compile(r"build\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 
 
@@ -24,7 +24,7 @@ def _parse_version_parts(raw: str) -> tuple[tuple[int, ...], str]:
     if not match:
         return (0,), ""
     numeric = tuple(int(part) for part in match.group(1).split("."))
-    suffix = match.group(2).lower()
+    suffix = match.group(2).strip().lower()
     return numeric, suffix
 
 
