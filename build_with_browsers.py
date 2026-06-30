@@ -179,8 +179,6 @@ def _copy_playwright_driver():
             return
 
         dest = DIST_DIR / "_internal" / "playwright" / "driver"
-        if dest.exists():
-            return  # PyInstaller already included it
 
         print(f"\nCopying Playwright driver from {driver_dir}...")
         shutil.copytree(driver_dir, dest, dirs_exist_ok=True)

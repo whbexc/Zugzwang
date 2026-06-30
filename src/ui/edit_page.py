@@ -775,9 +775,19 @@ class EditPage(QWidget):
             on_result=self._on_persisted_pdf_path_loaded
         )
 
-        self._template_path = (
-            Path(__file__).resolve().parents[2] / "templates" / "anschreiben_base.txt"
-        )
+        from ..core.config import get_app_data_dir
+        import shutil
+
+        self._template_path = get_app_data_dir() / "templates" / "anschreiben_base.txt"
+        if not self._template_path.exists():
+            default_path = Path(__file__).resolve().parents[2] / "templates" / "anschreiben_base.txt"
+            if default_path.exists():
+                self._template_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(default_path, self._template_path)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Could not copy default template: {e}")
         self._template_text = self._load_template()
 
         # auto-save debounce timer
@@ -3630,23 +3640,19 @@ class EditPage(QWidget):
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            rightMargin=20*mm,
-            leftMargin=20*mm,
-            topMargin=5*mm,
-            bottomMargin=10*mm,
+            rightMargin=10*mm,
+            leftMargin=10*mm,
+            topMargin=8*mm,
+            bottomMargin=5*mm,
         )
         
         pdf_settings = self._load_pdf_settings()
         font_name = pdf_settings.get("font", "Helvetica")
-        try:
-            font_size = int(pdf_settings.get("size", "11"))
-        except ValueError:
-            font_size = 11
-        try:
-            leading = int(pdf_settings.get("leading", "14"))
-        except ValueError:
-            leading = 14
-        alignment = TA_LEFT if pdf_settings.get("alignment") == "Left" else TA_JUSTIFY
+        
+        # Enforce highly readable defaults since UI is removed
+        font_size = 11
+        leading = 14
+        alignment = TA_JUSTIFY
         
         styles = getSampleStyleSheet()
         style_normal = styles["Normal"]
@@ -3659,9 +3665,9 @@ class EditPage(QWidget):
             "H1",
             parent=style_normal,
             fontName=f"{font_name}-Bold" if font_name != "Times-Roman" else "Times-Bold",
-            fontSize=26,
-            leading=30,
-            spaceAfter=6,
+            fontSize=30,
+            leading=34,
+            spaceAfter=4,
             alignment=TA_CENTER,
         )
         
@@ -3669,9 +3675,9 @@ class EditPage(QWidget):
             "H2",
             parent=style_normal,
             fontName=f"{font_name}-Bold" if font_name != "Times-Roman" else "Times-Bold",
-            fontSize=13,
-            leading=16,
-            spaceAfter=12,
+            fontSize=12,
+            leading=14,
+            spaceAfter=8,
             alignment=TA_CENTER,
         )
         
@@ -3715,15 +3721,19 @@ class EditPage(QWidget):
         for i in range(idx, len(lines)):
             line = lines[i].strip()
             if not line:
-                story.append(Spacer(1, 14))
+                story.append(Spacer(1, 10))
             else:
                 if is_first_paragraph:
                     story.append(Paragraph(line, style_right))
                     is_first_paragraph = False
+                elif "bewerbung um eine ausbildung" in line.lower() or "bewerbung als" in line.lower():
+                    style_subj = ParagraphStyle("Subj", parent=style_bold, fontSize=13, spaceAfter=2)
+                    story.append(Paragraph(line, style_subj))
                 elif "freundlichen" in line.lower() and "gr" in line.lower():
-                    sig_block = []
-                    sig_block.append(Paragraph(line, style_normal))
-                    sig_block.append(Spacer(1, 5*mm)) # reduced from 10mm
+                    story.append(Paragraph(line, style_normal))
+                    story.append(Spacer(1, 2*mm)) # reduced from 5mm
+                    
+                    identity_block = []
                     
                     # Synchronous fallback to ensure we get the path even if background thread failed
                     sig_val = getattr(self, "_signature_image_path", "")
@@ -3756,15 +3766,15 @@ class EditPage(QWidget):
                                     rgb_img.save(img_buffer, format="JPEG")
                                     img_buffer.seek(0)
                                     
-                                    img = Image(img_buffer, width=40*mm, height=15*mm, kind="proportional")
+                                    img = Image(img_buffer, width=55*mm, height=20*mm, kind="proportional")
                                     img.hAlign = 'LEFT'
-                                    sig_block.append(img)
+                                    identity_block.append(img)
                             except Exception as e:
-                                sig_block.append(Paragraph(f"[Error processing signature image: {e}]", style_normal))
+                                identity_block.append(Paragraph(f"[Error processing signature image: {e}]", style_normal))
                         else:
-                            sig_block.append(Paragraph(f"[Signature file not found: {sig_path}]", style_normal))
+                            identity_block.append(Paragraph(f"[Signature file not found: {sig_path}]", style_normal))
                     else:
-                        sig_block.append(Paragraph("[No signature path saved in DB]", style_normal))
+                        identity_block.append(Paragraph("[No signature path saved in DB]", style_normal))
                                 
                     sender_name = self._cached_sender_settings.get("name", "")
                     if not sender_name:
@@ -3779,12 +3789,13 @@ class EditPage(QWidget):
                             pass
 
                     if sender_name:
-                        sig_block.append(Spacer(1, 2*mm))
-                        sig_block.append(Paragraph(sender_name, style_bold))
+                        style_name = ParagraphStyle("Name", parent=style_bold, fontSize=13)
+                        identity_block.append(Spacer(1, 1*mm))
+                        identity_block.append(Paragraph(sender_name, style_name))
                     else:
-                        sig_block.append(Paragraph("[No sender name set]", style_normal))
+                        identity_block.append(Paragraph("[No sender name set]", style_normal))
                         
-                    story.append(KeepTogether(sig_block))
+                    story.append(KeepTogether(identity_block))
                 else:
                     story.append(Paragraph(line, style_normal))
 

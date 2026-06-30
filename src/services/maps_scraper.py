@@ -270,8 +270,8 @@ class GoogleMapsScraper:
                     '//input[@id="searchboxinput"] | //input[@role="combobox"]'
                 ).first
                 await search_input.wait_for(state="visible", timeout=15_000)
-                await search_input.click()
-                await search_input.fill(query)
+                await search_input.click(timeout=2000, force=True)
+                await search_input.fill(query, timeout=2000)
                 await asyncio.sleep(0.15)
                 await self._submit_maps_search(page, search_input)
 
@@ -289,7 +289,7 @@ class GoogleMapsScraper:
 
             try:
 
-                await page.hover(LISTING_XPATH)
+                await page.hover(LISTING_XPATH, timeout=1000, force=True)
 
             except Exception:
 
@@ -497,7 +497,7 @@ class GoogleMapsScraper:
 
         # Click the card and wait for the detail panel to load
 
-        await listing.click()
+        await listing.click(timeout=1000, force=True)
 
         await self._wait_for_detail_panel(page)
 
@@ -612,7 +612,7 @@ class GoogleMapsScraper:
 
             if await addr.count() > 0:
 
-                record.address = (await addr.first.inner_text()).strip()
+                record.address = (await addr.first.inner_text(timeout=1000)).strip()
 
         except Exception:
 
@@ -660,7 +660,7 @@ class GoogleMapsScraper:
 
             if await site.count() > 0:
 
-                raw = (await site.first.inner_text()).strip()
+                raw = (await site.first.inner_text(timeout=1000)).strip()
 
                 if raw:
 
@@ -710,7 +710,7 @@ class GoogleMapsScraper:
 
                 record.phone = normalize_phone(
 
-                    (await phone.first.inner_text()).strip()
+                    (await phone.first.inner_text(timeout=1000)).strip()
 
                 )
 
@@ -928,7 +928,7 @@ class GoogleMapsScraper:
 
             if await rc.count() > 0:
 
-                txt = (await rc.first.inner_text()).split()[0]
+                txt = (await rc.first.inner_text(timeout=1000)).split()[0]
 
                 txt = txt.replace(",", "").replace(".", "")
 
@@ -980,7 +980,7 @@ class GoogleMapsScraper:
 
             if await spans.count() > 0:
 
-                txt = (await spans.first.inner_text()).strip()
+                txt = (await spans.first.inner_text(timeout=1000)).strip()
 
                 m = re.search(r"([\d,.]+)", txt)
 
@@ -1068,7 +1068,7 @@ class GoogleMapsScraper:
 
             if await header_area.count() > 0:
 
-                text = (await header_area.first.inner_text())[:500]
+                text = (await header_area.first.inner_text(timeout=1000))[:500]
 
                 m = re.search(r"(\d[.,]\d)\s*(?:star|Stern|\u2605)", text, re.IGNORECASE)
 
@@ -1181,7 +1181,7 @@ class GoogleMapsScraper:
 
                 '//button[contains(@data-item-id, "phone:tel:")]',
 
-                state="attached", timeout=8_000,
+                state="attached", timeout=2_000,
 
             )
 
@@ -1227,7 +1227,7 @@ class GoogleMapsScraper:
 
                 if await btn.is_visible(timeout=350):
 
-                    await btn.click()
+                    await btn.click(timeout=1000, force=True)
 
                     await asyncio.sleep(0.15)
 
@@ -1247,7 +1247,7 @@ class GoogleMapsScraper:
 
         try:
 
-            body_text = (await page.inner_text("body")).lower()
+            body_text = (await page.inner_text("body", timeout=1000)).lower()
 
             return any(sig in body_text for sig in END_OF_LIST_SIGNALS)
 
@@ -1273,7 +1273,7 @@ class GoogleMapsScraper:
 
                 if await loc.count() > 0:
 
-                    text = (await loc.inner_text()).strip()
+                    text = (await loc.inner_text(timeout=1000)).strip()
 
                     if text:
 
