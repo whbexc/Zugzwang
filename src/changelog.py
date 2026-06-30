@@ -1,14 +1,34 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.1.0 Beta"
+APP_VERSION = "1.1.0 Beta 2"
 
 CHANGELOG = [
     {
-        "version": "1.1.0 Beta",
-        "date": "June 26, 2026",
+        "version": "1.1.0 Beta 2",
+        "date": "July 1, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "improved",
+                "text": "85% Maps Scraper Speedup — Removed 120-second timeout delays on missing elements, reducing Google Maps latency drastically"
+            },
+            {
+                "type": "improved",
+                "text": "Unified Popup UI — Rewrote the Update Notification dialog to use the new premium draggable macOS-style aesthetic"
+            },
+            {
+                "type": "fixed",
+                "text": "Cover Letter Perfection — Tuned the PDF engine to use exactly 10pt fonts, single spacing, and optimized margins so generated Anschreiben always fit beautifully onto a single page"
+            }
+        ]
+    },
+    {
+        "version": "1.1.0 Beta",
+        "date": "June 26, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "new",
@@ -416,10 +436,36 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.1.0 Beta",
-        "date": "26 يونيو 2026",
+        "version": "1.1.0 Beta 2",
+        "date": "1 يوليو 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "improved",
+                "text": "تسريع خرائط جوجل بنسبة 85% — إزالة تأخيرات مهلة 120 ثانية على العناصر المفقودة، مما قلل من وقت انتظار الاستخراج بشكل جذري"
+            },
+            {
+                "type": "improved",
+                "text": "توحيد واجهة النوافذ المنبثقة — إعادة كتابة نافذة إشعار التحديث لاستخدام تصميم macOS الجديد الفاخر والقابل للسحب"
+            },
+            {
+                "type": "fixed",
+                "text": "مثالية خطاب التقديم — ضبط محرك PDF لاستخدام خطوط بحجم 10pt بالضبط، وتباعد مفرد، وهوامش محسّنة بحيث تتسع خطابات Anschreiben دائمًا بشكل جميل في صفحة واحدة"
+            }
+        ]
+    },
+    {
+        "version": "1.1.0 Beta",
+        "date": "26 يونيو 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",
