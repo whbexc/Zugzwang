@@ -23,7 +23,13 @@ def load_icon(name: str) -> QIcon:
 
 
 def _render_tinted_icon(name: str, size: int, color: str) -> QIcon:
-    svg_bytes = Path(icon_path(name)).read_bytes()
+    try:
+        svg_bytes = Path(icon_path(name)).read_bytes()
+    except FileNotFoundError:
+        import logging
+        logging.getLogger(__name__).warning(f"Icon not found: {name} at {icon_path(name)}. Using empty fallback icon.")
+        return QIcon()
+
     data = svg_bytes.decode("utf-8")
     for source in ["#EEEEEE", "#eeeeee", "#FFFFFF", "#ffffff", "#F8FAFC", "#f8fafc"]:
         data = data.replace(source, color)

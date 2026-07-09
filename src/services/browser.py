@@ -127,7 +127,15 @@ class BrowserSession:
                 )
 
         logger.info(f"[{self.job_id}] Starting browser session (engine={engine}, headless={self.settings.default_headless})")
-        self._playwright = await async_playwright().start()
+        try:
+            self._playwright = await async_playwright().start()
+        except FileNotFoundError as e:
+            logger.error(f"[{self.job_id}] Playwright driver missing: {e}")
+            raise BrowserError(
+                "Playwright driver not found. This can happen if an antivirus quarantined the file, "
+                "or if the installation is incomplete.\n\n"
+                "Please whitelist the ZUGZWANG installation folder in your antivirus and reinstall the app."
+            ) from e
 
 
 
