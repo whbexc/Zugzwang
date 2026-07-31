@@ -190,18 +190,6 @@ class GoogleMapsScraper:
             base_emails = []
 
         all_emails = base_emails + emails
-        if all_emails:
-            record.email = all_emails[0]
-            record.email_source_page = source
-        if phone and not record.phone:
-            record.phone = phone
-        if contact_person and not record.contact_person:
-            record.contact_person = contact_person
-        if socials:
-            record.linkedin = socials.get("linkedin")
-            record.twitter = socials.get("twitter")
-            record.instagram = socials.get("instagram")
-
         results = [record]
         for extra_email in all_emails[1:]:
             clone = LeadRecord.from_dict(record.to_dict())
@@ -292,33 +280,20 @@ class GoogleMapsScraper:
                 await page.hover(LISTING_XPATH, timeout=1000, force=True)
 
             except Exception:
-
                 pass
 
-
-
             listings = await self._scroll_and_collect_listings(page)
-
             logger.info(f"[{self.job_id}] Total listings collected: {len(listings)}")
-
-
 
             results_count = 0
             emitted_keys: set[str] = set()
-
-
+            emitted_emails: set[str] = set()
 
             feed_records = self._build_records_from_feed(query)
-
             if feed_records:
-
                 logger.info(
-
                     f"[{self.job_id}] Fast feed parser produced {len(feed_records)} Maps candidates"
-
                 )
-
-
 
             for record in feed_records:
                 if self._cancelled or results_count >= self.config.max_results:
@@ -357,11 +332,15 @@ class GoogleMapsScraper:
                         return
 
                     dedupe_key = enriched.stable_id()
-                    if dedupe_key in emitted_keys:
+                    email_key = str(enriched.email or "").strip().lower()
+
+                    if dedupe_key in emitted_keys or (email_key and email_key in emitted_emails):
                         continue
                         
                     results_count += 1
                     emitted_keys.add(dedupe_key)
+                    if email_key:
+                        emitted_emails.add(email_key)
                     logger.info(
                         f"[{self.job_id}] [{results_count}] {enriched.company_name} "
                         f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | feed"
@@ -416,11 +395,14 @@ class GoogleMapsScraper:
                             return
 
                         dedupe_key = enriched.stable_id()
-                        if dedupe_key in emitted_keys:
+                        email_key = str(enriched.email or "").strip().lower()
+                        if dedupe_key in emitted_keys or (email_key and email_key in emitted_emails):
                             continue
 
                         results_count += 1
                         emitted_keys.add(dedupe_key)
+                        if email_key:
+                            emitted_emails.add(email_key)
                         logger.info(
                             f"[{self.job_id}] [{results_count}] {enriched.company_name} "
                             f"| {enriched.city or ''} | email={'yes' if enriched.email else 'no'} | click"
@@ -1438,15 +1420,13 @@ class GoogleMapsScraper:
                 continue
 
             place_id = candidate.get("place_id") or candidate.get("dedupe_key")
-
-            if not place_id or place_id in self._feed_candidate_ids:
-
+            name_key = str(candidate.get("name") or "").strip().lower()
+            if not place_id or place_id in self._feed_candidate_ids or name_key in self._feed_candidate_ids:
                 continue
-
             self._feed_candidate_ids.add(place_id)
-
+            if name_key:
+                self._feed_candidate_ids.add(name_key)
             self._feed_candidates.append(candidate)
-
             added += 1
 
 

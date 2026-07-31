@@ -4,6 +4,7 @@ Pivot from Sidebar to Top-Navigation Header for a wide-screen, cinematic feel.
 """
 
 from __future__ import annotations
+import sys
 import re
 import asyncio
 import threading
@@ -126,7 +127,8 @@ class _CustomTitleBar(TitleBar):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.setFixedHeight(48)
+        self._is_mac = (sys.platform == "darwin")
+        self.setFixedHeight(38 if self._is_mac else 48)
         self.setStyleSheet(f"TitleBar {{ background-color: {_BG}; border-bottom: none; }}")
 
         while self.hBoxLayout.count() > 0:
@@ -135,65 +137,13 @@ class _CustomTitleBar(TitleBar):
 
         self.hBoxLayout.setContentsMargins(0, 0, 0, 0); self.hBoxLayout.setSpacing(0)
 
-        import sys
-        self._is_mac = (sys.platform == "darwin")
-
-        # Left area: Status + Name (and macOS Traffic Lights on Mac)
+        # Left area: Status + Name
+        # On macOS, Apple's native Cocoa traffic lights occupy the first ~66px, so start content at 76px left margin
         left_area = QWidget(); left_area.setStyleSheet("background: transparent;")
-        left_layout = QHBoxLayout(left_area); left_layout.setContentsMargins(16, 0, 16, 0); left_layout.setSpacing(10)
+        left_layout = QHBoxLayout(left_area)
+        left_layout.setContentsMargins(76 if self._is_mac else 20, 0, 16, 0)
+        left_layout.setSpacing(10)
         left_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        if self._is_mac:
-            mac_buttons_layout = QHBoxLayout()
-            mac_buttons_layout.setContentsMargins(0, 0, 8, 0)
-            mac_buttons_layout.setSpacing(8)
-
-            btn_style_mac = """
-                QPushButton {{
-                    background: {bg};
-                    border: 1px solid {border};
-                    border-radius: 6px;
-                    color: transparent;
-                    font-size: 10px;
-                    font-weight: 800;
-                    padding: 0;
-                }}
-                QPushButton:hover {{
-                    background: {hover};
-                    color: {text_hover};
-                }}
-            """
-            # Close (Red)
-            self._close_btn = QPushButton("×", left_area)
-            self._close_btn.setFixedSize(12, 12)
-            self._close_btn.setStyleSheet(btn_style_mac.format(
-                bg="#FF5F56", border="#E0443E", hover="#FF5F56", text_hover="#4D0000"
-            ))
-            self._close_btn.setToolTip("Close")
-            self._close_btn.clicked.connect(parent.close)
-            mac_buttons_layout.addWidget(self._close_btn)
-
-            # Minimize (Yellow)
-            self._min_btn = QPushButton("−", left_area)
-            self._min_btn.setFixedSize(12, 12)
-            self._min_btn.setStyleSheet(btn_style_mac.format(
-                bg="#FFBD2E", border="#DEA123", hover="#FFBD2E", text_hover="#5C3B00"
-            ))
-            self._min_btn.setToolTip("Minimize")
-            self._min_btn.clicked.connect(parent.showMinimized)
-            mac_buttons_layout.addWidget(self._min_btn)
-
-            # Maximize/Zoom (Green)
-            self._max_btn = QPushButton("+", left_area)
-            self._max_btn.setFixedSize(12, 12)
-            self._max_btn.setStyleSheet(btn_style_mac.format(
-                bg="#28C840", border="#1AAB29", hover="#28C840", text_hover="#003B0B"
-            ))
-            self._max_btn.setToolTip("Zoom")
-            self._max_btn.clicked.connect(self._toggle_maximize)
-            mac_buttons_layout.addWidget(self._max_btn)
-
-            left_layout.addLayout(mac_buttons_layout)
 
         self._status_dot = QFrame(); self._status_dot.setFixedSize(8, 8)
         self._status_dot.setStyleSheet(f"background: {AppTheme.TEXT_TERTIARY}; border-radius: 4px;")
@@ -311,6 +261,12 @@ class MainWindow(FramelessWindow):
     solver_requested = Signal(str, str, list, str) # job_id, url, cookies, user_agent
     """App root window (Aesthetic 4.0) - Full-width, Top-Navigation."""
 
+    def systemTitleBarRect(self, size: QSize):
+        if sys.platform == "darwin":
+            from PySide6.QtCore import QRect
+            return QRect(0, 0, 75, 38)
+        return super().systemTitleBarRect(size)
+
     def __init__(self):
         super().__init__()
         self._language = get_language(config_manager.settings.app_language)
@@ -319,6 +275,8 @@ class MainWindow(FramelessWindow):
         self.setWindowTitle(f"{tr('app.title', self._language)} {APP_VERSION}")
         self.setWindowIcon(load_icon("logo-mark.png"))
         self.setTitleBar(_CustomTitleBar(self))
+        if sys.platform == "darwin" and hasattr(self, "setSystemTitleBarButtonVisible"):
+            self.setSystemTitleBarButtonVisible(True)
         self.resize(1600, 920); self.setMinimumSize(1280, 720)
         self.setStyleSheet(_GLOBAL_CSS + APP_STYLESHEET)
         QApplication.instance().setLayoutDirection(Qt.RightToLeft if is_rtl(self._language) else Qt.LeftToRight)

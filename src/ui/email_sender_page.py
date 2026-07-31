@@ -1743,7 +1743,7 @@ class EmailSenderPage(QWidget):
         self._recipient_list.setUpdatesEnabled(False)
         self._recipient_list.clear()
         for e in emails:
-            e = e.strip()
+            e = str(e).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip()
             if e:
                 self._recipient_list.addItem(RecipientItem(e))
         self._recipient_list.setUpdatesEnabled(True)
@@ -2369,25 +2369,49 @@ class EmailSenderPage(QWidget):
         return f"Guten Tag {name},"
 
     def _build_message(self, recipient: str) -> MIMEMultipart:
+        from email.header import Header
+        from email.utils import formataddr
+
+        def _clean_unicode(s: str) -> str:
+            if not s:
+                return ""
+            return str(s).replace('\xa0', ' ').replace('\u200b', '').replace('\ufeff', '').strip()
+
+        def _add_safe_filename_header(part, disp_type: str, fname: str):
+            clean_name = _clean_unicode(fname)
+            try:
+                clean_name.encode("ascii")
+                part.add_header("Content-Disposition", disp_type, filename=clean_name)
+            except UnicodeEncodeError:
+                part.add_header("Content-Disposition", disp_type, filename=("utf-8", "", clean_name))
+
+        recipient = _clean_unicode(recipient)
         msg = MIMEMultipart()
-        msg["From"] = f"{self._from_name.text()} <{self._smtp_user.text().strip()}>"
-        
-        reply_addr = self._reply_to.text().strip()
+
+        from_name = _clean_unicode(self._from_name.text())
+        sender_email = _clean_unicode(self._smtp_user.text())
+        if from_name:
+            msg["From"] = formataddr((str(Header(from_name, "utf-8")), sender_email))
+        else:
+            msg["From"] = sender_email
+
+        reply_addr = _clean_unicode(self._reply_to.text())
         if reply_addr:
             msg["Reply-To"] = reply_addr
-            
+
         msg["To"] = recipient
-        subject_text = self._replace_placeholders(self._subject.text(), recipient)
-        msg["Subject"] = subject_text
-        
+        subject_text = _clean_unicode(self._replace_placeholders(self._subject.text(), recipient))
+        msg["Subject"] = Header(subject_text, "utf-8")
+
         raw_body_text = self._body_text.toPlainText()
         body_text = self._replace_placeholders(raw_body_text, recipient)
-        
+        body_text = _clean_unicode(body_text)
+
         import sqlite3
         import re
         import os
         from ..core.config import get_memory_db_path, get_exports_dir, config_manager
-        
+
         company = "Firma"
         job_title = "Ausbildung"
         sender_name = ""
@@ -2396,23 +2420,23 @@ class EmailSenderPage(QWidget):
             conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
             row = conn.execute("SELECT contact_person, company_name, job_title FROM leads WHERE email = ? LIMIT 1", (recipient,)).fetchone()
             if row:
-                if row[1]: company = row[1]
-                if row[2]: job_title = row[2]
-                
+                if row[1]: company = _clean_unicode(row[1])
+                if row[2]: job_title = _clean_unicode(row[2])
+
             sender_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_name'").fetchone()
             if sender_row and sender_row[0]:
-                sender_name = sender_row[0]
-                
+                sender_name = _clean_unicode(sender_row[0])
+
             beruf_row = conn.execute("SELECT value FROM settings WHERE key = 'sender_beruf'").fetchone()
             if beruf_row and beruf_row[0]:
-                sender_beruf = beruf_row[0]
+                sender_beruf = _clean_unicode(beruf_row[0])
             conn.close()
         except Exception:
             pass
-            
+
         if not sender_name:
-            sender_name = getattr(config_manager.settings, "email_from_name", "") or "Bewerber"
-            
+            sender_name = _clean_unicode(getattr(config_manager.settings, "email_from_name", "") or "Bewerber")
+
         sig_img_path = self._get_signature_image_path()
         has_sig_img = bool(sig_img_path and os.path.exists(sig_img_path))
 
@@ -2427,7 +2451,7 @@ class EmailSenderPage(QWidget):
                     img_part = MIMEImage(f.read())
                 img_part.add_header("Content-ID", f"<{sig_cid}>")
                 filename = os.path.basename(sig_img_path)
-                img_part.add_header("Content-Disposition", "inline", filename=filename)
+                _add_safe_filename_header(img_part, "inline", filename)
                 related_part.attach(img_part)
             except Exception as e:
                 self._log(f"Failed to attach signature image {sig_img_path}: {e}", "WARNING")
@@ -2439,41 +2463,42 @@ class EmailSenderPage(QWidget):
         for file_path in self._attachments:
             if not os.path.exists(file_path):
                 continue
-            
+
             try:
                 part = MIMEBase("application", "octet-stream")
                 with open(file_path, "rb") as f:
                     part.set_payload(f.read())
-                
+
                 encoders.encode_base64(part)
                 filename = os.path.basename(file_path)
-                part.add_header("Content-Disposition", "attachment", filename=filename)
+                _add_safe_filename_header(part, "attachment", filename)
                 msg.attach(part)
             except Exception as e:
                 self._log(f"Failed to attach {file_path}: {e}", "ERROR")
 
         # Attach dynamically generated lead PDF
         def sanitize(v):
-            return re.sub(r'[<>:"/\\|?*]', '_', v)
-            
+            v_clean = _clean_unicode(v)
+            return re.sub(r'[<>:"/\\|?*]', '_', v_clean)
+
         beruf_san = sanitize(sender_beruf or job_title or "Ausbildung")
         firma_san = sanitize(company)
         sender_san = sanitize(sender_name)
-        
+
         pdf_filename = f"Bewerbung als {beruf_san} - {sender_san} @ {firma_san}.pdf"
         generic_pdf_filename = f"Bewerbung als {beruf_san} - {sender_san}.pdf"
-        
+
         dynamic_pdf_path = get_exports_dir() / pdf_filename
         generic_pdf_path = get_exports_dir() / generic_pdf_filename
         raw_pdf_path = get_exports_dir() / "Bewerbung_Raw_Uploaded.pdf"
-        
+
         if dynamic_pdf_path.exists():
             try:
                 part = MIMEBase("application", "pdf")
                 with open(dynamic_pdf_path, "rb") as f:
                     part.set_payload(f.read())
                 encoders.encode_base64(part)
-                part.add_header("Content-Disposition", "attachment", filename=pdf_filename)
+                _add_safe_filename_header(part, "attachment", pdf_filename)
                 msg.attach(part)
             except Exception as e:
                 raise RuntimeError(f"Failed to attach generated PDF {pdf_filename}: {e}")
@@ -2483,7 +2508,7 @@ class EmailSenderPage(QWidget):
                 with open(generic_pdf_path, "rb") as f:
                     part.set_payload(f.read())
                 encoders.encode_base64(part)
-                part.add_header("Content-Disposition", "attachment", filename=generic_pdf_filename)
+                _add_safe_filename_header(part, "attachment", generic_pdf_filename)
                 msg.attach(part)
             except Exception as e:
                 raise RuntimeError(f"Failed to attach generic PDF {generic_pdf_filename}: {e}")
@@ -2493,7 +2518,7 @@ class EmailSenderPage(QWidget):
                 with open(raw_pdf_path, "rb") as f:
                     part.set_payload(f.read())
                 encoders.encode_base64(part)
-                part.add_header("Content-Disposition", "attachment", filename=generic_pdf_filename) # Use generic filename to look professional
+                _add_safe_filename_header(part, "attachment", generic_pdf_filename) # Use generic filename to look professional
                 msg.attach(part)
             except Exception as e:
                 raise RuntimeError(f"Failed to attach raw PDF {raw_pdf_path}: {e}")
@@ -2507,11 +2532,16 @@ class EmailSenderPage(QWidget):
         from ..core.config import config_manager
         s = config_manager.settings
 
+        def _clean_cred(v: str) -> str:
+            if not v:
+                return ""
+            return str(v).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip()
+
         # Prefer config values, fall back to any UI fields still present
-        host = (getattr(s, "email_smtp_host", "") or self._smtp_host.text()).strip()
-        port_txt = (getattr(s, "email_smtp_port", "587") or self._smtp_port.text()).strip()
-        user = (getattr(s, "email_smtp_user", "") or self._smtp_user.text()).strip()
-        pwd  = (getattr(s, "email_smtp_pass", "") or self._smtp_pass.text()).strip()
+        host = _clean_cred(getattr(s, "email_smtp_host", "") or self._smtp_host.text())
+        port_txt = _clean_cred(getattr(s, "email_smtp_port", "587") or self._smtp_port.text())
+        user = _clean_cred(getattr(s, "email_smtp_user", "") or self._smtp_user.text())
+        pwd  = _clean_cred(getattr(s, "email_smtp_pass", "") or self._smtp_pass.text())
 
         if not host:
             raise ValueError(
@@ -2660,11 +2690,13 @@ class EmailSenderPage(QWidget):
         current_settings = config_manager.settings
         smtp_host = self._smtp_host.text().strip() or getattr(current_settings, "email_smtp_host", "") or "smtp.gmail.com"
         smtp_port = self._smtp_port.text().strip() or getattr(current_settings, "email_smtp_port", "") or "587"
+        def _clean_cred(v: str) -> str:
+            return str(v).replace('\xa0', '').replace(' ', '').replace('\u200b', '').replace('\ufeff', '').strip() if v else ""
         config_manager.update(
             email_smtp_host=smtp_host,
             email_smtp_port=smtp_port,
-            email_smtp_user=self._smtp_user.text(),
-            email_smtp_pass=self._smtp_pass.text(),
+            email_smtp_user=_clean_cred(self._smtp_user.text()),
+            email_smtp_pass=_clean_cred(self._smtp_pass.text()),
             email_sender_profiles=list(self._sender_profiles.values()),
             email_from_name=self._from_name.text(),
             email_reply_to=self._reply_to.text(),
