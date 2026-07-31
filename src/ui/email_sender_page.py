@@ -2122,11 +2122,16 @@ class EmailSenderPage(QWidget):
         fresh_per_message = self._should_use_fresh_connection_per_message()
         try: 
             raw_val = int(self._interval_input.text().strip())
-            interval = max(15, raw_val)
-            if raw_val < 15:
-                self._log(f"Enforcing minimum interval of 15 seconds (was {raw_val}s).", "WARNING")
+            if fresh_per_message:
+                interval = max(45, raw_val)
+                if raw_val < 45:
+                    self._log(f"🛡️ Gmail Protection: Enforcing safe minimum interval of 45s (was {raw_val}s) to prevent account lockdown.", "WARNING")
+            else:
+                interval = max(15, raw_val)
+                if raw_val < 15:
+                    self._log(f"Enforcing minimum interval of 15 seconds (was {raw_val}s).", "WARNING")
         except: 
-            interval = 30
+            interval = 45 if fresh_per_message else 30
 
         def _sleep_interruptibly(duration: float):
             deadline = time.monotonic() + max(duration, 0.0)
@@ -2139,7 +2144,16 @@ class EmailSenderPage(QWidget):
         def _sleep_remaining(cycle_started_at: float):
             if self._stop_requested:
                 return
-            remaining = max(interval - (time.monotonic() - cycle_started_at), 0.0)
+            import random
+            jitter = random.uniform(5.0, 18.0) if fresh_per_message else random.uniform(2.0, 6.0)
+            remaining = max(interval - (time.monotonic() - cycle_started_at), 0.0) + jitter
+            
+            # Coffee Break / Micro-Batch Cooldown: Every 12 sent emails, pause for 2.5 minutes to reset Google's burst detectors
+            if fresh_per_message and sent > 0 and sent % 12 == 0:
+                cooldown = random.uniform(140.0, 180.0)
+                self._log(f"🛡️ Gmail Protection: Taking a brief {int(cooldown)}s human cooldown after {sent} emails to protect your account...", "INFO")
+                remaining += cooldown
+                
             if remaining > 0:
                 _sleep_interruptibly(remaining)
 
@@ -2258,9 +2272,9 @@ class EmailSenderPage(QWidget):
                             _sleep_remaining(cycle_started_at)
                         continue
                 except smtplib.SMTPResponseException as rate_err:
-                    if rate_err.smtp_code in (421, 452):
-                        self._log(f"Rate-limited by server (code {rate_err.smtp_code}). Waiting 60s before retrying {rec}...", "WARNING")
-                        _sleep_interruptibly(60)
+                    if rate_err.smtp_code in (421, 450, 451, 452, 550) or "rate" in str(rate_err).lower() or "unusual" in str(rate_err).lower():
+                        self._log(f"🛡️ Gmail Protection: Server throttling detected (code {rate_err.smtp_code}). Resting for 5 minutes to protect your account...", "WARNING")
+                        _sleep_interruptibly(300)
                         if self._stop_requested:
                             break
                         try:
@@ -2282,6 +2296,7 @@ class EmailSenderPage(QWidget):
                 LicenseManager.record_email_send(1)
                 self._record_successful_send(rec, message_signature)
                 self._refresh_recipient_history_state()
+                self._cleanup_sent_dynamic_pdf(rec)
                     
                 self._log(f"✓ Sent to {rec} ({i+1}/{total})", "SUCCESS")
 
@@ -2306,8 +2321,36 @@ class EmailSenderPage(QWidget):
             if self._active_server:
                 self._active_server.quit()
         except: pass
-        self._active_server = None
         self._signals.finished.emit(sent, failed, self._stop_requested)
+
+    def _cleanup_sent_dynamic_pdf(self, recipient: str):
+        """Delete company-specific generated PDFs after sending to optimize disk space."""
+        try:
+            from ..core.config import get_exports_dir, get_memory_db_path
+            import sqlite3
+            
+            exports_dir = get_exports_dir()
+            if not exports_dir.exists():
+                return
+
+            company = ""
+            try:
+                conn = sqlite3.connect(str(get_memory_db_path()), timeout=5.0)
+                row = conn.execute("SELECT company_name FROM leads WHERE email = ? LIMIT 1", (recipient,)).fetchone()
+                if row and row[0]:
+                    company = row[0]
+                conn.close()
+            except Exception:
+                pass
+                
+            if company:
+                for p in exports_dir.glob(f"*@{company}*.pdf"):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 
 

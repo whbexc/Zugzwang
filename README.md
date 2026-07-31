@@ -119,6 +119,9 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 
 - STARTTLS / SSL SMTP support
 - Gmail per-recipient fresh-session mode
+- Gmail Anti-Lockdown Protection with 45s+ velocity floor, human-like randomized jitter (+5-18s), and 2.5-minute micro-batch cooldowns every 12 emails
+- Smart 5-minute backoff when SMTP rate-limit or throttling codes (421/450/451/452/550) are detected
+- Auto-cleanup of sent company-specific PDF cover letters to optimize disk space while preserving raw CV attachments
 - reconnect and retry logic
 - test-send and full broadcast flows
 - sent-history tracking
@@ -249,6 +252,10 @@ makensis installer.nsi
 
 Recent work includes:
 
+- Gmail Anti-Lockdown Protection — comprehensive SMTP throttling engine featuring a safe 45s+ velocity floor, human-like randomized jitter (+5-18s), automatic 2.5-minute micro-batch coffee breaks every 12 emails, and smart 5-minute backoff on server throttling
+- Automated Sent-PDF Disk Optimization — automatically cleans up company-specific 11 MB PDF cover letters immediately after SMTP send confirmation, keeping your exports directory slim while permanently preserving your uploaded CV templates and lead spreadsheets
+- Always-On HTML Email Styling & Inline Signature Embedding — automatically formats every outbound email with crisp paragraphs, clean bullet lists, German grammar placeholder replacement ('in Ihrer Einrichtung'), and embeds your handwritten blue signature inline at the bottom of the message text
+- macOS Apple Dock Icon Polish — scaled down squircle icon to 82% canvas width with standard Apple Dock padding to match the exact visual weight and dimensions of native macOS app icons
 - Fail-Forward Batch Exports — seamlessly falls back to attaching your raw uploaded PDF for leads that exceed your daily custom PDF limit without halting the workflow
 - Auto-Clamped Broadcasting — mass email broadcasts now automatically clamp to your remaining limit instead of blocking the entire batch
 - Dynamic Anschreiben Personalization — automatically generate perfectly tailored and personalized cover letters for every single lead
