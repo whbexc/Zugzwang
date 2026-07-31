@@ -77,6 +77,8 @@ class ToastWidget(QFrame):
 class ToastManager(QObject):
     """Manages a vertical stack of up to 4 toasts anchored to the bottom-right of parent window."""
 
+    _show_signal = Signal(str, str, str, int)
+
     MAX_TOASTS = 4
     GAP = 8
     MARGIN = 20
@@ -85,6 +87,7 @@ class ToastManager(QObject):
         super().__init__(parent_window)
         self._window = parent_window
         self._toasts: list[ToastWidget] = []
+        self._show_signal.connect(self._show_on_main_thread, Qt.QueuedConnection)
         
         # Debounce repositioning to prevent redundant layout passes
         self._layout_timer = QTimer(self)
@@ -95,6 +98,10 @@ class ToastManager(QObject):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def show(self, title: str, subtitle: str = "", toast_type: str = "info", duration: int = 4000) -> None:
+        # Thread-safe dispatch: emit signal so widget creation and window show ALWAYS run on main UI thread
+        self._show_signal.emit(title, subtitle, toast_type, duration)
+
+    def _show_on_main_thread(self, title: str, subtitle: str, toast_type: str, duration: int) -> None:
         # Enforce max 4 toasts
         while len(self._toasts) >= self.MAX_TOASTS:
             self._remove_toast(self._toasts[0])
