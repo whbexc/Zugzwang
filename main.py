@@ -309,10 +309,12 @@ def main():
     font.setWeight(QFont.Weight.Normal)
     app.setFont(font)
 
-    # Set icon globally (used for taskbar, window title, and all dialogs)
-    icon_path = base_dir / "assets" / "icon.ico"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
+    # Set icon globally (used for taskbar, window title, macOS Dock, and all dialogs)
+    for _icon_name in ("icon.icns", "icon.ico"):
+        _icon_path = base_dir / "assets" / _icon_name
+        if _icon_path.exists():
+            app.setWindowIcon(QIcon(str(_icon_path)))
+            break
 
     from src.ui.main_window import MainWindow
     from src.core.config import config_manager

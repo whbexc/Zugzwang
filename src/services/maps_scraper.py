@@ -520,33 +520,49 @@ class GoogleMapsScraper:
 
         # ── Name ──────────────────────────────────────────────────
 
-        try:
+        invalid_names = {
+            "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+            "google maps", "übersicht", "details", "rezensionen", "info",
+            "karte", "suchen", "search", ""
+        }
 
-            name = await listing.get_attribute("aria-label")
+        # 1. Authoritative name from Detail Panel Header (h1)
+        name_h1 = await self._extract_text_with_fallbacks(page, [
+            '//h1[contains(@class, "fontHeadlineLarge")]',
+            '//h1[contains(@class, "DUwDvf")]',
+            '//div[@role="main"]//h1',
+            '//h1',
+            '//div[@role="main"]//span[contains(@class, "fontHeadline")]',
+            '//div[contains(@class, "fontHeadlineLarge")]',
+        ])
+        if name_h1 and name_h1.strip().lower() not in invalid_names:
+            record.company_name = name_h1.strip()
 
-            if name and len(name.strip()) >= 1:
+        # 2. Fallback: extract from listing card title element
+        if not record.company_name or record.company_name.lower() in invalid_names:
+            for selector in [
+                '//div[contains(@class, "fontHeadlineSmall")]',
+                '//div[contains(@class, "qBF1Pd")]',
+                '//div[contains(@class, "Nr796c")]',
+                '//span[contains(@class, "osdd6")]',
+            ]:
+                try:
+                    title_elem = listing.locator(selector).first
+                    txt = await title_elem.inner_text()
+                    if txt and txt.strip().lower() not in invalid_names:
+                        record.company_name = txt.strip()
+                        break
+                except Exception:
+                    continue
 
-                record.company_name = name.strip()
-
-        except Exception:
-
-            pass
-
-
-
-        # Fallback: extract from detail panel header
-
-        if not record.company_name:
-
-            record.company_name = await self._extract_text_with_fallbacks(page, [
-
-                '//h1[contains(@class, "fontHeadlineLarge")]',
-
-                '//h1',
-
-                '//div[@role="main"]//span[contains(@class, "fontHeadline")]',
-
-            ]) or ""
+        # 3. Last fallback: aria-label (only if valid)
+        if not record.company_name or record.company_name.lower() in invalid_names:
+            try:
+                name_attr = await listing.get_attribute("aria-label")
+                if name_attr and name_attr.strip().lower() not in invalid_names:
+                    record.company_name = name_attr.strip()
+            except Exception:
+                pass
 
 
 
@@ -1103,15 +1119,35 @@ class GoogleMapsScraper:
             await asyncio.sleep(0.1)
 
     async def _submit_maps_search(self, page: Page, search_input: Page) -> None:
-        """Submit the Maps search using the direct search URL path."""
+        """Submit the Maps search using native UI interactions first, falling back to direct URL."""
         query = ""
         try:
             query = (await search_input.input_value()).strip()
         except Exception:
             query = ""
 
+        # 1. Native UI search submission (pressing Enter)
+        try:
+            await search_input.press("Enter")
+            if await self._wait_for_search_submission(page, timeout_ms=5_000):
+                logger.info(f"[{self.job_id}] Search submitted via Enter key.")
+                return
+        except Exception:
+            pass
+
+        # 2. Try clicking the search button
+        try:
+            search_btn = page.locator('button#searchbox-searchbutton, button[aria-label*="Suche"], button[aria-label*="Search"], button[jsaction*="search"]').first
+            await search_btn.click(timeout=2000, force=True)
+            if await self._wait_for_search_submission(page, timeout_ms=5_000):
+                logger.info(f"[{self.job_id}] Search submitted via search button click.")
+                return
+        except Exception:
+            pass
+
+        # 3. Fallback to direct search URL only if UI submission failed
         if query:
-            logger.info(f"[{self.job_id}] UI submit failed. Navigating directly to Maps search URL.")
+            logger.info(f"[{self.job_id}] UI submit did not complete. Navigating directly to Maps search URL.")
             search_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
             success = await self.session.navigate(
                 page,
@@ -1124,7 +1160,7 @@ class GoogleMapsScraper:
             if success and await self._wait_for_search_submission(page, timeout_ms=8_000):
                 return
 
-        raise BrowserError("Maps search submission did not trigger through the direct URL path.")
+        raise BrowserError("Maps search submission did not trigger.")
 
     async def _wait_for_search_submission(self, page: Page, timeout_ms: int = 4_000) -> bool:
         """Detect whether Maps actually accepted the submitted search."""
@@ -1134,7 +1170,7 @@ class GoogleMapsScraper:
                 url = (page.url or "").lower()
                 if "google.com/sorry" in url or "consent.google.com" in url:
                     return True
-                if "/maps/search/" in url or "?q=" in url or "&q=" in url:
+                if "/maps/search/" in url or "/maps/place/" in url or "?q=" in url or "&q=" in url:
                     return True
                 if self._feed_candidates:
                     return True
@@ -1428,7 +1464,13 @@ class GoogleMapsScraper:
 
             name = entry[11] or ""
 
-            if not name:
+            invalid_names = {
+                "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+                "google maps", "übersicht", "details", "rezensionen", "info",
+                "karte", "suchen", "search", ""
+            }
+
+            if not name or str(name).strip().lower() in invalid_names:
 
                 return None
 
@@ -1598,7 +1640,13 @@ class GoogleMapsScraper:
 
         name = (candidate.get("name") or "").strip()
 
-        if not name:
+        invalid_names = {
+            "ergebnisse", "results", "sponsored", "anzeige", "werbung",
+            "google maps", "übersicht", "details", "rezensionen", "info",
+            "karte", "suchen", "search", ""
+        }
+
+        if not name or name.lower() in invalid_names:
 
             return None
 

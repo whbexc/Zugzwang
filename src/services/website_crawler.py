@@ -210,12 +210,12 @@ class WebsiteEmailCrawler:
         socials: dict[str, str] = {}
 
         if self.session.is_blacklisted(website):
-            return [], None, None, {}
+            return [], None, None, {}, None
 
         if not bypass_cache:
             cached = self._all_contact_cache.get(cache_key)
             if cached is not None:
-                return cached[0], cached[1], cached[2], dict(cached[3])
+                return cached[0], cached[1], cached[2], dict(cached[3]), (cached[4] if len(cached) > 4 else None)
 
         discovery_paths = self.settings.email_discovery_paths
         candidate_urls = self._build_candidate_urls(website, discovery_paths)[:self.max_pages]

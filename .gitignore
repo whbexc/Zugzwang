@@ -84,3 +84,12 @@ test.txt
 .tmp_ausbildung_response.html
 ZUGZWANG_DOCUMENTATION.md
 update_md.py
+
+# --- Sensitive Local User Data, Outreach History & Exports ---
+ZUGZWANG/
+ZUGZWANG_*/
+outreach_history.txt
+
+# --- Python Virtual Environments ---
+.venv/
+.virtualenv/

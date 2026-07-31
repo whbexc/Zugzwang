@@ -17,6 +17,7 @@ import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email import encoders
 from pathlib import Path
 
@@ -1429,13 +1430,156 @@ class EmailSenderPage(QWidget):
         if self._isPreview:
             self._render_preview_content()
 
-    def _render_preview_content(self):
-        raw = self._body_text.toPlainText()
-        if self._type_toggle.isChecked():
-            rendered = self._wrap_email_preview_html(raw)
+    def _get_signature_image_path(self) -> str:
+        import sqlite3
+        import os
+        from ..core.config import get_memory_db_path
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=5.0)
+            row = conn.execute("SELECT value FROM settings WHERE key = 'signature_image_path'").fetchone()
+            conn.close()
+            if row and row[0] and os.path.exists(row[0]):
+                return row[0]
+        except Exception:
+            pass
+        return ""
+
+    def _replace_placeholders(self, text: str, recipient: str = "") -> str:
+        if not text or ("{{" not in text and "}}" not in text):
+            return text
+            
+        import sqlite3
+        import re
+        from datetime import datetime
+        from ..core.config import get_memory_db_path, config_manager
+        
+        anrede = "Sehr geehrte Damen und Herren,"
+        company = "Firma"
+        job_title = "Pflegefachmann"
+        ort = ""
+        plz = ""
+        sender_name = ""
+        sender_beruf = ""
+        sender_phone = ""
+        sender_address = ""
+        sender_city = ""
+        sender_email = self._smtp_user.text().strip()
+        
+        try:
+            conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            if recipient:
+                row = conn.execute(
+                    "SELECT contact_person, company_name, job_title, city, postal_code FROM leads WHERE email = ? LIMIT 1",
+                    (recipient,)
+                ).fetchone()
+                if row:
+                    anrede = self._salutation(row[0])
+                    if row[1] and row[1].strip(): company = row[1].strip()
+                    if row[2] and row[2].strip(): job_title = row[2].strip()
+                    if row[3] and row[3].strip(): ort = row[3].strip()
+                    if row[4] and row[4].strip(): plz = row[4].strip()
+            
+            def get_setting(key, default=""):
+                res = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+                return res[0] if res and res[0] else default
+                
+            sender_name = get_setting("sender_name", getattr(config_manager.settings, "email_from_name", "") or "Bewerber")
+            sender_beruf = get_setting("sender_beruf", "Pflegefachmann")
+            sender_phone = get_setting("sender_phone", "")
+            sender_address = get_setting("sender_address", "")
+            sender_city = get_setting("sender_city", "")
+            conn.close()
+        except Exception:
+            pass
+
+        text = text.replace("{{ANREDE}}", anrede)
+        text = text.replace("{{SALUTATION}}", anrede)
+        
+        # Smart German grammar handling for company name / Einrichtung
+        if not company or company in ("Firma", "Unternehmen", "Einrichtung"):
+            text = re.sub(r'\b(im|in|bei)\s+\{\{(FIRMA|COMPANY|FIRMA_NAME)\}\}', 'in Ihrer Einrichtung', text, flags=re.IGNORECASE)
+            text = text.replace("{{FIRMA}}", "Ihrer Einrichtung")
+            text = text.replace("{{COMPANY}}", "Ihrer Einrichtung")
+            text = text.replace("{{FIRMA_NAME}}", "Ihrer Einrichtung")
         else:
-            plain_html = html.escape(raw).replace("\n", "<br>")
-            rendered = self._wrap_email_preview_html(f"<div class='plain-body'>{plain_html}</div>")
+            text = re.sub(r'\b(im|in|bei)\s+\{\{(FIRMA|COMPANY|FIRMA_NAME)\}\}', f'bei {company}', text, flags=re.IGNORECASE)
+            text = text.replace("{{FIRMA}}", company)
+            text = text.replace("{{COMPANY}}", company)
+            text = text.replace("{{FIRMA_NAME}}", company)
+            
+        text = text.replace("{{BERUF}}", job_title or "Pflegefachmann")
+        text = text.replace("{{JOB_TITLE}}", job_title or "Pflegefachmann")
+        text = text.replace("{{AUSBILDUNG}}", job_title or "Pflegefachmann")
+        
+        text = text.replace("{{SENDER_NAME}}", sender_name or "")
+        text = text.replace("{{SENDER_BERUF}}", sender_beruf or "")
+        text = text.replace("{{SENDER_EMAIL}}", sender_email or "")
+        text = text.replace("{{SENDER_PHONE}}", sender_phone or "")
+        text = text.replace("{{SENDER_ADDRESS}}", sender_address or "")
+        text = text.replace("{{SENDER_CITY}}", sender_city or "")
+        text = text.replace("{{DATUM}}", datetime.now().strftime("%d.%m.%Y"))
+        text = text.replace("{{ORT}}", ort or "")
+        text = text.replace("{{PLZ}}", plz or "")
+        
+        return text
+
+    def _format_body_html(self, text: str, signature_img_cid: str = None, is_preview: bool = False, signature_img_path: str = None) -> str:
+        import html
+        import re
+        from pathlib import Path
+        
+        is_html = any(tag in text.lower() for tag in ("<html", "<body", "<br", "<p", "<div", "<ul", "<li"))
+        if is_html:
+            html_body = text
+        else:
+            escaped_lines = []
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    escaped_lines.append("<br>")
+                elif re.match(r'^[-*•]\s+', stripped):
+                    item = re.sub(r'^[-*•]\s+', '', stripped)
+                    escaped_lines.append(f"&bull;&nbsp;&nbsp;{html.escape(item)}<br>")
+                else:
+                    line_html = html.escape(line)
+                    line_html = re.sub(
+                        r'(https?://[^\s<]+)',
+                        r'<a href="\1" style="color: #0066cc; text-decoration: underline;">\1</a>',
+                        line_html
+                    )
+                    escaped_lines.append(f"{line_html}<br>")
+            
+            html_body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #222222;">
+{"\n".join(escaped_lines)}
+</div>"""
+
+        sig_tag = ""
+        if signature_img_cid:
+            sig_tag = f'<br><img src="cid:{signature_img_cid}" alt="Signature" style="max-height: 85px; width: auto; display: block; margin-top: 14px; border: none;">'
+        elif is_preview and signature_img_path and Path(signature_img_path).exists():
+            file_url = Path(signature_img_path).as_uri()
+            sig_tag = f'<br><img src="{file_url}" alt="Signature" style="max-height: 85px; width: auto; display: block; margin-top: 14px; border: none;">'
+            
+        if sig_tag:
+            if "</div>" in html_body:
+                html_body = html_body.rsplit("</div>", 1)[0] + sig_tag + "\n</div>"
+            else:
+                html_body += f"<br>{sig_tag}"
+                
+        return html_body
+
+    def _render_preview_content(self):
+        recipients = self._get_recipients()
+        sample_recipient = recipients[0] if recipients else ""
+        raw = self._replace_placeholders(self._body_text.toPlainText(), sample_recipient)
+        sig_img_path = self._get_signature_image_path()
+        rendered_body = self._format_body_html(
+            raw,
+            signature_img_cid=None,
+            is_preview=True,
+            signature_img_path=sig_img_path
+        )
+        rendered = self._wrap_email_preview_html(rendered_body)
         self._body_preview.setHtml(rendered)
 
     def _wrap_email_preview_html(self, body_html: str) -> str:
@@ -2190,16 +2334,17 @@ class EmailSenderPage(QWidget):
             msg["Reply-To"] = reply_addr
             
         msg["To"] = recipient
-        msg["Subject"] = self._subject.text()
+        subject_text = self._replace_placeholders(self._subject.text(), recipient)
+        msg["Subject"] = subject_text
         
-        body_text = self._body_text.toPlainText()
+        raw_body_text = self._body_text.toPlainText()
+        body_text = self._replace_placeholders(raw_body_text, recipient)
         
         import sqlite3
         import re
         import os
-        from ..core.config import get_memory_db_path, get_exports_dir
+        from ..core.config import get_memory_db_path, get_exports_dir, config_manager
         
-        anrede = "Sehr geehrte Damen und Herren,"
         company = "Firma"
         job_title = "Ausbildung"
         sender_name = ""
@@ -2208,7 +2353,6 @@ class EmailSenderPage(QWidget):
             conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
             row = conn.execute("SELECT contact_person, company_name, job_title FROM leads WHERE email = ? LIMIT 1", (recipient,)).fetchone()
             if row:
-                anrede = self._salutation(row[0])
                 if row[1]: company = row[1]
                 if row[2]: job_title = row[2]
                 
@@ -2224,16 +2368,29 @@ class EmailSenderPage(QWidget):
             pass
             
         if not sender_name:
-            from ..core.config import config_manager
-            sender_name = config_manager.settings.email_from_name
+            sender_name = getattr(config_manager.settings, "email_from_name", "") or "Bewerber"
             
-        if not sender_name:
-            sender_name = "Bewerber"
-            
-        body_text = body_text.replace("{{ANREDE}}", anrede)
-        body_text = body_text.replace("{{COMPANY}}", company)
-        
-        msg.attach(MIMEText(body_text, "html" if self._type_toggle.isChecked() else "plain"))
+        sig_img_path = self._get_signature_image_path()
+        has_sig_img = bool(sig_img_path and os.path.exists(sig_img_path))
+
+        # Always format body as HTML and embed signature inline using MIMEMultipart("related")
+        sig_cid = "signature_image_cid_001" if has_sig_img else None
+        html_body = self._format_body_html(body_text, signature_img_cid=sig_cid)
+        if has_sig_img:
+            related_part = MIMEMultipart("related")
+            related_part.attach(MIMEText(html_body, "html", "utf-8"))
+            try:
+                with open(sig_img_path, "rb") as f:
+                    img_part = MIMEImage(f.read())
+                img_part.add_header("Content-ID", f"<{sig_cid}>")
+                filename = os.path.basename(sig_img_path)
+                img_part.add_header("Content-Disposition", "inline", filename=filename)
+                related_part.attach(img_part)
+            except Exception as e:
+                self._log(f"Failed to attach signature image {sig_img_path}: {e}", "WARNING")
+            msg.attach(related_part)
+        else:
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         # Attach standard files
         for file_path in self._attachments:
