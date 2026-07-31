@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta-E5E5EA?style=for-the-badge&color=2C2C2E">
+<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta%203-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -248,9 +248,12 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.1.0 Beta**
+**1.1.0 Beta 3**
 
 Recent work includes:
+
+- Multi-Email Extraction with Zero Duplicates — Scraper now captures every unique department and employee email address from an employer's website while automatically dropping identical duplicate email addresses across Google Maps listings
+- SMTP Credential Sanitization & Broadcast Auto-Deduplication — Automatically strips non-breaking and zero-width spaces from copied Gmail App Passwords and deduplicates queue recipients to protect sender domain reputation
 
 - Gmail Anti-Lockdown Protection — comprehensive SMTP throttling engine featuring a safe 45s+ velocity floor, human-like randomized jitter (+5-18s), automatic 2.5-minute micro-batch coffee breaks every 12 emails, and smart 5-minute backoff on server throttling
 - Automated Sent-PDF Disk Optimization — automatically cleans up company-specific 11 MB PDF cover letters immediately after SMTP send confirmation, keeping your exports directory slim while permanently preserving your uploaded CV templates and lead spreadsheets

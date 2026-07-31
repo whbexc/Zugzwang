@@ -1,14 +1,66 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.1.0 Beta 2"
+APP_VERSION = "1.1.0 Beta 3"
 
 CHANGELOG = [
     {
-        "version": "1.1.0 Beta 2",
-        "date": "July 1, 2026",
+        "version": "1.1.0 Beta 3",
+        "date": "August 1, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Multi-Email Department & Employee Extraction — Advanced inline website scanner now captures every unique department head, HR manager, and staff email address (karriere@, bewerbung@, personal @domain) from an employer's website as individual leads for maximum outreach coverage"
+            },
+            {
+                "type": "new",
+                "text": "Real-Time Cross-Listing Deduplication Engine — Implemented an intelligent emitted_emails pipeline across both the fast Maps feed parser and interactive click/scroll loop, instantly dropping duplicate hospital or clinic entries that share identical email addresses"
+            },
+            {
+                "type": "improved",
+                "text": "SMTP Credential Sanitization Shield — Added automated zero-width space (\\u200b), non-breaking space (\\xa0), and BOM stripping when saving and authenticating Gmail App Passwords and SMTP host settings, eliminating silent ascii codec crashes"
+            },
+            {
+                "type": "improved",
+                "text": "Broadcast Queue Anti-Spam Protection — Enhanced the recipient import engine with automatic email deduplication (dict.fromkeys), protecting sender domain reputation by ensuring no employer ever receives duplicate outreach emails in a single campaign"
+            },
+            {
+                "type": "improved",
+                "text": "Dynamic Broadcast Queue Counter Polish — Refined the Broadcast Monitor status display and log reporting to show exact unique recipient metrics (QUEUE X EMAIL(S)) when loading raw database leads"
+            },
+            {
+                "type": "improved",
+                "text": "Smart Domain & Company Name Clustering — Added secondary heuristics to automatically recognize multi-department medical groups and combine redundant Google Maps candidates before starting headless browser enrichment"
+            },
+            {
+                "type": "improved",
+                "text": "Dynamic City & Location Normalization — Enhanced address and city extraction algorithms to automatically clean German location strings (Coesfeld, Coesfeld-Lette) without trailing punctuation or postal noise"
+            },
+            {
+                "type": "improved",
+                "text": "Universal Invisible Character Scrubbing — Added robust string sanitization across all input fields (SMTP settings, recipient lists, and search queries) to strip hidden copy-paste characters (\\xa0, \\u200b, \\ufeff)"
+            },
+            {
+                "type": "improved",
+                "text": "High-Capacity SQLite Memory Optimization — Streamlined local SQLite lead storage and indexing to prevent memory leaks and handle 500+ lead tables smoothly with instant search and category filtering"
+            },
+            {
+                "type": "fixed",
+                "text": "Google Maps 'Ergebnisse' Header Glitch Fix — Fixed an XPath extraction bug where German navigation headers and UI labels ('Ergebnisse', 'In der Nähe') on Google Maps were mistakenly scraped as employer titles, ensuring 100% clean lead names"
+            },
+            {
+                "type": "fixed",
+                "text": "macOS Qt Main-Thread Window Safeguards — Fortified GUI window instantiation and timer dispatchers to ensure all modal dialogs and notification banners run safely within the primary Cocoa UI event loop without background thread crashes"
+            }
+        ]
+    },
+    {
+        "version": "1.1.0 Beta 2",
+        "date": "July 1, 2026",
+        "label": None,
+        "label_color": None,
         "changes": [
             {
                 "type": "improved",
@@ -436,10 +488,68 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.1.0 Beta 2",
-        "date": "1 يوليو 2026",
+        "version": "1.1.0 Beta 3",
+        "date": "1 أغسطس 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "استخراج بريد إلكتروني متعدد للأقسام والموظفين — يتيح الماسح المتقدم للمواقع التقاط كل بريد إلكتروني فريد لمديري الموارد البشرية والأقسام والموظفين من موقع صاحب العمل كعملاء مستقلين لضمان أوسع نطاق تواصل ممكن"
+            },
+            {
+                "type": "new",
+                "text": "محرك ذكي لمنع التكرار الفوري بين القوائم — تطبيق نظام تصفية فوري emitted_emails عبر محرك استخراج خرائط جوجل والتصفح التفاعلي، لاستبعاد القوائم المكررة للمستشفيات أو العيادات التي تشترك في نفس عنوان البريد الإلكتروني تلقائيًا"
+            },
+            {
+                "type": "improved",
+                "text": "درع تنظيف وحماية بيانات اعتماد SMTP — إضافة معالجة تلقائية لإزالة المسافات غير المرئية والرموز المخفية عند حفظ كلمات مرور تطبيقات Gmail وإعدادات الخادم، مما يمنع أعطال التشفير ascii codec نهائيًا"
+            },
+            {
+                "type": "improved",
+                "text": "حماية سمعة الراسل في طابور البث المباشر — تطوير نظام استيراد قائمة المستقبلين بفلترة تلقائية تمنع تكرار رسائل البريد الإلكتروني لنفس جهة العمل ضمن الحملة الواحدة لحماية النطاق من الحظر"
+            },
+            {
+                "type": "improved",
+                "text": "تحسين عداد طابور الإرسال وتقارير المراقبة — تحديث شاشة المراقبة وسجلات البث لتعكس العدد الدقيق للمستلمين الفريدين بوضوح تام عند استيراد البيانات من قاعدة البيانات"
+            },
+            {
+                "type": "improved",
+                "text": "تجميع ذكي لأسماء الشركات والنطاقات — إضافة خوارزميات مساعدة للتعرف التلقائي على المجموعات الطبية متعددة الأقسام ودمج المرشحين المتكررين قبل بدء الاستخراج"
+            },
+            {
+                "type": "improved",
+                "text": "تنقية متقدمة لأسماء المدن والمواقع — تحسين خوارزميات استخراج أسماء المدن والمواقع الألمانية (Coesfeld، Coesfeld-Lette) وإزالة الرموز الزائدة والضوضاء النحوية تلقائيًا"
+            },
+            {
+                "type": "improved",
+                "text": "تنظيف شامل للرموز والأحرف المخفية — إضافة تعقيم فوري لجميع حقول النصوص وقوائم المستقبلين لإزالة مسافات النسخ واللصق المخفية (\\xa0، \\u200b، \\ufeff)"
+            },
+            {
+                "type": "improved",
+                "text": "تحسين أداء واستهلاك الذاكرة لقاعدة بيانات SQLite — تحسين استجابة قاعدة البيانات المحلية للتعامل مع أكثر من 500 عميل بسلاسة فائقة وبحث فوري بدون استنزاف للذاكرة"
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح خطأ التقاط العناوين الملاحية 'Ergebnisse' في خرائط جوجل — معالجة خلل في استخراج XPath حيث كانت عناوين التصفح الألمانية ('Ergebnisse'، 'In der Nähe') تُستخرج خطأً كأسماء جهات عمل، لضمان أسماء شركات نقية 100%"
+            },
+            {
+                "type": "fixed",
+                "text": "حماية النوافذ ومؤقتات العرض على نظام macOS — تعزيز استقرار واجهة المستخدم بضمان تشغيل جميع النوافذ المنبثقة والإشعارات حصريًا على المسار الرئيسي (Main Thread) لمنع أي تعارض في نظام التشغيل"
+            }
+        ]
+    },
+    {
+        "version": "1.1.0 Beta 2",
+        "date": "1 يوليو 2026",
+        "label": None,
+        "label_color": None,
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",
