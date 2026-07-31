@@ -135,10 +135,65 @@ class _CustomTitleBar(TitleBar):
 
         self.hBoxLayout.setContentsMargins(0, 0, 0, 0); self.hBoxLayout.setSpacing(0)
 
-        # Left area: Status + Name
+        import sys
+        self._is_mac = (sys.platform == "darwin")
+
+        # Left area: Status + Name (and macOS Traffic Lights on Mac)
         left_area = QWidget(); left_area.setStyleSheet("background: transparent;")
-        left_layout = QHBoxLayout(left_area); left_layout.setContentsMargins(20, 0, 16, 0); left_layout.setSpacing(10)
+        left_layout = QHBoxLayout(left_area); left_layout.setContentsMargins(16, 0, 16, 0); left_layout.setSpacing(10)
         left_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        if self._is_mac:
+            mac_buttons_layout = QHBoxLayout()
+            mac_buttons_layout.setContentsMargins(0, 0, 8, 0)
+            mac_buttons_layout.setSpacing(8)
+
+            btn_style_mac = """
+                QPushButton {{
+                    background: {bg};
+                    border: 1px solid {border};
+                    border-radius: 6px;
+                    color: transparent;
+                    font-size: 10px;
+                    font-weight: 800;
+                    padding: 0;
+                }}
+                QPushButton:hover {{
+                    background: {hover};
+                    color: {text_hover};
+                }}
+            """
+            # Close (Red)
+            self._close_btn = QPushButton("×", left_area)
+            self._close_btn.setFixedSize(12, 12)
+            self._close_btn.setStyleSheet(btn_style_mac.format(
+                bg="#FF5F56", border="#E0443E", hover="#FF5F56", text_hover="#4D0000"
+            ))
+            self._close_btn.setToolTip("Close")
+            self._close_btn.clicked.connect(parent.close)
+            mac_buttons_layout.addWidget(self._close_btn)
+
+            # Minimize (Yellow)
+            self._min_btn = QPushButton("−", left_area)
+            self._min_btn.setFixedSize(12, 12)
+            self._min_btn.setStyleSheet(btn_style_mac.format(
+                bg="#FFBD2E", border="#DEA123", hover="#FFBD2E", text_hover="#5C3B00"
+            ))
+            self._min_btn.setToolTip("Minimize")
+            self._min_btn.clicked.connect(parent.showMinimized)
+            mac_buttons_layout.addWidget(self._min_btn)
+
+            # Maximize/Zoom (Green)
+            self._max_btn = QPushButton("+", left_area)
+            self._max_btn.setFixedSize(12, 12)
+            self._max_btn.setStyleSheet(btn_style_mac.format(
+                bg="#28C840", border="#1AAB29", hover="#28C840", text_hover="#003B0B"
+            ))
+            self._max_btn.setToolTip("Zoom")
+            self._max_btn.clicked.connect(self._toggle_maximize)
+            mac_buttons_layout.addWidget(self._max_btn)
+
+            left_layout.addLayout(mac_buttons_layout)
 
         self._status_dot = QFrame(); self._status_dot.setFixedSize(8, 8)
         self._status_dot.setStyleSheet(f"background: {AppTheme.TEXT_TERTIARY}; border-radius: 4px;")
@@ -148,7 +203,7 @@ class _CustomTitleBar(TitleBar):
         self._name.setStyleSheet(f"color: #FFFFFF; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 700; background: transparent;")
         left_layout.addWidget(self._name)
 
-        left_area.setFixedWidth(220)
+        left_area.setFixedWidth(240 if self._is_mac else 220)
         self.hBoxLayout.addWidget(left_area)
 
         self.hBoxLayout.addStretch(1)
@@ -162,7 +217,7 @@ class _CustomTitleBar(TitleBar):
 
         right_area = QWidget()
         right_area.setStyleSheet("background: transparent;")
-        right_area.setFixedWidth(220) # Match left_area for true centering
+        right_area.setFixedWidth(240 if self._is_mac else 220) # Match left_area for true centering
         right_layout = QHBoxLayout(right_area)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
@@ -173,51 +228,52 @@ class _CustomTitleBar(TitleBar):
         self.maxBtn.hide()
         self.closeBtn.hide()
 
-        _btn_style = """
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: #AEAEB2;
-                font-size: {size}px;
-                font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', 'Segoe UI Symbol';
-                padding: 0;
-            }}
-            QPushButton:hover {{
-                background: {hover};
-                color: #FFFFFF;
-            }}
-            QPushButton:pressed {{
-                background: {pressed};
-                color: #FFFFFF;
-            }}
-        """
+        if not self._is_mac:
+            _btn_style = """
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    color: #AEAEB2;
+                    font-size: {size}px;
+                    font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', 'Segoe UI Symbol';
+                    padding: 0;
+                }}
+                QPushButton:hover {{
+                    background: {hover};
+                    color: {text_hover};
+                }}
+                QPushButton:pressed {{
+                    background: {pressed};
+                    color: {text_hover};
+                }}
+            """
 
-        # Minimize  (ChromeMinimize \uE921)
-        self._min_btn = QPushButton("\uE921", right_area)
-        self._min_btn.setFixedSize(46, 48)
-        self._min_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
-        self._min_btn.setCursor(Qt.ArrowCursor)
-        self._min_btn.setToolTip("Minimize")
-        self._min_btn.clicked.connect(parent.showMinimized)
-        right_layout.addWidget(self._min_btn)
+            # Minimize  (ChromeMinimize \uE921)
+            self._min_btn = QPushButton("\uE921", right_area)
+            self._min_btn.setFixedSize(46, 48)
+            self._min_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
+            self._min_btn.setCursor(Qt.ArrowCursor)
+            self._min_btn.setToolTip("Minimize")
+            self._min_btn.clicked.connect(parent.showMinimized)
+            right_layout.addWidget(self._min_btn)
 
-        # Maximize (ChromeMaximize \uE922)
-        self._max_btn = QPushButton("\uE922", right_area)
-        self._max_btn.setFixedSize(46, 48)
-        self._max_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
-        self._max_btn.setCursor(Qt.ArrowCursor)
-        self._max_btn.setToolTip("Maximize")
-        self._max_btn.clicked.connect(self._toggle_maximize)
-        right_layout.addWidget(self._max_btn)
+            # Maximize (ChromeMaximize \uE922)
+            self._max_btn = QPushButton("\uE922", right_area)
+            self._max_btn.setFixedSize(46, 48)
+            self._max_btn.setStyleSheet(_btn_style.format(size=10, hover="rgba(255,255,255,0.08)", pressed="rgba(255,255,255,0.14)"))
+            self._max_btn.setCursor(Qt.ArrowCursor)
+            self._max_btn.setToolTip("Maximize")
+            self._max_btn.clicked.connect(self._toggle_maximize)
+            right_layout.addWidget(self._max_btn)
 
-        # Close (ChromeClose \uE8BB)
-        self._close_btn = QPushButton("\uE8BB", right_area)
-        self._close_btn.setFixedSize(46, 48)
-        self._close_btn.setStyleSheet(_btn_style.format(size=12, hover="#C42B1C", pressed="#B8261A"))
-        self._close_btn.setCursor(Qt.ArrowCursor)
-        self._close_btn.setToolTip("Close")
-        self._close_btn.clicked.connect(parent.close)
-        right_layout.addWidget(self._close_btn)
+            # Close (ChromeClose \uE8BB)
+            self._close_btn = QPushButton("\uE8BB", right_area)
+            self._close_btn.setFixedSize(46, 48)
+            self._close_btn.setStyleSheet(_btn_style.format(size=12, hover="#C42B1C", pressed="#B8261A"))
+            self._close_btn.setCursor(Qt.ArrowCursor)
+            self._close_btn.setToolTip("Close")
+            self._close_btn.clicked.connect(parent.close)
+            right_layout.addWidget(self._close_btn)
 
         self.hBoxLayout.addWidget(right_area)
 
@@ -229,9 +285,10 @@ class _CustomTitleBar(TitleBar):
             win.showMaximized()
 
     def updateMaximizeButton(self, isMaximized: bool):
-        """Toggle ChromeRestore \uE923 <-> ChromeMaximize \uE922"""
-        self._max_btn.setText("\uE923" if isMaximized else "\uE922")
-        self._max_btn.setToolTip("Restore" if isMaximized else "Maximize")
+        """Toggle ChromeRestore \uE923 <-> ChromeMaximize \uE922 on Windows"""
+        if not getattr(self, "_is_mac", False) and hasattr(self, "_max_btn"):
+            self._max_btn.setText("\uE923" if isMaximized else "\uE922")
+            self._max_btn.setToolTip("Restore" if isMaximized else "Maximize")
 
     def set_status(self, active: bool):
         color = "#0A84FF" if active else "#48484A"
