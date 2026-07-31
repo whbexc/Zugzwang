@@ -5,11 +5,11 @@
 <h1 align="center">ZUGZWANG</h1>
 
 <p align="center">
-  Lead generation, enrichment, and outreach in one Windows desktop app.
+  Lead generation, enrichment, and outreach in one cross-platform desktop app for macOS, Linux, and Windows.
 </p>
 
 <p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0A84FF?style=for-the-badge">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-0A84FF?style=for-the-badge">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
@@ -32,7 +32,7 @@ It is designed for:
 - recruitment research
 - apprenticeship/job lead collection
 - outbound contact workflows
-- Windows-first standalone usage
+- cross-platform standalone usage (macOS, Linux, Windows)
 
 ## What It Does
 
@@ -161,21 +161,65 @@ tests/         verification and regression tests
 ### Requirements
 
 - Python 3.11+
-- Windows 10 or Windows 11
+- Operating System: **macOS 11+**, **Linux** (Ubuntu, Debian, Fedora, Arch), or **Windows 10/11**
 - Chromium installed through Playwright
 
 ### Setup
 
-```powershell
+#### 🍎 macOS (Apple Silicon & Intel)
+
+```bash
+# 1. Clone repository and enter directory
 git clone https://github.com/whbexc/Zugzwang.git
 cd Zugzwang
 
-python -m venv .venv
-.venv\Scripts\activate
+# 2. Create and activate Python virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
+# 3. Install dependencies & Playwright Chromium browser
 pip install -r requirements.txt
 playwright install chromium
 
+# 4. Launch ZUGZWANG
+python3 main.py
+```
+
+#### 🐧 Linux (Ubuntu, Debian, Fedora, Arch)
+
+```bash
+# 1. Clone repository and enter directory
+git clone https://github.com/whbexc/Zugzwang.git
+cd Zugzwang
+
+# 2. Create and activate Python virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install dependencies & Playwright Chromium browser (including OS dependencies)
+pip install -r requirements.txt
+playwright install --with-deps chromium
+
+# 4. Launch ZUGZWANG
+python3 main.py
+```
+
+#### 🪟 Windows (10 & 11)
+
+```powershell
+# 1. Clone repository and enter directory
+git clone https://github.com/whbexc/Zugzwang.git
+cd Zugzwang
+
+# 2. Create and activate Python virtual environment
+python -m venv .venv
+.venv\Scripts\activate
+
+# 3. Install dependencies & Playwright Chromium browser
+pip install -r requirements.txt
+playwright install chromium
+
+# 4. Launch ZUGZWANG
 python main.py
 ```
 
