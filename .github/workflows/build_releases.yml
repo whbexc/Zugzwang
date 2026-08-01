@@ -8,6 +8,9 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build Windows Installer (.exe)
@@ -54,6 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ZUGZWANG-Windows-Installer
+          if-no-files-found: warn
           path: |
             ZUGZWANG_Setup_*.exe
             dist/ZUGZWANG_Setup_*.exe
@@ -125,6 +129,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ZUGZWANG-macOS-App
+          if-no-files-found: warn
           path: dist/ZUGZWANG_macOS_*.zip
 
   build-linux:
@@ -174,4 +179,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ZUGZWANG-Linux-Package
+          if-no-files-found: warn
           path: dist/ZUGZWANG_Linux_*.tar.gz
