@@ -6,7 +6,7 @@ __pycache__/
 # Distribution / packaging
 build/
 dist/
-*.spec
+!zugzwang.spec
 Output/
 ZUGZWANG_Setup_*.exe
 
