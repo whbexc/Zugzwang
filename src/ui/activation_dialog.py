@@ -330,4 +330,3 @@ class ActivationDialog(QDialog):
         if event.key() == Qt.Key_Escape:
             self.reject()
         super().keyPressEvent(event)
-mode:AGENT_MODE_EXECUTION
