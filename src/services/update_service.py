@@ -18,13 +18,14 @@ _VERSION_RE = re.compile(r"^\s*v?(\d+(?:\.\d+)*)(.*)$")
 _BUILD_RE = re.compile(r"build\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 
 
+
 def _parse_version_parts(raw: str) -> tuple[tuple[int, ...], str]:
     text = (raw or "").strip()
     match = _VERSION_RE.match(text)
     if not match:
         return (0,), ""
     numeric = tuple(int(part) for part in match.group(1).split("."))
-    suffix = match.group(2).strip().lower()
+    suffix = re.sub(r"[\s\-_.]+", "", match.group(2).strip().lower())
     return numeric, suffix
 
 
@@ -35,8 +36,6 @@ def _compare_versions(current: str, latest: str) -> int:
       1  -> current is newer
       0  -> same
      -1  -> latest is newer
-    Rule: same numeric base + letter suffix means the suffixed version is newer
-    than the plain release, so 1.0.9b > 1.0.9.
     """
     current_num, current_suffix = _parse_version_parts(current)
     latest_num, latest_suffix = _parse_version_parts(latest)
