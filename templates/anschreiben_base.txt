@@ -29,5 +29,6 @@ Ich zeichne mich durch eine hohe Lernbereitschaft, Zuverlässigkeit und eine sel
 
 Gerne überzeuge ich Sie in einem persönlichen Gespräch von meinen Qualifikationen und meiner Motivation. Über eine Einladung zu einem Vorstellungsgespräch freue ich mich sehr. Für eventuelle Rückfragen stehe ich Ihnen jederzeit gerne zur Verfügung.
 
-
 Mit freundlichen Grüßen
+
+{{SENDER_NAME}}
