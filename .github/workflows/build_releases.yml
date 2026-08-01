@@ -1,12 +1,12 @@
 name: Build & Release ZUGZWANG Packages
 
 on:
-  push:
-    tags:
-      - 'v*'
-      - '1.*'
-      - '*beta*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional: Release Tag to attach packages to (e.g. 1.1.0-beta.3)'
+        required: false
+        default: ''
 
 jobs:
   build-windows:
@@ -41,9 +41,10 @@ jobs:
           makensis installer.nsi
 
       - name: Upload Windows Asset to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag }}
           files: |
             ZUGZWANG_Setup_*.exe
             dist/ZUGZWANG_Setup_*.exe
@@ -113,9 +114,10 @@ jobs:
           zip -r -y ZUGZWANG_macOS_1.1.0-Beta3.zip ZUGZWANG.app
 
       - name: Upload macOS Asset to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag }}
           files: dist/ZUGZWANG_macOS_*.zip
 
       - name: Upload macOS Build Artifact
@@ -161,9 +163,10 @@ jobs:
           tar -czf ZUGZWANG_Linux_1.1.0-Beta3.tar.gz ZUGZWANG/
 
       - name: Upload Linux Asset to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag }}
           files: dist/ZUGZWANG_Linux_*.tar.gz
 
       - name: Upload Linux Build Artifact
