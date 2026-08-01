@@ -160,6 +160,14 @@ def main():
     # Install global crash reporter
     sys.excepthook = _global_exception_handler
 
+    # Ensure frozen bundle path or project root is at top of sys.path
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        _bundle_dir = Path(sys._MEIPASS)
+    else:
+        _bundle_dir = Path(__file__).parent.resolve()
+    if str(_bundle_dir) not in sys.path:
+        sys.path.insert(0, str(_bundle_dir))
+
     # High DPI scaling environment variables must be set before QApplication
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
     
