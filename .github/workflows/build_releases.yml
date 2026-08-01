@@ -49,6 +49,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
+          overwrite: true
+          fail_on_unmatched_files: false
           files: |
             ZUGZWANG_Setup_*.exe
             dist/ZUGZWANG_Setup_*.exe
@@ -124,6 +126,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
+          overwrite: true
+          fail_on_unmatched_files: false
           files: dist/ZUGZWANG_macOS_*.zip
 
       - name: Upload macOS Build Artifact
@@ -174,6 +178,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
+          overwrite: true
+          fail_on_unmatched_files: false
           files: dist/ZUGZWANG_Linux_*.tar.gz
 
       - name: Upload Linux Build Artifact
