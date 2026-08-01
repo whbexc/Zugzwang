@@ -28,10 +28,11 @@ try:
 except Exception:
     pass
 
-# Application Assets (Fonts, Icons, etc.)
+# Application Assets & Source Tree (Fonts, Icons, UI, Modules, etc.)
 datas += [
     ('src/ui/assets', 'src/ui/assets'),
     ('assets', 'assets'),
+    ('src', 'src'),
 ]
 
 hiddenimports = [
