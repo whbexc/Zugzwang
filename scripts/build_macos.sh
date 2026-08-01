@@ -39,6 +39,7 @@ else:
 # 4. Create distributable archive
 echo "[3/4] Creating macOS distributable archive..."
 cd dist
+codesign --force --deep --sign - ZUGZWANG.app || true
 zip -r -y ZUGZWANG_macOS_v1.1.0-Beta3.zip ZUGZWANG.app
 cd ..
 

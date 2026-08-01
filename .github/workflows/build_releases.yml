@@ -116,6 +116,7 @@ jobs:
       - name: Package macOS Application Archive
         run: |
           cd dist
+          codesign --force --deep --sign - ZUGZWANG.app || true
           zip -r -y ZUGZWANG_macOS_1.1.0-Beta3.zip ZUGZWANG.app
 
       - name: Upload macOS Asset to Release

@@ -10,6 +10,9 @@ block_cipher = None
 
 # Resolve icon path absolutely so it works regardless of working directory
 SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))  # noqa: F821 (SPEC is PyInstaller built-in)
+if SPEC_DIR not in sys.path:
+    sys.path.insert(0, SPEC_DIR)
+
 ICON_PATH = os.path.join(SPEC_DIR, 'assets', 'icon.icns' if sys.platform == 'darwin' else 'icon.ico')
 
 # Collect Playwright data files (JS/JSON config, not browser binaries)
@@ -38,7 +41,6 @@ hiddenimports = [
     'PySide6.QtNetwork',
     'playwright',
     'playwright.async_api',
-    # NOTE: playwright._impl._api_types was removed in Playwright >= 1.30
     'openpyxl',
     'openpyxl.styles',
     'openpyxl.utils',
@@ -47,9 +49,18 @@ hiddenimports = [
     'csv',
     'asyncio',
     'threading',
+    'httpx',
+    'bs4',
+    'pypdf',
+    'reportlab',
+    'psutil',
 ]
 
-hiddenimports += collect_submodules('src')
+try:
+    hiddenimports += collect_submodules('src')
+except Exception:
+    pass
+
 
 a = Analysis(
     ['main.py'],
