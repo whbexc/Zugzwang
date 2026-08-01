@@ -1549,8 +1549,9 @@ class EmailSenderPage(QWidget):
                     )
                     escaped_lines.append(f"{line_html}<br>")
             
+            joined_lines = "\n".join(escaped_lines)
             html_body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #222222;">
-{"\n".join(escaped_lines)}
+{joined_lines}
 </div>"""
 
         sig_tag = ""
