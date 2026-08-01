@@ -1,0 +1,173 @@
+name: Build & Release ZUGZWANG Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '1.*'
+      - '*beta*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows Installer (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Install Playwright Chromium
+        run: |
+          playwright install chromium
+
+      - name: Build Standalone Bundle & Inject Browser
+        run: |
+          python build_with_browsers.py
+
+      - name: Install NSIS & Build Windows Installer
+        run: |
+          choco install nsis -y
+          makensis installer.nsi
+
+      - name: Upload Windows Asset to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ZUGZWANG_Setup_*.exe
+            dist/ZUGZWANG_Setup_*.exe
+
+      - name: Upload Windows Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUGZWANG-Windows-Installer
+          path: |
+            ZUGZWANG_Setup_*.exe
+            dist/ZUGZWANG_Setup_*.exe
+
+  build-macos:
+    name: Build macOS App Bundle (.app.zip)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Install Playwright Chromium
+        run: |
+          playwright install chromium
+
+      - name: Build macOS Application Bundle
+        run: |
+          pyinstaller zugzwang.spec --clean
+          python -c "
+          import sys, shutil, subprocess
+          from pathlib import Path
+          app_dir = Path('dist') / 'ZUGZWANG.app'
+          if app_dir.exists():
+              print('macOS ZUGZWANG.app created successfully.')
+          "
+
+      - name: Inject Chromium Browser into macOS Bundle
+        run: |
+          python -c "
+          import os, shutil, sys, subprocess
+          from pathlib import Path
+          from build_with_browsers import find_playwright_browsers_path, copy_browsers
+          app_browsers = Path('dist') / 'ZUGZWANG.app' / 'Contents' / 'MacOS' / 'browsers'
+          src = find_playwright_browsers_path()
+          if src and src.exists():
+              if app_browsers.exists():
+                  shutil.rmtree(app_browsers)
+              app_browsers.mkdir(parents=True, exist_ok=True)
+              for item in src.iterdir():
+                  if 'chromium' in item.name.lower():
+                      shutil.copytree(item, app_browsers / item.name, dirs_exist_ok=True)
+              print(f'Injecting Chromium into {app_browsers} complete.')
+          "
+
+      - name: Package macOS Application Archive
+        run: |
+          cd dist
+          zip -r -y ZUGZWANG_macOS_1.1.0-Beta3.zip ZUGZWANG.app
+
+      - name: Upload macOS Asset to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ZUGZWANG_macOS_*.zip
+
+      - name: Upload macOS Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUGZWANG-macOS-App
+          path: dist/ZUGZWANG_macOS_*.zip
+
+  build-linux:
+    name: Build Linux Package (.tar.gz)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies for Qt and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-glx libegl1 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Install Playwright Chromium with Linux dependencies
+        run: |
+          playwright install chromium --with-deps
+
+      - name: Build Standalone Linux Bundle & Inject Browser
+        run: |
+          python build_with_browsers.py
+
+      - name: Package Linux Archive
+        run: |
+          cd dist
+          tar -czf ZUGZWANG_Linux_1.1.0-Beta3.tar.gz ZUGZWANG/
+
+      - name: Upload Linux Asset to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ZUGZWANG_Linux_*.tar.gz
+
+      - name: Upload Linux Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUGZWANG-Linux-Package
+          path: dist/ZUGZWANG_Linux_*.tar.gz
