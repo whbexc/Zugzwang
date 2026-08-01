@@ -161,8 +161,26 @@ tests/         verification and regression tests
 
 ## Quick Start
 
-### Requirements
+### Standalone App Download (Recommended)
 
+Download the latest standalone desktop release for your operating system from [GitHub Releases](https://github.com/whbexc/Zugzwang/releases):
+
+- **🍎 macOS:** Download the `.zip` archive, extract it, and place `ZUGZWANG.app` in your `Downloads` or `Applications` folder.
+  > [!IMPORTANT]
+  > **macOS Gatekeeper Notice:** Because the macOS application bundle is ad-hoc signed, Gatekeeper may display an "app is damaged" warning or prevent launching. Run the following command in Terminal to clear the quarantine flag before opening:
+  > ```bash
+  > xattr -cr ~/Downloads/ZUGZWANG.app
+  > ```
+  > *(If placed in Applications, use `xattr -cr /Applications/ZUGZWANG.app` instead.)*
+
+- **🪟 Windows:** Download and run `ZUGZWANG_Setup_x.x.x.exe`.
+- **🐧 Linux:** Download the `.tar.gz` archive, extract, and execute `./ZUGZWANG`.
+
+---
+
+### Running from Source
+
+#### Requirements
 - Python 3.11+
 - Operating System: **macOS 11+**, **Linux** (Ubuntu, Debian, Fedora, Arch), or **Windows 10/11**
 - Chromium installed through Playwright
