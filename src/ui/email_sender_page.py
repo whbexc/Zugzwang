@@ -1467,17 +1467,22 @@ class EmailSenderPage(QWidget):
         
         try:
             conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
+            row = None
             if recipient:
                 row = conn.execute(
                     "SELECT contact_person, company_name, job_title, city, postal_code FROM leads WHERE email = ? LIMIT 1",
                     (recipient,)
                 ).fetchone()
-                if row:
-                    anrede = self._salutation(row[0])
-                    if row[1] and row[1].strip(): company = row[1].strip()
-                    if row[2] and row[2].strip(): job_title = row[2].strip()
-                    if row[3] and row[3].strip(): ort = row[3].strip()
-                    if row[4] and row[4].strip(): plz = row[4].strip()
+            if not row:
+                row = conn.execute(
+                    "SELECT contact_person, company_name, job_title, city, postal_code FROM leads WHERE company_name IS NOT NULL AND company_name != '' LIMIT 1"
+                ).fetchone()
+            if row:
+                anrede = self._salutation(row[0])
+                if row[1] and row[1].strip(): company = row[1].strip()
+                if row[2] and row[2].strip(): job_title = row[2].strip()
+                if row[3] and row[3].strip(): ort = row[3].strip()
+                if row[4] and row[4].strip(): plz = row[4].strip()
             
             def get_setting(key, default=""):
                 res = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -2420,6 +2425,8 @@ class EmailSenderPage(QWidget):
         try:
             conn = sqlite3.connect(str(get_memory_db_path()), timeout=10.0)
             row = conn.execute("SELECT contact_person, company_name, job_title FROM leads WHERE email = ? LIMIT 1", (recipient,)).fetchone()
+            if not row:
+                row = conn.execute("SELECT contact_person, company_name, job_title FROM leads WHERE company_name IS NOT NULL AND company_name != '' LIMIT 1").fetchone()
             if row:
                 if row[1]: company = _clean_unicode(row[1])
                 if row[2]: job_title = _clean_unicode(row[2])
@@ -2493,36 +2500,51 @@ class EmailSenderPage(QWidget):
         generic_pdf_path = get_exports_dir() / generic_pdf_filename
         raw_pdf_path = get_exports_dir() / "Bewerbung_Raw_Uploaded.pdf"
 
+        chosen_pdf_path = None
+        chosen_display_name = pdf_filename
+
         if dynamic_pdf_path.exists():
-            try:
-                part = MIMEBase("application", "pdf")
-                with open(dynamic_pdf_path, "rb") as f:
-                    part.set_payload(f.read())
-                encoders.encode_base64(part)
-                _add_safe_filename_header(part, "attachment", pdf_filename)
-                msg.attach(part)
-            except Exception as e:
-                raise RuntimeError(f"Failed to attach generated PDF {pdf_filename}: {e}")
+            chosen_pdf_path = dynamic_pdf_path
+            chosen_display_name = pdf_filename
         elif generic_pdf_path.exists():
+            chosen_pdf_path = generic_pdf_path
+            chosen_display_name = generic_pdf_filename
+        else:
+            # Check for any generated customized cover letter in exports dir
+            try:
+                export_files = [f for f in os.listdir(get_exports_dir()) if f.endswith(".pdf")]
+                prefix_match = f"Bewerbung als {beruf_san} - {sender_san} @"
+                matching_custom = sorted(
+                    [get_exports_dir() / f for f in export_files if f.startswith(prefix_match)],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                if not matching_custom:
+                    matching_custom = sorted(
+                        [get_exports_dir() / f for f in export_files if f.startswith("Bewerbung als ") and "@" in f],
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                if matching_custom:
+                    chosen_pdf_path = matching_custom[0]
+                    chosen_display_name = pdf_filename
+            except Exception:
+                pass
+
+        if not chosen_pdf_path and raw_pdf_path.exists():
+            chosen_pdf_path = raw_pdf_path
+            chosen_display_name = generic_pdf_filename
+
+        if chosen_pdf_path and chosen_pdf_path.exists():
             try:
                 part = MIMEBase("application", "pdf")
-                with open(generic_pdf_path, "rb") as f:
+                with open(chosen_pdf_path, "rb") as f:
                     part.set_payload(f.read())
                 encoders.encode_base64(part)
-                _add_safe_filename_header(part, "attachment", generic_pdf_filename)
+                _add_safe_filename_header(part, "attachment", chosen_display_name)
                 msg.attach(part)
             except Exception as e:
-                raise RuntimeError(f"Failed to attach generic PDF {generic_pdf_filename}: {e}")
-        elif raw_pdf_path.exists():
-            try:
-                part = MIMEBase("application", "pdf")
-                with open(raw_pdf_path, "rb") as f:
-                    part.set_payload(f.read())
-                encoders.encode_base64(part)
-                _add_safe_filename_header(part, "attachment", generic_pdf_filename) # Use generic filename to look professional
-                msg.attach(part)
-            except Exception as e:
-                raise RuntimeError(f"Failed to attach raw PDF {raw_pdf_path}: {e}")
+                raise RuntimeError(f"Failed to attach PDF {chosen_pdf_path}: {e}")
         else:
             if not self._attachments:
                 raise FileNotFoundError(f"No PDF found. Tried dynamic ({pdf_filename}), generic ({generic_pdf_filename}), and raw ({raw_pdf_path}). Please generate it in the Edit Page first, or manually attach a CV.")

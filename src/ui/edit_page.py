@@ -167,6 +167,7 @@ class SegmentTabButton(QPushButton):
 from ..core.config import get_exports_dir, get_memory_db_path
 from ..core.models import LeadRecord
 from ..services.export_service import ExportService
+from ..services.email_extractor import _is_valid_email
 from ..utils.db_worker import run_in_thread
 from ..core.events import EventBus, event_bus
 from .event_bridge import event_bridge
@@ -1628,8 +1629,18 @@ class EditPage(QWidget):
         if not db_path.exists():
             return [], {}
         _, records = ExportService().load_project(str(db_path))
+        seen_emails = set()
+        unique_records = []
+        for r in records:
+            if not r.email or not _is_valid_email(r.email):
+                continue
+            ekey = r.email.strip().lower()
+            if ekey in seen_emails:
+                continue
+            seen_emails.add(ekey)
+            unique_records.append(r)
         states     = self._load_letter_states(db_path)
-        return records, states
+        return unique_records, states
 
     def _load_letter_states(self, db_path: Path) -> dict[str, LetterState]:
         conn = sqlite3.connect(db_path, timeout=30.0)
@@ -1687,9 +1698,12 @@ class EditPage(QWidget):
         )
 
     def _on_live_result_added(self, record):
-        # ensure no duplicate
+        if not record.email or not _is_valid_email(record.email):
+            return
+        # ensure no duplicate ID or duplicate email address
+        ekey = record.email.strip().lower()
         for r in self._records:
-            if r.id == record.id:
+            if r.id == record.id or (r.email and r.email.strip().lower() == ekey):
                 return
         self._records.append(record)
         state = self._states.get(record.id)
@@ -2640,8 +2654,19 @@ class EditPage(QWidget):
                         filtered.append(r)
                 except: pass
                 
+        seen_emails = set()
+        unique_filtered = []
+        for r in filtered:
+            if not r.email or not _is_valid_email(r.email):
+                continue
+            ekey = r.email.strip().lower()
+            if ekey in seen_emails:
+                continue
+            seen_emails.add(ekey)
+            unique_filtered.append(r)
+        filtered = unique_filtered
         if not filtered:
-            self._show_error("Import Failed", "No leads match the selected criteria.")
+            self._show_error("Import Failed", "No leads with useful emails match the selected criteria.")
             return
             
         def _persist():
@@ -3954,6 +3979,15 @@ class EditPage(QWidget):
                 
                 with open(output_path, "wb") as f:
                     writer.write(f)
+                    
+                if idx == 0:
+                    try:
+                        generic_name = f"Bewerbung als {beruf_san} - {sender_san}.pdf"
+                        generic_path = (out_dir if out_dir else get_exports_dir()) / generic_name
+                        with open(generic_path, "wb") as f:
+                            writer.write(f)
+                    except Exception:
+                        pass
                     
                 if appended_at_end:
                     warnings.append(record.company_name or "Unknown Company")
