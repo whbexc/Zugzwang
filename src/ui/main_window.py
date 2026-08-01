@@ -190,11 +190,11 @@ class _CustomTitleBar(TitleBar):
                 }}
                 QPushButton:hover {{
                     background: {hover};
-                    color: {text_hover};
+                    color: #FFFFFF;
                 }}
                 QPushButton:pressed {{
                     background: {pressed};
-                    color: {text_hover};
+                    color: #FFFFFF;
                 }}
             """
 
