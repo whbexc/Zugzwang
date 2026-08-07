@@ -19,7 +19,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.1.0 Beta 4"
+APP_VERSION = "1.1.0 Beta4"
 APP_BUILD = 4
 APP_AUTHOR = "ZUGZWANG"
 

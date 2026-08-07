@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta%204-E5E5EA?style=for-the-badge&color=2C2C2E">
+<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta4-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -266,7 +266,7 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.1.0 Beta 4**
+**1.1.0 Beta4**
 
 Recent work includes:
 

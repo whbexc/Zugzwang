@@ -449,7 +449,7 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.1.0 Beta 4"
+    app_version: str = "1.1.0 Beta4"
     app_build: int = 4
 
 

@@ -1,4 +1,4 @@
-ZUGZWANG 1.1.0 Beta 4
+ZUGZWANG 1.1.0 Beta4
 Professional Cross-Platform Lead Generation, Enrichment & Outreach Suite
 
 OVERVIEW:
@@ -16,7 +16,7 @@ When downloading the standalone macOS release (.zip) from GitHub, macOS Gatekeep
     xattr -cr ~/Downloads/ZUGZWANG.app
 (If placed in Applications, run: xattr -cr /Applications/ZUGZWANG.app)
 
-KEY FEATURES (1.1.0 Beta 4):
+KEY FEATURES (1.1.0 Beta4):
 1. Multi-Engine Lead Harvesting:
    - Bundesagentur für Arbeit (Jobsuche API & Web Scraper)
    - Google Maps Business Lead Extractor
