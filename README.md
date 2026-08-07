@@ -43,6 +43,7 @@ It is designed for:
 - Ausbildung.de
 - Aubi-Plus
 - Azubiyo
+- Das Örtliche
 
 ### Lead enrichment
 
@@ -270,6 +271,10 @@ makensis installer.nsi
 
 Recent work includes:
 
+- **Azubiyo & Das Örtliche Scrapers** — Brand new, highly accurate extraction engines for dual study programs and local regional directories
+- **Ausbildung.de Pagination** — Native infinite scroll support for limitless lead extraction without capping out early
+- **Radius Accuracy** — Search URLs now perfectly match their configured catchment area across all data sources
+- **Progress Indicators** — Resolved an update queue glitch where complete runs appeared stuck at 10%
 - **Smart Decision-Maker NLP Extraction** — Automatically detects and extracts specific German names from role titles (Pflegedienstleitung, Ansprechpartner für Bewerbungen, HR Manager) across Impressum and team pages
 - **Pre-Send DNS Domain Verification** — Verifies recipient email domain DNS resolution before sending campaigns to filter out dead or unreachable domains and protect Gmail sender reputation
 - **macOS Sleep Prevention (`WakeLock`)** — Automatically prevents Mac from sleeping during long scraping jobs, PDF batch generation, and email outreach broadcasts

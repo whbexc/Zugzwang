@@ -20,7 +20,7 @@ KEY FEATURES (1.1.0 Beta4):
 1. Multi-Engine Lead Harvesting:
    - Bundesagentur für Arbeit (Jobsuche API & Web Scraper)
    - Google Maps Business Lead Extractor
-   - AubiPlus, Azubiyo & Ausbildung.de Scrapers
+   - AubiPlus, Azubiyo, Ausbildung.de & Das Örtliche Scrapers
 2. Integrated Email Campaign Sender:
    - Direct SMTP outreach with live progress tracking
    - Personalized template variables ({{FIRMA}}, {{ANSPRECHPARTNER}}, {{ANREDE}})
