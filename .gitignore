@@ -71,6 +71,7 @@ screenshots/
 .env.local
 .env.*.local
 generate_key.py
+keygen.py
 KEYS.txt
 customer_support_guide.md
 debug_license.py
