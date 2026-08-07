@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional: Release Tag to attach packages to (e.g. 1.1.0-beta.3)'
+        description: 'Optional: Release Tag (NO SPACES ALLOWED, e.g. 1.1.0-beta.4)'
         required: false
         default: ''
 
@@ -49,7 +49,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
-          overwrite: true
           fail_on_unmatched_files: false
           files: |
             ZUGZWANG_Setup_*.exe
@@ -119,14 +118,13 @@ jobs:
         run: |
           cd dist
           codesign --force --deep --sign - ZUGZWANG.app || true
-          zip -r -y ZUGZWANG_macOS_1.1.0-Beta3.zip ZUGZWANG.app
+          zip -r -y ZUGZWANG_macOS_1.1.0-Beta4.zip ZUGZWANG.app
 
       - name: Upload macOS Asset to Release
         if: github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
-          overwrite: true
           fail_on_unmatched_files: false
           files: dist/ZUGZWANG_macOS_*.zip
 
@@ -171,14 +169,13 @@ jobs:
       - name: Package Linux Archive
         run: |
           cd dist
-          tar -czf ZUGZWANG_Linux_1.1.0-Beta3.tar.gz ZUGZWANG/
+          tar -czf ZUGZWANG_Linux_1.1.0-Beta4.tar.gz ZUGZWANG/
 
       - name: Upload Linux Asset to Release
         if: github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
-          overwrite: true
           fail_on_unmatched_files: false
           files: dist/ZUGZWANG_Linux_*.tar.gz
 

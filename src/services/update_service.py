@@ -148,11 +148,21 @@ class UpdateWorker(QThread):
                 self.check_finished.emit(False, "", "")
                 return
 
-            # Find the .exe or installer asset
+            # Find the platform-specific asset
             assets = data.get("assets", [])
             download_url = ""
+            import platform
+            system = platform.system().lower()
+            
             for asset in assets:
-                if asset["name"].endswith(".exe") or asset["name"].endswith(".msi"):
+                name = asset["name"].lower()
+                if system == "windows" and (name.endswith(".exe") or name.endswith(".msi")):
+                    download_url = asset["browser_download_url"]
+                    break
+                elif system == "darwin" and name.endswith(".zip") and "macos" in name:
+                    download_url = asset["browser_download_url"]
+                    break
+                elif system == "linux" and name.endswith(".tar.gz") and "linux" in name:
                     download_url = asset["browser_download_url"]
                     break
             
@@ -211,5 +221,17 @@ class UpdateService(QObject):
     @staticmethod
     def apply_update(path):
         import subprocess
-        os.startfile(path)
+        import platform
+        system = platform.system().lower()
+        
+        try:
+            if system == "windows":
+                os.startfile(path)
+            elif system == "darwin":
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(path)])
+        except Exception as e:
+            logger.error(f"Failed to open update file: {e}")
+            
         sys.exit(0)
