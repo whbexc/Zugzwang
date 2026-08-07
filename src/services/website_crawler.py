@@ -36,7 +36,7 @@ class WebsiteEmailCrawler:
     Respects rate limiting and domain blacklist.
     """
 
-    def __init__(self, session: BrowserSession, max_pages: int = 3):
+    def __init__(self, session: BrowserSession, max_pages: int = 7):
         self.session = session
         self.max_pages = max_pages
         self.settings = session.settings
@@ -96,7 +96,7 @@ class WebsiteEmailCrawler:
                 if discovered:
                     merged = candidate_urls + discovered
                     seen_urls = set()
-                    candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+                    candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 5]
 
             await asyncio.sleep(0)
             emails = self._extract_contact_block_emails(html)
@@ -217,30 +217,34 @@ class WebsiteEmailCrawler:
             if cached is not None:
                 return cached[0], cached[1], cached[2], dict(cached[3]), (cached[4] if len(cached) > 4 else None)
 
-        discovery_paths = self.settings.email_discovery_paths
-        candidate_urls = self._build_candidate_urls(website, discovery_paths)[:self.max_pages]
+        discovery_paths = self.settings.email_discovery_paths[:4]
+        candidate_urls = self._build_candidate_urls(website, discovery_paths)
 
-        best_emails: list[str] = []
+        all_collected_emails: list[str] = []
+        email_to_source: dict[str, str] = {}
         best_phone: Optional[str] = None
         best_source: Optional[str] = None
         best_contact: Optional[str] = None
-        best_priority = 99
 
-        for idx, url in enumerate(candidate_urls):
+        idx = 0
+        while idx < len(candidate_urls):
+            url = candidate_urls[idx]
             if self.settings.default_respect_robots and not await self._is_allowed_by_robots(url):
+                idx += 1
                 continue
 
             html = await self._fetch_html(url, ignore_rate_limit=True)
             if not html:
+                idx += 1
                 continue
 
             # Offload heavy regex and discovery to background thread
             data = await asyncio.to_thread(self._extract_page_data, url, html, idx == 0, extract_social)
 
             if idx == 0 and data.get("discovered"):
-                merged = candidate_urls + data["discovered"]
+                merged = [candidate_urls[0]] + data["discovered"] + candidate_urls[1:]
                 seen_urls = set()
-                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 2]
+                candidate_urls = [u for u in merged if not (u in seen_urls or seen_urls.add(u))][:self.max_pages + 10]
 
             emails = data["emails"]
             emails = self._filter_usable_emails(emails)
@@ -249,28 +253,44 @@ class WebsiteEmailCrawler:
             if extract_social:
                 socials.update(data["socials"])
 
-            if not emails and not phone and not contact_person:
-                continue
+            if emails:
+                all_collected_emails.extend(emails)
+                for em in emails:
+                    em_lower = em.lower()
+                    if em_lower not in email_to_source:
+                        email_to_source[em_lower] = url
+                if not best_source or any(token in url.lower() for token in ("karriere", "bewerbung", "jobs", "job", "stellen", "beruf", "ausbildung")):
+                    best_source = url
 
-            is_high_quality = any(
-                token in url.lower() for token in ("impressum", "kontakt", "contact", "karriere")
-            ) or url.strip("/") == website.strip("/")
-            priority = 0 if is_high_quality else 1
-            if (
-                best_source is None
-                or priority < best_priority
-                or (priority == best_priority and len(emails) > len(best_emails))
-            ):
-                best_emails = emails or best_emails
-                best_phone = phone or best_phone
-                best_contact = contact_person or best_contact
-                best_source = url
-                best_priority = priority
-                if priority == 0 and best_emails and best_phone and best_contact:
+            best_phone = best_phone or phone
+            best_contact = best_contact or contact_person
+            idx += 1
+
+        # Deduplicate and sort emails so career-page emails and HR/info emails come FIRST
+        unique_emails = self._filter_usable_emails(all_collected_emails)
+        base_host = urlparse(website).netloc.lower().replace("www.", "")
+        career_tokens = ("karriere", "bewerbung", "jobs", "job", "stellen", "beruf", "ausbildung")
+
+        def email_hr_priority(e: str) -> tuple[int, int, int]:
+            source_url = email_to_source.get(e, "").lower()
+            source_score = 0 if any(token in source_url for token in career_tokens) else 1
+            local = e.split("@")[0].lower()
+            kw_score = 50
+            for priority_idx, prefix in enumerate((
+                "karriere", "bewerbung", "bewerbungen", "jobs", "job", "stellen",
+                "personal", "hr", "recruiting", "recruitment", "talent",
+                "info", "kontakt", "office", "zentrale", "empfang",
+            )):
+                if prefix in local:
+                    kw_score = priority_idx
                     break
+            domain = e.split("@")[-1].lower() if "@" in e else ""
+            domain_score = 0 if base_host and (domain == base_host or domain.endswith("." + base_host)) else 100
+            return (source_score, kw_score, domain_score)
 
-        result = (best_emails, best_phone, best_source, socials, best_contact)
-        self._all_contact_cache[cache_key] = (list(best_emails), best_phone, best_source, dict(socials), best_contact)
+        unique_emails.sort(key=email_hr_priority)
+        result = (unique_emails, best_phone, best_source, socials, best_contact)
+        self._all_contact_cache[cache_key] = (list(unique_emails), best_phone, best_source, dict(socials), best_contact)
         return result
 
     def _extract_page_data(self, url: str, html: str, discover: bool, extract_social: bool) -> dict:
@@ -279,12 +299,13 @@ class WebsiteEmailCrawler:
         """
         discovered = self._discover_paths_from_html(url, html) if discover else []
         
-        emails = self._extract_contact_block_emails(html)
-        if not emails:
-            emails = self._extract_priority_emails(html)
-        if not emails:
-            from .email_extractor import extract_emails_from_html, deduplicate_emails
-            emails = deduplicate_emails(extract_emails_from_html(html))
+        from .email_extractor import extract_emails_from_html, deduplicate_emails
+        combined_emails = (
+            self._extract_contact_block_emails(html)
+            + self._extract_priority_emails(html)
+            + extract_emails_from_html(html)
+        )
+        emails = deduplicate_emails(combined_emails)
             
         phone = self._extract_contact_block_phone(html) or self._extract_priority_phone(html)
         contact_person = extract_contact_person_from_html(html)
@@ -320,9 +341,10 @@ class WebsiteEmailCrawler:
             html = await self.session.fetch_url_content_fast(url, timeout=self._timeout_for_url(url))
             if html:
                 await asyncio.sleep(0)
-                emails = self._extract_priority_emails(html)
-                if not emails:
-                    emails = deduplicate_emails(extract_emails_from_html(html))
+                from .email_extractor import extract_emails_from_html, deduplicate_emails
+                emails = deduplicate_emails(
+                    self._extract_priority_emails(html) + extract_emails_from_html(html)
+                )
                 if extract_social:
                     socials = self._extract_socials(html)
                 if emails or (extract_social and socials):
@@ -430,8 +452,8 @@ class WebsiteEmailCrawler:
         if not html:
             return []
         keywords = (
-            "impressum", "kontakt", "contact", "karriere", "jobs", "job",
-            "stellen", "bewerbung", "about", "ueber-uns", "über-uns"
+            "karriere", "bewerbung", "stellen", "jobs", "job", "beruf", "ausbildung",
+            "personal", "impressum", "kontakt", "contact", "about", "ueber-uns", "über-uns"
         )
         href_pattern = re.compile(r'href\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
         parsed_base = urlparse(base_url)
@@ -449,9 +471,29 @@ class WebsiteEmailCrawler:
             if parsed.netloc and parsed.netloc.lower() != parsed_base.netloc.lower():
                 continue
             discovered.append(full)
-            if len(discovered) >= 4:
+            if len(discovered) >= 20:
                 break
-        return discovered
+
+        # Deduplicate and sort so career/job/bewerbung URLs come FIRST
+        unique_discovered = []
+        seen = set()
+        for d in discovered:
+            if d not in seen:
+                seen.add(d)
+                unique_discovered.append(d)
+
+        def url_hr_score(u: str) -> int:
+            u_lower = u.lower()
+            for idx, kw in enumerate((
+                "karriere", "bewerbung", "stellen", "jobs", "job",
+                "beruf", "ausbildung", "personal", "impressum", "kontakt",
+            )):
+                if kw in u_lower:
+                    return idx
+            return 999
+
+        unique_discovered.sort(key=url_hr_score)
+        return unique_discovered[:8]
 
     def _build_candidate_urls(self, base_url: str, paths: list[str]) -> list[str]:
         """Build prioritized list of URLs to visit."""
@@ -512,6 +554,7 @@ class WebsiteEmailCrawler:
             r"E-?Mail\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
             r"Email\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
             r"Kontakt\s*[:\-\s]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
+            r"(?:Karriere|Bewerbung|Jobs?|Personal|HR|Stellen)[\s\S]{0,350}?([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
             r"Impressum[\s\S]{0,400}?([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
             r"mailto:([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})",
             r"([A-Z0-9._%+\-]+(?:\s*\(at\)\s*|\s*@\s*)[A-Z0-9.\-]+\.[A-Z]{2,})",
@@ -526,13 +569,24 @@ class WebsiteEmailCrawler:
         return deduplicate_emails(candidates) if candidates else []
 
     def _filter_usable_emails(self, emails: list[str]) -> list[str]:
+        junk_domains = (
+            "cleantalk.org", "google.com", "google-analytics.com", "sentry.io",
+            "wix.com", "wordpress.org", "w.org", "example.com", "domain.com",
+            "sitedomain.com", "yoursite.com", "test.com", "fontawesome.com",
+            "cookielaw.org", "usercentrics.eu", "borlabs.io", "w3.org",
+        )
         filtered: list[str] = []
         seen: set[str] = set()
         for email in emails or []:
             candidate = (email or "").strip().lower()
+            candidate = re.sub(r"\.(?:bei|und|oder|bitte|wenn|unter|auf|in|an|ab|mit|zu|für|fuer)$", "", candidate, flags=re.IGNORECASE)
+            candidate = candidate.rstrip(".,;:!?()[]{}'\"")
             if not candidate or not _is_valid_email(candidate):
                 continue
             if candidate in seen:
+                continue
+            domain = candidate.split("@")[-1] if "@" in candidate else ""
+            if any(domain == jd or domain.endswith("." + jd) for jd in junk_domains):
                 continue
             seen.add(candidate)
             filtered.append(candidate)

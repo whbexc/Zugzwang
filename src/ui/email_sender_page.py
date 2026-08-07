@@ -48,6 +48,7 @@ class _SendSignals(QObject):
     progress = Signal(int, int)   # current, total
     finished = Signal(int, int, bool) # sent, failed, was_aborted
     error = Signal(str)           # global error
+    connection_success = Signal(str, str) # email, password
 
 
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QAbstractItemView, QStyledItemDelegate, QStyleOptionViewItem, QApplication, QStyle
@@ -110,7 +111,7 @@ class RecipientDelegate(QStyledItemDelegate):
             
         painter.setPen(QColor("#FFFFFF"))
         font = option.font
-        font.setFamily("SF Mono")
+        font.setFamily("Menlo")
         font.setPointSize(9.0)
         
         # Cross out already sent
@@ -162,8 +163,8 @@ class RecipientDelegate(QStyledItemDelegate):
             }
         """)
         font = option.font
-        font.setFamily("SF Mono")
-        font.setPointSizeF(9.0)
+        font.setFamily("Menlo")
+        font.setPointSize(10.0)
         editor.setFont(font)
         return editor
 
@@ -482,6 +483,7 @@ class EmailSenderPage(QWidget):
         self._signals.progress.connect(self._on_progress)
         self._signals.finished.connect(self._on_finished)
         self._signals.error.connect(self._on_error)
+        self._signals.connection_success.connect(self._remember_current_sender_profile)
         
         self._is_restoring = True
         self._init_widgets()
@@ -657,14 +659,16 @@ class EmailSenderPage(QWidget):
         self._body_stack.addWidget(self._body_preview)
         
         self._type_toggle = MacSwitch()
-        self._preview_btn = ToolButton(FluentIcon.VIEW)
-        self._attach_btn = ToolButton(FluentIcon.ADD)
-        self._attach_clear_btn = ToolButton(FluentIcon.DELETE)
+        self._preview_btn = TransparentToolButton(FluentIcon.VIEW)
+        self._attach_btn = TransparentToolButton(FluentIcon.ADD)
+        self._attach_clear_btn = TransparentToolButton(FluentIcon.DELETE)
         self._attach_badge = QLabel(tr("send.badge.files", self._language).format(count=0))
         self._attachments = []
         
         # Step 3 Widgets
-        self._btn_dedup = PushButton(tr("send.button.clean", self._language))
+        self._btn_dedup = QPushButton(tr("send.button.clean", self._language))
+        self._btn_dedup.setCursor(Qt.PointingHandCursor)
+        self._btn_dedup.setToolTip("Remove duplicate emails")
         self._btn_dedup.setStyleSheet(Theme.secondary_button())
         self._rec_count = QLabel(tr("send.badge.emails", self._language).format(count=0))
         
@@ -684,7 +688,9 @@ class EmailSenderPage(QWidget):
         self._batch_size = LineEdit(); self._batch_size.setText("100")
         self._batch_size.setFixedWidth(70)
         
-        self._btn_purge_sent = PushButton(tr("send.button.purge", self._language))
+        self._btn_purge_sent = QPushButton(tr("send.button.purge", self._language))
+        self._btn_purge_sent.setCursor(Qt.PointingHandCursor)
+        self._btn_purge_sent.setToolTip("Remove already sent emails")
         
         self._btn_send_one = PushButton(tr("send.button.send_one", self._language))
         self._btn_stop = PushButton(tr("send.button.stop", self._language))
@@ -813,7 +819,7 @@ class EmailSenderPage(QWidget):
 
 
 
-    def _step_card(self, num: str, title: str, content: QWidget, compact: bool = False) -> QFrame:
+    def _step_card(self, num: str, title: str, content: QWidget, compact: bool = False, header_widget: QWidget = None) -> QFrame:
         card = QFrame()
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(0)
@@ -823,22 +829,28 @@ class EmailSenderPage(QWidget):
         layout.setSpacing(6)
 
         hdr = QHBoxLayout()
-        hdr.setSpacing(12)
+        hdr.setSpacing(0)
         badge = QLabel(num)
         badge.setFixedSize(20, 20)
         badge.setAlignment(Qt.AlignCenter)
         badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: 'PT Root UI', sans-serif; font-weight: 700; font-size: 11px;")
         hdr.addWidget(badge)
+        hdr.addSpacing(12)
 
         ttl = QLabel(title.upper())
         ttl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
         hdr.addWidget(ttl)
         hdr.addStretch(1)
+        
+        if header_widget:
+            hdr.addWidget(header_widget)
+            
         layout.addLayout(hdr)
 
         div = QFrame()
+        div.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         div.setFixedHeight(1)
-        div.setStyleSheet("background: #3A3A3C; border: none;")
+        div.setStyleSheet("background: #3A3A3C; border: none; border-radius: 0px;")
         layout.addWidget(div)
 
         layout.addWidget(content, 1 if not compact else 0)
@@ -849,79 +861,92 @@ class EmailSenderPage(QWidget):
         import logging
         s = config_manager.settings
 
-        container = QFrame()
-        container.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(16, 14, 16, 12)
-        layout.setSpacing(8)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
-        # 1. Header row
-        header = QHBoxLayout()
-        header.setSpacing(10)
-        badge = QLabel("1")
-        badge.setFixedSize(20, 20)
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setStyleSheet("color: white; background: #0A84FF; border-radius: 10px; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-weight: 700; font-size: 11px;")
-        header.addWidget(badge)
-
-        ttl = QLabel("ZUGZWANG IDENTITY")
-        ttl.setStyleSheet("color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 1.6px; background: transparent; border: none;")
-        header.addWidget(ttl)
-        header.addStretch(1)
-
-        settings_btn = QPushButton("⚙ Settings")
+        settings_btn = QPushButton("⚙ SETTINGS")
         settings_btn.setCursor(Qt.PointingHandCursor)
-        settings_btn.setStyleSheet("QPushButton { color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none; } QPushButton:hover { color: #AEAEB2; }")
+        settings_btn.setFixedHeight(20)
+        settings_btn.setStyleSheet("""
+            QPushButton { 
+                color: #AEAEB2; 
+                font-family: 'PT Root UI', sans-serif; 
+                font-size: 10px; 
+                font-weight: 700;
+                letter-spacing: 1.0px;
+                background: #3A3A3C; 
+                border: 1px solid #636366;
+                border-radius: 6px;
+                padding: 4px 10px;
+            } 
+            QPushButton:hover { 
+                background: #48484A;
+                color: #FFFFFF; 
+                border: 1px solid #8E8E93;
+            }
+        """)
         settings_btn.clicked.connect(lambda: self.window()._switch(5))
-        header.addWidget(settings_btn)
-        layout.addLayout(header)
-
-        # 2. Hairline divider
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet("background: #3A3A3C; border: none;")
-        layout.addSpacing(8)
-        layout.addWidget(div)
-        layout.addSpacing(8)
 
         # 3. SMTP status row
         status_row = QHBoxLayout()
-        status_row.setSpacing(6)
-
-        status_dot = QLabel("●")
-        is_configured = bool(s.email_smtp_user)
-        status_color = "#28B84E" if is_configured else "#636366"
-        status_dot.setStyleSheet(f"color: {status_color}; font-size: 14px; margin-bottom: 2px; background: transparent; border: none;")
-        status_row.addWidget(status_dot)
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
 
         srv_label = QLabel(f"{s.email_smtp_host}:{s.email_smtp_port}".upper())
-        srv_label.setMinimumWidth(200)
-        srv_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        srv_label.setStyleSheet("color: #8E8E93; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: transparent; border: none;")
+        srv_label.setStyleSheet("color: #E5E5EA; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; background: transparent; border: none;")
         status_row.addWidget(srv_label)
+        
         status_row.addStretch()
 
+        is_configured = bool(s.email_smtp_user)
+        status_color = "#28B84E" if is_configured else "#636366"
+
+        status_dot = QLabel("●")
+        status_dot.setStyleSheet(f"color: {status_color}; font-size: 12px; margin-bottom: 1px; background: transparent; border: none;")
+        status_row.addWidget(status_dot)
+
         txt_status = QLabel("Connected" if is_configured else "Not configured")
-        txt_status.setStyleSheet(f"color: {'#28B84E' if is_configured else '#FF453A'}; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none;")
+        txt_status.setStyleSheet(f"color: {status_color}; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 12px; font-weight: 500; background: transparent; border: none;")
         status_row.addWidget(txt_status)
 
-        test_btn = QPushButton("Test Connection")
+        test_btn = QPushButton("TEST CONNECTION")
         test_btn.setCursor(Qt.PointingHandCursor)
-        test_btn.setStyleSheet("QPushButton { color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; background: transparent; border: none; margin-left: 12px; } QPushButton:hover { color: #0A84FF; }")
+        test_btn.setStyleSheet("""
+            QPushButton { 
+                color: #AEAEB2; 
+                font-family: '.SF Pro Text', 'PT Root UI', sans-serif; 
+                font-size: 10px; 
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                background: rgba(44, 44, 46, 0.5); 
+                border: 1px solid #3A3A3C;
+                border-radius: 6px;
+                padding: 4px 10px;
+                margin-left: 12px; 
+            } 
+            QPushButton:hover { 
+                background: rgba(58, 58, 60, 0.8);
+                color: #FFFFFF; 
+                border: 1px solid #48484A;
+            }
+        """)
         test_btn.clicked.connect(self._test_connection)
         status_row.addWidget(test_btn)
 
-        # Embed status row directly (no wrapper widget)
+        # Embed status row directly
         layout.addLayout(status_row)
         layout.addSpacing(8)
 
         # 4. Two-column input grid
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(4)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
 
-        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: -2px; background: transparent; border: none;"
-        inp_style = "QLineEdit { background: #1C1C1E; border: 1px solid #3A3A3C; border-radius: 8px; color: #F2F2F7; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; padding: 0 12px; } QLineEdit:focus { border: 1px solid #0A84FF; }"
+        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.0px; text-transform: uppercase; background: transparent; border: none;"
+        inp_style = "QLineEdit { background: rgba(28, 28, 30, 0.5); border: 1px solid #3A3A3C; border-radius: 8px; color: #F2F2F7; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; padding: 0 12px; } QLineEdit:focus { border: 1px solid #0A84FF; background: rgba(44, 44, 46, 0.7); }"
 
         lbl_usr = QLabel("SENDER IDENTITY")
         lbl_usr.setStyleSheet(lbl_style)
@@ -938,7 +963,7 @@ class EmailSenderPage(QWidget):
         grid.addWidget(lbl_pass, 0, 1)
         grid.addWidget(self._smtp_pass, 1, 1)
 
-        # Optional: reconnect save events if disconnected in previous step
+        # Optional: reconnect save events
         try: self._smtp_user.textChanged.disconnect()
         except: pass
         try: self._smtp_pass.textChanged.disconnect()
@@ -948,11 +973,12 @@ class EmailSenderPage(QWidget):
         self._smtp_pass.textChanged.connect(self._save_fields)
 
         layout.addLayout(grid)
+        layout.addSpacing(6)
 
         # 5. SMTP detail strip
         det_row = QHBoxLayout()
         det_row.setSpacing(16)
-        det_row.setContentsMargins(0, 8, 0, 4)
+        det_row.setContentsMargins(0, 0, 0, 0)
 
         det_widget = QWidget()
         det_widget.setStyleSheet("background: transparent; border: none;")
@@ -960,11 +986,11 @@ class EmailSenderPage(QWidget):
 
         def add_det(lbl, val, val_color="#8E8E93"):
             l = QLabel(lbl)
-            l.setStyleSheet("color: #48484A; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 9px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; background: transparent; border: none;")
+            l.setStyleSheet("color: #636366; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 1.0px; text-transform: uppercase; background: transparent; border: none;")
             v = QLabel(val)
-            v.setStyleSheet(f"color: {val_color}; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; background: transparent; border: none;")
+            v.setStyleSheet(f"color: {val_color}; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; font-weight: 500; background: transparent; border: none;")
             h = QHBoxLayout()
-            h.setSpacing(5)
+            h.setSpacing(6)
             h.addWidget(l)
             h.addWidget(v)
             det_row.addLayout(h)
@@ -986,7 +1012,7 @@ class EmailSenderPage(QWidget):
 
         layout.addWidget(det_widget)
 
-        return container
+        return self._step_card("1", "ZUGZWANG IDENTITY", content, header_widget=settings_btn)
 
     def _build_payload_section(self) -> QWidget:
         container = QWidget()
@@ -1023,41 +1049,48 @@ class EmailSenderPage(QWidget):
         col_body.setSpacing(4)
 
         lbl_row_host = QWidget()
-        lbl_row_host.setFixedHeight(24)
+        lbl_row_host.setFixedHeight(32)
         lbl_row = QHBoxLayout(lbl_row_host)
         lbl_row.setContentsMargins(0, 0, 0, 0)
-        lbl_row.setSpacing(8)
-        lbl_row.addWidget(self._field_label("MESSAGE CONTENT"))
-        lbl_row.addStretch()
+        lbl_row.setSpacing(12)
+        
+        lbl_msg = self._field_label("MESSAGE CONTENT")
+        lbl_msg.setFixedHeight(32)
+        lbl_row.addWidget(lbl_msg)
+        
+        # --- Left Cluster: Content Action Icons ---
+        actions_h = QHBoxLayout()
+        actions_h.setSpacing(8)
         
         from PySide6.QtCore import QSize
         for btn, tip in [(self._preview_btn, "Preview"), (self._attach_btn, "Attach Files"), (self._attach_clear_btn, "Clear Attachments")]:
-            btn.setFixedSize(24, 24)
+            btn.setFixedSize(32, 32)
             btn.setIconSize(QSize(16, 16))
             btn.setCursor(Qt.PointingHandCursor)
             btn.setToolTip(tip)
-            btn.setStyleSheet("""
-                ToolButton { background: transparent; border: none; border-radius: 6px; color: #636366; }
-                ToolButton:hover { color: #FFFFFF; }
-            """)
-            lbl_row.addWidget(btn)
+            btn.setStyleSheet(self._icon_button_stylesheet())
+            actions_h.addWidget(btn)
         
-        self._attach_clear_btn.setStyleSheet("""
-            ToolButton { background: transparent; border: none; border-radius: 6px; color: #636366; }
-            ToolButton:hover { color: #FF453A; }
-        """)
+        lbl_row.addLayout(actions_h)
         
-        self._attach_badge.setStyleSheet("color: #636366; font-family: 'PT Root UI', monospace; font-size: 11px; background: transparent;")
-        lbl_row.addWidget(self._attach_badge)
+        # --- Middle Gap ---
+        lbl_row.addStretch(1)
         
-        lbl_row.addSpacing(14)
+        # --- Right Cluster: File Count & HTML Toggle ---
+        status_h = QHBoxLayout()
+        status_h.setSpacing(12)
+        
+        self._attach_badge.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;")
+        status_h.addWidget(self._attach_badge, 0, Qt.AlignVCenter)
         
         html_lbl = QLabel("HTML")
-        html_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 12px; background: transparent; border: none;")
-        lbl_row.addWidget(html_lbl)
+        html_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 12px; font-weight: 600; background: transparent; border: none;")
+        status_h.addWidget(html_lbl, 0, Qt.AlignVCenter)
         
         self._type_toggle.toggled.connect(self._save_fields)
-        lbl_row.addWidget(self._type_toggle)
+        status_h.addWidget(self._type_toggle, 0, Qt.AlignVCenter)
+        
+        lbl_row.addLayout(status_h)
         col_body.addWidget(lbl_row_host)
  
         self._body_stack.setMinimumHeight(80)
@@ -1078,48 +1111,82 @@ class EmailSenderPage(QWidget):
         layout.setSpacing(10)
 
         rec_widget = QWidget()
-        rec_widget.setFixedHeight(44)
         rec_h = QHBoxLayout(rec_widget)
         rec_h.setContentsMargins(0, 0, 0, 0)
-        rec_h.setSpacing(12)
+        rec_h.setSpacing(0)
         
-        self._style_input(self._interval_input)
-        self._interval_input.setFixedHeight(34)
+        # --- Left Cluster: Settings Group ---
+        settings_group = QWidget()
+        settings_h = QHBoxLayout(settings_group)
+        settings_h.setContentsMargins(0, 0, 0, 0)
+        settings_h.setSpacing(16)
+        
+        lbl_style = "color: #8E8E93; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1.0px; text-transform: uppercase; border: none; background: transparent;"
+        inp_style = "QLineEdit { background: rgba(28, 28, 30, 0.5); border: 1px solid #3A3A3C; border-radius: 8px; color: #F2F2F7; font-family: '.SF Pro Text', 'PT Root UI', sans-serif; font-size: 13px; padding: 0 8px; } QLineEdit:focus { border: 1px solid #0A84FF; background: rgba(44, 44, 46, 0.7); }"
+        
+        # Interval pair
+        iv_wrap = QHBoxLayout()
+        iv_wrap.setSpacing(8)
+        iv_lbl = QLabel("INTERVAL (S)")
+        iv_lbl.setStyleSheet(lbl_style)
+        self._interval_input.setFixedHeight(32)
         self._interval_input.setFixedWidth(52)
+        self._interval_input.setStyleSheet(inp_style)
+        iv_wrap.addWidget(iv_lbl, 0, Qt.AlignVCenter)
+        iv_wrap.addWidget(self._interval_input, 0, Qt.AlignVCenter)
         
-        iv_lbl = self._field_label("INTERVAL (S)")
-        rec_h.addWidget(iv_lbl, 0, Qt.AlignVCenter)
-        rec_h.addWidget(self._interval_input, 0, Qt.AlignVCenter)
+        # Subtle separator
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(20)
+        sep.setStyleSheet("background-color: #3A3A3C; border: none;")
         
-        bs_lbl = self._field_label(tr("send.field.batch", self._language))
-        rec_h.addWidget(bs_lbl, 0, Qt.AlignVCenter)
-        
-        self._style_input(self._batch_size)
-        self._batch_size.setFixedHeight(34)
+        # Batch size pair
+        bs_wrap = QHBoxLayout()
+        bs_wrap.setSpacing(8)
+        bs_lbl = QLabel(tr("send.field.batch", self._language).upper())
+        bs_lbl.setStyleSheet(lbl_style)
+        self._batch_size.setFixedHeight(32)
         self._batch_size.setFixedWidth(64)
-        rec_h.addWidget(self._batch_size, 0, Qt.AlignVCenter)
+        self._batch_size.setStyleSheet(inp_style)
+        bs_wrap.addWidget(bs_lbl, 0, Qt.AlignVCenter)
+        bs_wrap.addWidget(self._batch_size, 0, Qt.AlignVCenter)
         
+        settings_h.addLayout(iv_wrap)
+        settings_h.addWidget(sep, 0, Qt.AlignVCenter)
+        settings_h.addLayout(bs_wrap)
+        
+        rec_h.addWidget(settings_group, 0, Qt.AlignVCenter)
+        
+        # --- Middle Gap ---
         rec_h.addStretch(1)
 
-        self._btn_dedup.setFixedHeight(34)
+        # --- Right Cluster: Destructive Actions ---
+        actions_group = QWidget()
+        actions_h = QHBoxLayout(actions_group)
+        actions_h.setContentsMargins(0, 0, 0, 0)
+        actions_h.setSpacing(12)
+        
+        self._btn_dedup.setFixedHeight(32)
         self._btn_dedup.setFixedWidth(100)
         self._btn_dedup.setStyleSheet(Theme.zugzwang_danger_button())
-        rec_h.addWidget(self._btn_dedup, 0, Qt.AlignVCenter)
+        actions_h.addWidget(self._btn_dedup, 0, Qt.AlignVCenter)
         
-        self._btn_purge_sent.setFixedHeight(34)
-        self._btn_purge_sent.setFixedWidth(140)
-        self._btn_purge_sent.setStyleSheet(Theme.zugzwang_danger_button())
-        rec_h.addWidget(self._btn_purge_sent, 0, Qt.AlignVCenter)
+        self._btn_purge_sent.setFixedHeight(32)
+        self._btn_purge_sent.setFixedWidth(130)
+        self._btn_purge_sent.setStyleSheet(Theme.destructive_button())
+        actions_h.addWidget(self._btn_purge_sent, 0, Qt.AlignVCenter)
+        
+        rec_h.addWidget(actions_group, 0, Qt.AlignVCenter)
         
         self._rec_count.setStyleSheet("color: #0A84FF; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;")
-        # rec_h.addWidget(self._rec_count, 0, Qt.AlignVCenter) # Moved down
         layout.addWidget(rec_widget)
 
         # Side-by-Side Monitor Area (Grid for perfect 50/50 split)
         monitor_split = QGridLayout()
         monitor_split.setSpacing(12)
-        monitor_split.setColumnStretch(0, 60)
-        monitor_split.setColumnStretch(1, 40)
+        monitor_split.setColumnStretch(0, 40)
+        monitor_split.setColumnStretch(1, 60)
         
         # Left: Recipients
         rec_col = QVBoxLayout()
@@ -1136,31 +1203,22 @@ class EmailSenderPage(QWidget):
         lbl_rec_row.addWidget(self._rec_count)
         lbl_rec_row.addStretch(1)
         
-        # Add Search Input
-        self._search_input.setMaximumWidth(180)
-        self._search_input.setMinimumWidth(100)
-        self._search_input.setFixedHeight(32)
-        self._search_input.setPlaceholderText("Find recipient...")
-        self._search_input.setStyleSheet("""
-            QLineEdit {
-                background: rgba(28, 28, 30, 0.5);
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                color: #FFFFFF;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 13px;
-                padding: 0 10px;
-            }
-            QLineEdit:focus {
-                background: rgba(44, 44, 46, 0.7);
-                border: 1px solid #0A84FF;
-            }
-        """)
-        self._search_input.textChanged.connect(self._on_search_recipients)
+        # Removed search input to improve UI layout and spacing
         self._status_log.anchorClicked.connect(self._on_error_anchor_clicked)
-        lbl_rec_row.addWidget(self._search_input, 0, Qt.AlignVCenter)
         
         self._setup_delete_menu()
+        
+        # Search Button (opens popup)
+        self._btn_search_recipient = TransparentToolButton(FluentIcon.SEARCH)
+        self._btn_search_recipient.setFixedSize(32, 32)
+        self._btn_search_recipient.setIconSize(QSize(16, 16))
+        self._btn_search_recipient.setToolTip("Search queue")
+        self._btn_search_recipient.setCursor(Qt.PointingHandCursor)
+        self._btn_search_recipient.setStyleSheet(self._icon_button_stylesheet())
+        self._btn_search_recipient.clicked.connect(self._toggle_search_input)
+        
+        # Store the last search text to persist across Flyout opens
+        self._last_search_text = ""
 
         self._btn_add_manual_recipient = TransparentToolButton(FluentIcon.EDIT)
         self._btn_add_manual_recipient.setFixedSize(32, 32)
@@ -1180,6 +1238,7 @@ class EmailSenderPage(QWidget):
         self._btn_load_leads.clicked.connect(self._show_import_menu)
         
         lbl_rec_row.addWidget(self._btn_load_leads, 0, Qt.AlignVCenter)
+        lbl_rec_row.addWidget(self._btn_search_recipient, 0, Qt.AlignVCenter)
         lbl_rec_row.addWidget(self._btn_add_manual_recipient, 0, Qt.AlignVCenter)
         lbl_rec_row.addWidget(self._btn_delete_menu, 0, Qt.AlignVCenter)
         
@@ -1417,14 +1476,17 @@ class EmailSenderPage(QWidget):
         box.exec()
 
     def _toggle_preview(self):
+        from qfluentwidgets import FluentIcon
         self._isPreview = not self._isPreview
         if self._isPreview:
             self._render_preview_content()
             self._body_stack.setCurrentIndex(1)
-            self._preview_btn.setText("EDIT")
+            self._preview_btn.setIcon(FluentIcon.EDIT)
+            self._preview_btn.setToolTip("Edit")
         else:
             self._body_stack.setCurrentIndex(0)
-            self._preview_btn.setText("PREVIEW")
+            self._preview_btn.setIcon(FluentIcon.VIEW)
+            self._preview_btn.setToolTip("Preview")
 
     def _refresh_preview_if_open(self):
         if self._isPreview:
@@ -1577,16 +1639,27 @@ class EmailSenderPage(QWidget):
     def _render_preview_content(self):
         recipients = self._get_recipients()
         sample_recipient = recipients[0] if recipients else ""
-        raw = self._replace_placeholders(self._body_text.toPlainText(), sample_recipient)
-        sig_img_path = self._get_signature_image_path()
-        rendered_body = self._format_body_html(
-            raw,
-            signature_img_cid=None,
-            is_preview=True,
-            signature_img_path=sig_img_path
-        )
-        rendered = self._wrap_email_preview_html(rendered_body)
-        self._body_preview.setHtml(rendered)
+        raw_text = self._body_text.toPlainText()
+        
+        import threading
+        from PySide6.QtCore import QMetaObject, Qt
+        
+        def _bg_task():
+            try:
+                raw = self._replace_placeholders(raw_text, sample_recipient)
+                sig_img_path = self._get_signature_image_path()
+                rendered_body = self._format_body_html(
+                    raw,
+                    signature_img_cid=None,
+                    is_preview=True,
+                    signature_img_path=sig_img_path
+                )
+                rendered = self._wrap_email_preview_html(rendered_body)
+                QMetaObject.invokeMethod(self._body_preview, "setHtml", Qt.QueuedConnection, rendered)
+            except Exception:
+                pass
+                
+        threading.Thread(target=_bg_task, daemon=True).start()
 
     def _wrap_email_preview_html(self, body_html: str) -> str:
         return f"""
@@ -1677,9 +1750,9 @@ class EmailSenderPage(QWidget):
         self._attach_badge.setText(
             tr("send.badge.files", self._language).format(count=count)
         )
-        color = "#32D74B" if count > 0 else "#FF6B6B"
+        color = "#32D74B" if count > 0 else "#8E8E93"
         self._attach_badge.setStyleSheet(
-            f"color: {color}; font-family: 'PT Root UI', monospace; font-size: 11px; background: transparent;"
+            f"color: {color}; font-family: 'PT Root UI', monospace; font-size: 11px; font-weight: 600; background: transparent;"
         )
 
     def _get_recipients(self) -> list[str]:
@@ -1698,7 +1771,22 @@ class EmailSenderPage(QWidget):
                 "email": email,
                 "password": str(entry.get("password", "")),
             }
-        self._sender_profiles = profiles
+            
+        # Clean up partial typing junk from previous textChanged bug
+        filtered_profiles = {}
+        sorted_emails = sorted(profiles.keys(), key=len, reverse=True)
+        for email in sorted_emails:
+            user_part, domain = email.split('@', 1)
+            is_junk = False
+            for accepted in filtered_profiles.keys():
+                acc_user, acc_domain = accepted.split('@', 1)
+                if acc_domain == domain and acc_user.startswith(user_part) and len(acc_user) > len(user_part):
+                    is_junk = True
+                    break
+            if not is_junk:
+                filtered_profiles[email] = profiles[email]
+                
+        self._sender_profiles = filtered_profiles
         self._refresh_sender_completer()
 
     def _refresh_sender_completer(self):
@@ -1706,9 +1794,11 @@ class EmailSenderPage(QWidget):
         emails.sort(key=str.lower)
         self._sender_completer.model().setStringList(emails)
 
-    def _remember_current_sender_profile(self):
-        email = self._smtp_user.text().strip()
-        password = self._smtp_pass.text()
+    def _remember_current_sender_profile(self, email: str = None, password: str = None):
+        if not email:
+            email = self._smtp_user.text().strip()
+        if not password:
+            password = self._smtp_pass.text()
         if not self._is_valid_sender_profile_email(email) or not password:
             return
         self._sender_profiles[email.lower()] = {
@@ -1859,7 +1949,8 @@ class EmailSenderPage(QWidget):
             from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
             QDesktopServices.openUrl(QUrl("https://wa.me/212663007212?text=slm%20khoya%20khdmt%20b%20app%20dylk%20w%20bghit%20n%20supportik,"))
-            self._search_input.clear()
+            self._last_search_text = ""
+            self._on_search_recipients("")
             self._on_log("☕ You found the secret coffee machine! Thanks for the support!", "SUCCESS")
             return
             
@@ -1912,6 +2003,7 @@ class EmailSenderPage(QWidget):
         act_excel   = menu.addAction("  Import from Excel (.xlsx)")
         menu.addSeparator()
         act_clip    = menu.addAction("  Paste from Clipboard")
+        act_clip.triggered.connect(self._import_from_clipboard)
 
         chosen = menu.exec(QCursor.pos())
         if chosen == act_leads:
@@ -1924,6 +2016,57 @@ class EmailSenderPage(QWidget):
             self._import_from_excel()
         elif chosen == act_clip:
             self._import_from_clipboard()
+
+    def _toggle_search_input(self):
+        """Show the search input in a Flyout popup."""
+        from qfluentwidgets import Flyout, FlyoutViewBase, FlyoutAnimationType, LineEdit
+        from PySide6.QtWidgets import QVBoxLayout
+        
+        # Dynamically create the search input to avoid Qt garbage collection crashes
+        search_input = LineEdit()
+        search_input.setPlaceholderText("Find recipient...")
+        search_input.setMinimumWidth(220)
+        search_input.setFixedHeight(36)
+        search_input.setStyleSheet("""
+            QLineEdit {
+                background: rgba(28, 28, 30, 0.5);
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+                padding: 0 10px;
+            }
+            QLineEdit:focus {
+                background: rgba(44, 44, 46, 0.7);
+                border: 1px solid #0A84FF;
+            }
+        """)
+        
+        # Restore previous search text if any
+        if hasattr(self, '_last_search_text') and self._last_search_text:
+            search_input.setText(self._last_search_text)
+            
+        def _on_text_changed(text):
+            self._last_search_text = text
+            self._on_search_recipients(text)
+            
+        search_input.textChanged.connect(_on_text_changed)
+        
+        class SearchFlyoutView(FlyoutViewBase):
+            def __init__(self, search_widget, parent=None):
+                super().__init__(parent)
+                self.vBoxLayout = QVBoxLayout(self)
+                self.vBoxLayout.setContentsMargins(6, 6, 6, 6)
+                self.vBoxLayout.addWidget(search_widget)
+        
+        view = SearchFlyoutView(search_input, parent=self)
+        
+        search_input.show()
+        search_input.setFocus()
+        search_input.selectAll()
+        
+        Flyout.make(view, self._btn_search_recipient, self, FlyoutAnimationType.PULL_UP)
 
     def _extract_emails_from_text(self, text: str) -> list[str]:
         """Extract unique valid email addresses from a block of text."""
@@ -1991,40 +2134,30 @@ class EmailSenderPage(QWidget):
             return
         try:
             suffix = Path(path).suffix.lower()
-            text = ""
-            if suffix == ".csv":
-                import csv
-                with open(path, newline="", encoding="utf-8", errors="replace") as f:
-                    text = "\n".join(",".join(row) for row in csv.reader(f))
-            else:
-                import importlib.util
-                if importlib.util.find_spec("openpyxl") is not None:
-                    import openpyxl
-                    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-                    rows = []
-                    for ws in wb.worksheets:
-                        for row in ws.iter_rows(values_only=True):
-                            rows.append(" ".join(str(c) for c in row if c is not None))
-                    text = "\n".join(rows)
-                elif importlib.util.find_spec("xlrd") is not None:
-                    import xlrd
-                    wb = xlrd.open_workbook(path)
-                    rows = []
-                    for sheet in wb.sheets():
-                        for rx in range(sheet.nrows):
-                            rows.append(" ".join(str(sheet.cell(rx, cx).value) for cx in range(sheet.ncols)))
-                    text = "\n".join(rows)
-                else:
-                    self._on_log("Excel import requires 'openpyxl'. Install via pip.", "ERROR")
+            if suffix in {".xlsx", ".xls", ".csv"}:
+                from ..services.export_service import ExportService
+                from ..core.config import get_memory_db_path
+                service = ExportService()
+                records = service.import_spreadsheet(path)
+                if records:
+                    db_path = str(get_memory_db_path())
+                    service.save_records_to_db(records, db_path)
+                    emails = [r.email for r in records if r.email]
+                    self.import_emails(emails)
+                    self._on_log(f"Excel import: loaded and saved {len(records)} lead(s) with company & contact info from '{Path(path).name}'.", "SUCCESS")
                     return
+
+            text = ""
+            with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                text = f.read()
             emails = self._extract_emails_from_text(text)
             if emails:
                 self.import_emails(emails)
-                self._on_log(f"Excel import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
+                self._on_log(f"File import: found {len(emails)} email(s) in '{Path(path).name}'.", "SUCCESS")
             else:
                 self._on_log(f"No email addresses found in '{Path(path).name}'.", "WARNING")
         except Exception as e:
-            self._on_log(f"Excel import error: {e}", "ERROR")
+            self._on_log(f"File import error: {e}", "ERROR")
 
     def _import_from_clipboard(self):
         """Extract email addresses from the current clipboard text."""
@@ -2123,6 +2256,14 @@ class EmailSenderPage(QWidget):
         self._signals.log.emit(text, level)
 
     def _worker_send(self, recipients: list[str]):
+        from ..core.power import WakeLock
+        WakeLock.acquire("Email Sending Broadcast")
+        try:
+            self._do_worker_send(recipients)
+        finally:
+            WakeLock.release("Email Sending Broadcast")
+
+    def _do_worker_send(self, recipients: list[str]):
         self._error_vault.clear()
         sent = 0; failed = 0; total = len(recipients)
         fresh_per_message = self._should_use_fresh_connection_per_message()
@@ -2201,19 +2342,26 @@ class EmailSenderPage(QWidget):
                     self._signals.finished.emit(0, 0, False)
                 return
 
-        # Filter already sent recipients before applying batch size
+        # Filter already sent recipients and verify DNS domain validity before applying batch size
+        from ..services.email_extractor import verify_email_domain_dns
         message_signature = self._message_signature()
         filtered_recipients = []
         skipped_count = 0
+        invalid_domain_count = 0
         for rec in recipients:
             if self._was_message_sent(rec, message_signature):
                 skipped_count += 1
+            elif not verify_email_domain_dns(rec):
+                invalid_domain_count += 1
+                self._log(f"🛡️ Pre-Send Verification: Skipped dead/invalid domain for '{rec}' to protect sender score.", "WARNING")
             else:
                 filtered_recipients.append(rec)
                 
         recipients = filtered_recipients
         if skipped_count > 0:
             self._log(f"Skipped {skipped_count} recipient(s) (already sent).", "WARNING")
+        if invalid_domain_count > 0:
+            self._log(f"🛡️ Protected Sender Score: Automatically filtered out {invalid_domain_count} unreachable/invalid email address(es).", "WARNING")
             
         if not recipients:
             self._log("No new recipients to email. Broadcast finished.", "SUCCESS")
@@ -2596,6 +2744,7 @@ class EmailSenderPage(QWidget):
                 if not silent:
                     self._signals.log.emit(f"Authenticating as {user}...", "INFO")
                 server.login(user, pwd)
+                self._signals.connection_success.emit(user, pwd)
 
             return server
 
@@ -2709,7 +2858,6 @@ class EmailSenderPage(QWidget):
     def _save_fields(self):
         if getattr(self, '_is_restoring', False):
             return
-        self._remember_current_sender_profile()
         current_settings = config_manager.settings
         smtp_host = self._smtp_host.text().strip() or getattr(current_settings, "email_smtp_host", "") or "smtp.gmail.com"
         smtp_port = self._smtp_port.text().strip() or getattr(current_settings, "email_smtp_port", "") or "587"

@@ -20,7 +20,9 @@ class SourceType(str, Enum):
     AUSBILDUNG_DE = "ausbildung"
     AUBIPLUS_DE = "aubiplus"
     AZUBIYO = "azubiyo"
+    DAS_OERTLICHE = "dasoertliche"
     MANUAL = "manual"
+    FILE = "file"
 
 
 class ScrapingStatus(str, Enum):
@@ -207,8 +209,8 @@ class LeadRecord:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["source_type"] = self.source_type.value if self.source_type else None
-        d["email_source_type"] = self.email_source_type.value if self.email_source_type else None
+        d["source_type"] = self.source_type.value if hasattr(self.source_type, "value") else str(self.source_type or "")
+        d["email_source_type"] = self.email_source_type.value if hasattr(self.email_source_type, "value") else None
         return d
 
     def has_email(self) -> bool:
@@ -228,7 +230,7 @@ class LeadRecord:
             normalized_url = f"{parsed.netloc.lower()}{parsed.path.rstrip('/').lower()}"
 
         parts = [
-            self.source_type.value if self.source_type else "",
+            self.source_type.value if hasattr(self.source_type, "value") else str(self.source_type or ""),
             normalized_url,
             self._normalize_key_part(self.company_name),
             self._normalize_key_part(self.job_title),
@@ -447,8 +449,8 @@ class AppSettings:
     # Update Sync
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.1.0 Beta 3"
-    app_build: int = 3
+    app_version: str = "1.1.0 Beta 4"
+    app_build: int = 4
 
 
     # Free Trial Tracking

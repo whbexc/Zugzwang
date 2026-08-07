@@ -218,6 +218,7 @@ class ResultsTableModel(QStandardItemModel):
                     elif "ausbildung" in st: value = tr("results.source.ausbildung", self._language)
                     elif "aubiplus" in st: value = tr("results.source.aubiplus", self._language)
                     elif "azubiyo" in st: value = "AZUBIYO.DE"
+                    elif "dasoertliche" in st or "oertliche" in st: value = "DAS OERTLICHE"
                     else: value = tr("results.source.jobsuche", self._language)
                 elif field == "status":
                     if record.email:
@@ -560,6 +561,7 @@ class LeadFilterProxy(QSortFilterProxyModel):
             if self._source_filter == 2 and "jobsuche" not in source_val: return False
             if self._source_filter == 3 and "ausbildung" not in source_val: return False
             if self._source_filter == 4 and "aubiplus" not in source_val: return False
+            if self._source_filter == 5 and "oertliche" not in source_val: return False
 
         if self._status_filter != 0:
             has_email = bool(record.email)
@@ -986,6 +988,8 @@ class DetailPanel(QFrame):
             self._source_badge.setText("AUBI-PLUS.DE")
         elif "azubiyo" in src:
             self._source_badge.setText("AZUBIYO.DE")
+        elif "dasoertliche" in src or "oertliche" in src:
+            self._source_badge.setText("DAS OERTLICHE")
         else:
             self._source_badge.setText(tr("results.source.jobsuche", self._language))
 
@@ -1423,6 +1427,7 @@ class ResultsPage(QWidget):
         menu.add_item(tr("results.source.jobsuche", self._language), 2, self._proxy._source_filter == 2)
         menu.add_item(tr("results.source.ausbildung", self._language), 3, self._proxy._source_filter == 3)
         menu.add_item(tr("results.source.aubiplus", self._language), 4, self._proxy._source_filter == 4)
+        menu.add_item("Das Oertliche", 5, self._proxy._source_filter == 5)
         
         menu.itemSelected.connect(lambda t, i: self._apply_source_filter(i, t))
         self._source_chip.set_open(True)

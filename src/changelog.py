@@ -1,14 +1,66 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.1.0 Beta 3"
+APP_VERSION = "1.1.0 Beta 4"
 
 CHANGELOG = [
     {
-        "version": "1.1.0 Beta 3",
-        "date": "August 1, 2026",
+        "version": "1.1.0 Beta 4",
+        "date": "August 2, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Smart Decision-Maker NLP Extraction — Enhanced contact person detection to extract specific names from German role titles (Pflegedienstleitung, Ansprechpartner für Bewerbungen, HR Manager) across Impressum & team pages"
+            },
+            {
+                "type": "new",
+                "text": "Pre-Send DNS Domain Verification — Automatically checks recipient domain DNS resolution before sending email broadcasts to filter out dead or unreachable domains and protect Gmail sender reputation"
+            },
+            {
+                "type": "new",
+                "text": "macOS Sleep Prevention (WakeLock) — Automatically prevents Mac from sleeping during long scraping tasks, PDF batch generation, and email outreach broadcasts"
+            },
+            {
+                "type": "new",
+                "text": "Das Oertliche Integration — Added a powerful new scraping engine for the German business directory 'Das Örtliche', extracting rich local business leads and B2B contacts directly into Zugzwang."
+            },
+            {
+                "type": "new",
+                "text": "Native Spreadsheet Import — Added a sleek, dedicated '+' button (with a vibrant green accent) to the Edit Page, allowing seamless, instant imports of .xlsx and .csv lead lists."
+            },
+            {
+                "type": "improved",
+                "text": "Intelligent Data Mapping — The import engine now automatically detects and maps German/English column headers (e.g., GmBh, ansprechner, email, phone) and merges them perfectly into your local database."
+            },
+            {
+                "type": "improved",
+                "text": "Dynamic Salutations & Personalization — Email templates and motivation letters now accurately populate placeholders like {{Firma}}, {{Anrede}}, and {{Contact Person}} by pulling rich HR contact data directly from your imported spreadsheets and web scrapers."
+            },
+            {
+                "type": "improved",
+                "text": "Apple-Style Logs & Results UI — Completely redesigned the Logs page to feature a native macOS aesthetic. Status indicators now use a pulsing green live dot, while dropdown filters and Export actions are styled as premium dark translucent chips with native dropdown menus. Fixed raw string rendering issues across badges."
+            },
+            {
+                "type": "improved",
+                "text": "Destructive Action Safety — Introduced a new distinct solid red 'destructive' button style for high-risk actions like 'Purge Sent' on the Email Sender page to prevent accidental data loss."
+            },
+            {
+                "type": "fixed",
+                "text": "Google Maps Scraper Stability — Resolved Playwright headless browser configuration issues, allowing the scraper to reliably bypass consent modals and seamlessly extract Maps listings in the background."
+            },
+            {
+                "type": "fixed",
+                "text": "Regenerate All UI Bug — Resolved a critical database synchronization issue where imported or previously modified leads would suddenly disappear from the sidebar when clicking 'Regenerate All'. The SQLite engine now accurately tracks lead visibility states."
+            },
+        ],
+    },
+    {
+        "version": "1.1.0 Beta 3",
+        "date": "August 1, 2026",
+        "label": "RELEASED",
+        "label_color": "#007AFF",
         "changes": [
             {
                 "type": "new",
@@ -488,10 +540,68 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.1.0 Beta 3",
-        "date": "1 أغسطس 2026",
+        "version": "1.1.0 Beta 4",
+        "date": "2 أغسطس 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "استخراج صناع القرار بذكاء اصطناعي (NLP) — تعزيز الكشف عن الأشخاص المسؤولين لاستخراج أسماء محددة من المسميات الوظيفية الألمانية."
+            },
+            {
+                "type": "new",
+                "text": "التحقق من الدومين قبل الإرسال — يتحقق تلقائيًا من وجود الدومين قبل إرسال الرسائل لتصفية الإيميلات الميتة وحماية سمعة الإرسال."
+            },
+            {
+                "type": "new",
+                "text": "منع السكون في نظام ماك (WakeLock) — يمنع نظام الماك تلقائيًا من النوم أثناء مهام السحب الطويلة والإرسال الجماعي."
+            },
+            {
+                "type": "new",
+                "text": "دمج دليل Das Oertliche — تمت إضافة محرك سحب جديد وقوي لدليل الأعمال الألماني Das Örtliche، مما يتيح استخراج بيانات الأعمال المحلية مباشرة."
+            },
+            {
+                "type": "new",
+                "text": "استيراد الجداول الأصلية — إضافة زر مخصص '+' في صفحة التعديل، مما يتيح استيراد قوائم العملاء بصيغتي .xlsx و .csv بكل سهولة وفورية."
+            },
+            {
+                "type": "improved",
+                "text": "تخطيط البيانات الذكي — محرك الاستيراد يكتشف ويطابق العناوين (مثل GmBh، البريد الإلكتروني، الهاتف) ويدمجها بشكل مثالي في قاعدة البيانات المحلية."
+            },
+            {
+                "type": "improved",
+                "text": "التحيات الديناميكية والتخصيص — تقوم قوالب البريد الإلكتروني الآن بملء العناصر النائبة مثل {{Firma}} و {{Contact Person}} تلقائياً باستخدام البيانات المستخرجة من الجداول المستوردة."
+            },
+            {
+                "type": "improved",
+                "text": "واجهة سجلات ونتائج بنمط Apple — إعادة تصميم كاملة لصفحة السجلات (Logs) لتتميز بمظهر macOS الأصلي. إصلاح مشاكل النصوص في الشارات، وإضافة فلاتر وأزرار تصدير شفافة بقوائم منسدلة."
+            },
+            {
+                "type": "improved",
+                "text": "حماية الإجراءات المدمرة — تقديم تصميم جديد ومميز (أحمر صلب) للأزرار ذات المخاطر العالية مثل 'مسح المرسل' في صفحة الإرسال لمنع فقدان البيانات عن طريق الخطأ."
+            },
+            {
+                "type": "fixed",
+                "text": "استقرار ساحب خرائط جوجل — إصلاح مشاكل تكوين متصفح Playwright المخفي، مما يتيح للساحب تجاوز نوافذ الموافقة واستخراج القوائم في الخلفية بموثوقية."
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح خلل 'إعادة إنشاء الكل' — حل مشكلة مزامنة حاسمة في قاعدة البيانات حيث كانت جهات الاتصال المعدلة أو المستوردة تختفي من الشريط الجانبي عند النقر على 'إعادة إنشاء الكل'."
+            }
+        ]
+    },
+    {
+        "version": "1.1.0 Beta 3",
+        "date": "1 أغسطس 2026",
+        "label": "تم الإصدار",
+        "label_color": "#007AFF",
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

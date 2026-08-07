@@ -19,8 +19,8 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.1.0 Beta 3"
-APP_BUILD = 3
+APP_VERSION = "1.1.0 Beta 4"
+APP_BUILD = 4
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -257,6 +257,16 @@ class ConfigManager(QObject):
     @property
     def settings(self) -> AppSettings:
         return self._settings
+
+    def reload_trial_state(self) -> None:
+        """Re-read only the trial counters from disk (thread-safe for UI refresh)."""
+        try:
+            if self._settings_path.exists():
+                raw = json.loads(self._settings_path.read_text(encoding="utf-8"))
+                self._settings.trial_scraps_count = raw.get("trial_scraps_count", self._settings.trial_scraps_count)
+                self._settings.trial_last_reset_date = raw.get("trial_last_reset_date", self._settings.trial_last_reset_date)
+        except Exception:
+            pass
 
     def update(self, **kwargs: Any) -> None:
         for k, v in kwargs.items():

@@ -245,7 +245,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "send.notice.gmail": "Gmail Policy: Sending >100 emails/day may flag your account as spam. Use batching for safety.",
         "logs.title": "Activity Logs",
         "logs.placeholder.search": "Search logs…",
-        "logs.filter.all_levels": "ALL LEVELS",
+        "logs.filter.all_levels": "All Levels",
         "logs.filter.all_time": "ALL TIME",
         "logs.filter.last_hour": "LAST HOUR",
         "logs.filter.today": "TODAY",

@@ -70,7 +70,7 @@ class LoadLeadsDialog(QDialog):
         src_lbl = self._field_label("SOURCE")
         layout.addWidget(src_lbl)
         self._source_combo = ComboBox()
-        self._source_combo.addItems(["All Sources", "Google Maps", "Jobsuche", "Ausbildung.de", "Aubi-Plus"])
+        self._source_combo.addItems(["All Sources", "Google Maps", "Jobsuche", "Ausbildung.de", "Aubi-Plus", "Das Oertliche"])
         self._source_combo.setStyleSheet(self._combo_style())
         self._source_combo.setFixedHeight(38)
         layout.addWidget(self._source_combo)
@@ -216,6 +216,7 @@ class LoadLeadsDialog(QDialog):
             "Jobsuche": "jobsuche",
             "Ausbildung.de": "ausbildung",
             "Aubi-Plus": "aubiplus",
+            "Das Oertliche": "dasoertliche",
         }
         source_filter = source_map.get(self._source_combo.currentText())
         city_filter = self._city_input.text().strip()

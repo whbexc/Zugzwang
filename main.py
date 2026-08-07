@@ -253,8 +253,8 @@ def main():
         _win_utils.getResizeBorderThickness = _cached_getResizeBorder
 
         print("[win32_patch] Win32 RPC cache patches installed (4 functions).")
-    except (ImportError, AttributeError) as _e:
-        print(f"[win32_patch] Skipping Win32 patches: {_e}")
+    except (ImportError, AttributeError):
+        pass
     # ------------------------------------------------
 
     app = QApplication(sys.argv)

@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from .browser import BrowserSession
 from .email_extractor import extract_contact_person_from_html
 from ..core.logger import get_logger
+from ..core.security import LicenseManager
 from ..core.models import LeadRecord, SearchConfig, SourceType
 
 logger = get_logger(__name__)
@@ -169,14 +170,9 @@ class AusbildungScraper:
                             if yielded_count >= self.config.max_results:
                                 break
 
-                            # Skip leads without email when email scraping is enabled
-                            if self.config.scrape_emails and not lead.email:
-                                logger.debug(
-                                    f"[{self.job_id}] Skipping lead (no email): "
-                                    f"{lead.company_name}"
-                                )
-                                continue
 
+
+                            LicenseManager.record_extraction()
                             yield lead
                             yielded_count += 1
 

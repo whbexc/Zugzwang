@@ -138,6 +138,18 @@ _VCARD_EMAIL_PATTERN = re.compile(
     r'class\s*=\s*["\'][^"\']*\bemail\b[^"\']*["\'][^>]*>([^<]+)<',
     re.IGNORECASE,
 )
+_CFEMAIL_PATTERN = re.compile(
+    r'data-cfemail\s*=\s*["\']([a-fA-F0-9]+)["\']',
+    re.IGNORECASE,
+)
+
+def _decode_cfemail(encoded: str) -> str:
+    try:
+        r = int(encoded[:2], 16)
+        return "".join([chr(int(encoded[i:i+2], 16) ^ r) for i in range(2, len(encoded), 2)])
+    except Exception:
+        return ""
+
 
 # ── Source classification keyword map ─────────────────────────────────────────
 
@@ -166,23 +178,49 @@ _SOURCE_KEYWORDS: list[tuple[str, EmailSource]] = [
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+_CONTACT_STOPWORDS = {
+    "und", "oder", "bitte", "sehr", "bewerbung", "bewerbungen", "kontakt", "telefon",
+    "email", "mail", "gmbh", "ag", "ev", "e.v.", "straße", "str", "platz", "weg",
+    "allee", "gasse", "berlin", "münchen", "hamburg", "köln", "frankfurt", "stuttgart",
+    "düsseldorf", "leipzig", "dortmund", "essen", "bremen", "dresden", "hannover",
+    "nürnberg", "duisburg", "bochum", "wuppertal", "bielefeld", "bonn", "münster",
+    "uns", "wir", "ihre", "ihr", "unser", "unsere", "fragen", "ansprechpartner",
+    "karriere", "stellenangebote", "job", "jobs", "team", "pflegedienstleitung",
+}
+
 def extract_contact_person_from_text(text: str) -> Optional[str]:
-    """Extract HR contact (Frau / Herr) using NLP regex heuristic."""
+    """Extract HR contact (Frau / Herr or decision maker title) using NLP regex heuristics."""
     if not text:
         return None
-    # We look for "Frau" or "Herr" followed by 1 to 5 capitalized words or specific prefixes (Dr., von, etc).
-    pattern = r'\b(Frau|Herr)\s+((?:(?:[A-ZÄÖÜ][a-zA-Zäöüß\-]+|Dr\.|Prof\.|med\.|von|van|der|de|zu|und|den)\s*){1,5})'
-    matches = re.findall(pattern, text)
+
+    # 1. High-priority role titles (Ansprechpartner, PDL, HR Manager, etc.)
+    role_pattern = re.compile(
+        r'\b(?:Ansprechpartner(?:in)?|Pflegedienstleitung|PDL|Pflegedirektor(?:in)?|'
+        r'Personalleitung|Personalabteilung|HR[\s-]*Manager(?:in)?|Einrichtungsleitung|'
+        r'Heimleitung|Geschäftsführer(?:in)?|Geschäftsleitung|Bewerbung(?:en)?\s+(?:an|bei))'
+        r'(?:\s*(?:\(PDL\)|/in|\s+für\s+[A-Za-zÄÖÜäöü]+))?\s*[:\-\s]\s*'
+        r'(?:(Frau|Herr)\s+)?'
+        r'((?:(?:[A-ZÄÖÜ][a-zA-Zäöüß\-]+|Dr\.|Prof\.|med\.|von|van|der|de|zu)\s*){2,4})',
+        re.IGNORECASE
+    )
+    for match in role_pattern.finditer(text):
+        salutation = (match.group(1) or "").capitalize()
+        raw_name = re.sub(r'[\s,;:!\?]+$', '', match.group(2)).strip()
+        words = raw_name.split()
+        if len(words) >= 2 and not any(w.lower() in _CONTACT_STOPWORDS for w in words):
+            if salutation in ("Frau", "Herr"):
+                return f"{salutation} {raw_name}"
+            return raw_name
+
+    # 2. General salutation search (Frau / Herr + Name)
+    pattern = re.compile(r'\b(Frau|Herr)\s+((?:(?:[A-ZÄÖÜ][a-zA-Zäöüß\-]+|Dr\.|Prof\.|med\.|von|van|der|de|zu)\s*){1,4})')
+    matches = pattern.findall(text)
     
-    # We want to pick the most likely candidate. Usually the first one that appears
-    # near 'Ansprechpartner', 'Kontakt' or 'Bewerbung' is best, but to keep it simple and robust
-    # we just take the first valid match in the text.
     for m in matches:
         salutation = m[0]
-        # Clean trailing punctuation
         name = re.sub(r'[\s,;:!\?]+$', '', m[1]).strip()
-        # Avoid weird captures: name should be reasonably long and not start with 'und'
-        if name and len(name) > 2 and not name.lower().startswith("und"):
+        words = name.split()
+        if name and len(words) >= 1 and not any(w.lower() in _CONTACT_STOPWORDS for w in words):
             return f"{salutation} {name}"
             
     return None
@@ -195,6 +233,13 @@ def extract_contact_person_from_html(html: str) -> Optional[str]:
     return extract_contact_person_from_text(text)
 
 
+def verify_email_domain_dns(email: str, timeout: float = 3.0) -> bool:
+    """
+    Verify that an email address has valid syntax and is not in the excluded list.
+    Note: Active DNS resolution was removed because macOS mDNSResponder rate-limits 
+    tight loops of gethostbyname(), which caused false-positives (NXDOMAIN) on perfectly valid leads.
+    """
+    return _is_valid_email(email)
 
 def extract_emails_from_text(text: str) -> list[str]:
     """Extract all valid, unique emails from a plain text string."""
@@ -284,6 +329,12 @@ def extract_emails_from_html(html: str) -> list[str]:
             c = candidate.strip().lower()
             if _is_valid_email(c):
                 emails.add(c)
+
+    # 6b. Cloudflare Email Obfuscation (data-cfemail)
+    for match in _CFEMAIL_PATTERN.finditer(html):
+        decoded = _decode_cfemail(match.group(1))
+        if decoded and _is_valid_email(decoded):
+            emails.add(decoded)
 
     # 7. General text extraction — strip HTML, decode entities, then regex
     text = _strip_html_tags(html)

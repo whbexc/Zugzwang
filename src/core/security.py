@@ -282,50 +282,7 @@ class LicenseManager:
             "is_active": False
         }
 
-    @staticmethod
-    def can_extract() -> bool:
-        """Checks if the user is allowed to extract another lead."""
-        if LicenseManager.is_banned(config_manager.settings.license_key):
-            return False
-        if LicenseManager.is_active():
-            return True
 
-    @staticmethod
-    def get_trial_status() -> dict:
-        """
-        Returns a dictionary containing trial usage details.
-        Handles date-based reset.
-        """
-        is_active = LicenseManager.is_active()
-        settings = config_manager.settings
-        
-        if is_active:
-            return {
-                "used": 0,
-                "remaining": 999999,
-                "total": 999999,
-                "is_active": True
-            }
-
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        if settings.trial_last_reset_date != today:
-            # New day, reset counter
-            config_manager.update(
-                trial_scraps_count=0,
-                trial_last_reset_date=today
-            )
-            settings = config_manager.settings # Refresh local ref
-        
-        used = 0
-        remaining = 20
-        
-        return {
-            "used": used,
-            "remaining": remaining,
-            "total": MAX_FREE_TRIAL_SCRAPS,
-            "is_active": False
-        }
 
     @staticmethod
     def can_extract() -> bool:

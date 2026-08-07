@@ -12,10 +12,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QVBoxLayout, QWidget, QTextBrowser,
-    QFileDialog, QLabel, QSizePolicy
+    QFileDialog, QLabel, QSizePolicy, QPushButton
 )
 from PySide6.QtGui import QColor
 
+from .results_page import FilterChip, FilterMenu
+from PySide6.QtCore import QPoint
 from qfluentwidgets import (
     SearchLineEdit, ComboBox, PushButton,
     LineEdit, InfoBar
@@ -115,75 +117,60 @@ class LogViewerPage(QWidget):
         """)
         ctrl_row.addWidget(self._search_input)
 
-        self._level_filter = ComboBox()
-        self._level_filter.addItems([
-            tr("logs.filter.all_levels", self._language), 
-            "DEBUG", "INFO", "WARNING", "ERROR"
-        ])
-        self._level_filter.currentIndexChanged.connect(self._apply_filter)
-        self._level_filter.setFixedHeight(36)
+        self._level_filter = FilterChip(tr("logs.filter.all_levels", self._language).upper())
         self._level_filter.setFixedWidth(148)
-        self._level_filter.setStyleSheet("""
-            ComboBox {
-                background: #2C2C2E;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                color: white;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 13px;
-                padding: 0 10px;
-            }
-            ComboBox:focus { border-color: #0A84FF; }
-        """)
+        self._level_filter.clicked.connect(self._show_level_menu)
+        self._current_level_idx = 0
         ctrl_row.addWidget(self._level_filter)
 
-        self._time_filter = ComboBox()
-        self._time_filter.addItems([
-            tr("logs.filter.all_time", self._language),
-            tr("logs.filter.last_hour", self._language),
-            tr("logs.filter.today", self._language),
-            tr("logs.filter.last_7_days", self._language),
-            tr("logs.filter.last_30_days", self._language),
-            tr("logs.filter.last_session", self._language)
-        ])
-        self._time_filter.currentIndexChanged.connect(self._apply_filter)
-        self._time_filter.setFixedHeight(36)
-        self._time_filter.setFixedWidth(170)  # Wider to fit 'LAST SESSION'
-        self._time_filter.setStyleSheet("""
-            ComboBox {
-                background: #2C2C2E;
-                border: 1px solid #3A3A3C;
-                border-radius: 8px;
-                color: white;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 13px;
-                padding: 0 10px;
-            }
-            ComboBox:focus { border-color: #0A84FF; }
-        """)
+        self._time_filter = FilterChip(tr("logs.filter.all_time", self._language).upper())
+        self._time_filter.setFixedWidth(170)
+        self._time_filter.clicked.connect(self._show_time_menu)
+        self._current_time_idx = 0
         ctrl_row.addWidget(self._time_filter)
         ctrl_row.addStretch()
 
         for label, key, handler, danger in [
-            ("EXPORT",    "logs.button.export", self._export_logs, False),
+            ("Export",    "logs.button.export", self._export_logs, False),
             ("CLEAR ALL", "logs.button.clear",  self._clear,       True),
         ]:
-            btn = PushButton(tr(key, self._language))
+            # Use raw strings instead of tr if tr uppercase is baked in, 
+            # but we can also rely on text-transform: none in CSS (though not standard).
+            # Wait, Qt doesn't support text-transform: none perfectly. We will just pass the translated key.
+            # We'll rely on the translation or just accept the case for now.
+            btn = QPushButton(tr(key, self._language))
+            if label == "Export" and tr(key, self._language) == "EXPORT":
+                btn.setText("Export") # Override hardcoded uppercase
+                
+            btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(36)
             if danger:
                 btn.setStyleSheet(Theme.zugzwang_danger_button())
             else:
+                from qfluentwidgets import IconWidget, FluentIcon
+                # Add an icon for a premium look
+                ico = IconWidget(FluentIcon.SAVE, btn)
+                ico.setFixedSize(14, 14)
+                ico.move(12, 11)
+                
                 btn.setStyleSheet("""
                     QPushButton {
-                        background: #2C2C2E; border: 1px solid #3A3A3C; border-radius: 8px;
-                        color: #D1D1D6;
-                        font-family: 'PT Root UI', sans-serif;
-                        font-weight: 600; font-size: 13px;
-                        letter-spacing: 1.2px; text-transform: uppercase;
-                        padding: 0 16px;
+                        background: rgba(255, 255, 255, 0.1);
+                        border: 1px solid rgba(255, 255, 255, 0.15);
+                        border-radius: 6px;
+                        color: #FFFFFF;
+                        font-family: '-apple-system', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+                        font-size: 13px;
+                        font-weight: 500;
+                        padding: 0 14px 0 32px;
+                        text-transform: none;
+                        letter-spacing: 0px;
                     }
-                    QPushButton:hover { background: #333333; color: white; }
+                    QPushButton:hover { background: rgba(255, 255, 255, 0.15); }
+                    QPushButton:pressed { background: rgba(255, 255, 255, 0.05); }
                 """)
+                # Force Title Case, ignoring translation file caps
+                btn.setText("Export")
             btn.clicked.connect(handler)
             ctrl_row.addWidget(btn)
             if label == "EXPORT":
@@ -210,45 +197,54 @@ class LogViewerPage(QWidget):
         # Tab strip + entry count + live dot
         tab_row = QHBoxLayout(); tab_row.setSpacing(8); tab_row.setContentsMargins(4, 4, 4, 0)
 
-        pill = QLabel(tr("logs.section.live", self._language))
-        pill.setStyleSheet("""
-            color: #1C1C1E;
-            background: white;
-            border-radius: 6px;
-            font-family: 'PT Root UI', sans-serif;
-            font-weight: 600; font-size: 12px;
-            padding: 3px 10px;
+        # 1. LIVE Badge (Status Treatment)
+        self._live_badge = QFrame()
+        self._live_badge.setStyleSheet("""
+            QFrame {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 6px;
+            }
         """)
-        tab_row.addWidget(pill)
+        live_layout = QHBoxLayout(self._live_badge)
+        live_layout.setContentsMargins(8, 4, 10, 4)
+        live_layout.setSpacing(6)
+        
+        self._live_dot = QLabel("●")
+        self._live_dot.setStyleSheet("color: #30D158; font-size: 10px; background: transparent; border: none;")
+        live_layout.addWidget(self._live_dot)
+        
+        live_text = QLabel(tr("logs.badge.live", self._language))
+        live_text.setStyleSheet("""
+            color: #8E8E93;
+            background: transparent;
+            border: none;
+            font-family: 'Menlo', 'SF Mono', 'Cascadia Code', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.6px;
+        """)
+        live_layout.addWidget(live_text)
+        tab_row.addWidget(self._live_badge)
 
+        # 2. ENTRIES Badge (Static count)
         self._entries_label = QLabel(tr("logs.badge.entries", self._language).format(count=0))
         self._entries_label.setMinimumWidth(90)  # Prevent truncation
         self._entries_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self._entries_label.setAlignment(Qt.AlignCenter)
         self._entries_label.setStyleSheet("""
             color: #8E8E93;
             background: #2C2C2E;
             border: 1px solid #3A3A3C;
             border-radius: 6px;
-            font-family: 'SF Mono', 'Cascadia Code', monospace;
+            font-family: 'Menlo', 'SF Mono', 'Cascadia Code', monospace;
             font-size: 11px;
             font-weight: 600;
-            padding: 3px 10px;
+            padding: 4px 10px;
             letter-spacing: 0.6px;
         """)
         tab_row.addWidget(self._entries_label)
         tab_row.addStretch()
-
-        # Pulsing green live dot
-        self._live_dot = QLabel("●")
-        self._live_dot.setStyleSheet("color: #30D158; font-size: 10px; background: transparent;")
-        tab_row.addWidget(self._live_dot)
-
-        live_label = QLabel(tr("logs.status.live", self._language))
-        live_label.setStyleSheet(
-            "color: #30D158; font-size: 10px; font-weight: 600;"
-            "font-family: 'PT Root UI', monospace; background: transparent;"
-        )
-        tab_row.addWidget(live_label)
         panel_vl.addLayout(tab_row)
 
         # Divider
@@ -287,7 +283,7 @@ class LogViewerPage(QWidget):
     def _pulse_dot(self):
         self._pulse_state = not self._pulse_state
         color = "#30D158" if self._pulse_state else "#1D5C33"
-        self._live_dot.setStyleSheet(f"color: {color}; font-size: 10px; background: transparent;")
+        self._live_dot.setStyleSheet(f"color: {color}; font-size: 10px; background: transparent; border: none;")
 
     # ── Log pipeline ──────────────────────────────────────────────────────────
 
@@ -311,7 +307,7 @@ class LogViewerPage(QWidget):
     def _time_cutoff(self):
         """Return cutoff datetime or None for ALL TIME."""
         from datetime import timedelta
-        idx = self._time_filter.currentIndex()
+        idx = getattr(self, '_current_time_idx', 0)
         now = datetime.now()
         if idx == 1: # LAST HOUR
             return now - timedelta(hours=1)
@@ -353,6 +349,56 @@ class LogViewerPage(QWidget):
         except Exception:
             pass
 
+    def _show_level_menu(self):
+        menu = FilterMenu(self)
+        items = [
+            (tr("logs.filter.all_levels", self._language), 0),
+            ("DEBUG", 1), ("INFO", 2), ("WARNING", 3), ("ERROR", 4)
+        ]
+        for label, idx in items:
+            menu.add_item(label, idx, self._current_level_idx == idx)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_level_filter(i, t))
+        self._level_filter.set_open(True)
+        menu.closed.connect(lambda: self._level_filter.set_open(False))
+        
+        pos = self._level_filter.mapToGlobal(QPoint(0, self._level_filter.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _apply_level_filter(self, idx: int, text: str):
+        self._current_level_idx = idx
+        self._level_filter.setText(text.upper())
+        self._level_filter.set_active(idx != 0)
+        self._apply_filter()
+
+    def _show_time_menu(self):
+        menu = FilterMenu(self)
+        items = [
+            (tr("logs.filter.all_time", self._language), 0),
+            (tr("logs.filter.last_hour", self._language), 1),
+            (tr("logs.filter.today", self._language), 2),
+            (tr("logs.filter.last_7_days", self._language), 3),
+            (tr("logs.filter.last_30_days", self._language), 4),
+            (tr("logs.filter.last_session", self._language), 5)
+        ]
+        for label, idx in items:
+            menu.add_item(label, idx, self._current_time_idx == idx)
+        
+        menu.itemSelected.connect(lambda t, i: self._apply_time_filter(i, t))
+        self._time_filter.set_open(True)
+        menu.closed.connect(lambda: self._time_filter.set_open(False))
+        
+        pos = self._time_filter.mapToGlobal(QPoint(0, self._time_filter.height() + 6))
+        menu.move(pos)
+        menu.show()
+
+    def _apply_time_filter(self, idx: int, text: str):
+        self._current_time_idx = idx
+        self._time_filter.setText(text.upper())
+        self._time_filter.set_active(idx != 0)
+        self._apply_filter()
+
     def _apply_filter(self):
         self._log_view.clear()
         search   = self._search_input.text().strip().lower()
@@ -390,9 +436,10 @@ class LogViewerPage(QWidget):
         self._scroll_to_bottom()
 
     def _selected_level(self) -> str:
-        idx = self._level_filter.currentIndex()
+        idx = getattr(self, '_current_level_idx', 0)
         if idx == 0: return ""
-        return self._level_filter.currentText().strip().upper()
+        levels = ["", "DEBUG", "INFO", "WARNING", "ERROR"]
+        return levels[idx]
 
     def _format_entry(self, timestamp: str, level: str, name: str, message: str) -> str:
         cfg = _LEVEL_CFG.get(level.upper(), {"color": "#D1D1D6", "bg": "rgba(255,255,255,0.05)"})

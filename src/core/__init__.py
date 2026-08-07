@@ -3,6 +3,7 @@ from .models import LeadRecord, SearchConfig, ScrapingJob, AppSettings, SourceTy
 from .config import ConfigManager, config_manager, get_app_data_dir, get_data_dir, get_logs_dir, get_screenshots_dir
 from .logger import setup_logging, get_logger, register_ui_log_sink
 from .events import EventBus, event_bus
+from .power import WakeLock
 
 __all__ = [
     "LeadRecord", "SearchConfig", "ScrapingJob", "AppSettings",
@@ -10,5 +11,5 @@ __all__ = [
     "ConfigManager", "config_manager",
     "get_app_data_dir", "get_data_dir", "get_logs_dir", "get_screenshots_dir",
     "setup_logging", "get_logger", "register_ui_log_sink",
-    "EventBus", "event_bus",
+    "EventBus", "event_bus", "WakeLock",
 ]

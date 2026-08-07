@@ -288,7 +288,7 @@ class LeadRowWidget(QFrame):
         self.setCursor(Qt.PointingHandCursor)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 6, 12, 6)
+        root.setContentsMargins(8, 4, 4, 4)
         root.setSpacing(2)
 
         top = QHBoxLayout()
@@ -318,7 +318,7 @@ class LeadRowWidget(QFrame):
                 background: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 4px;
-                font-family: 'SF Mono', monospace;
+                font-family: 'Menlo', monospace;
                 font-size: 9px;
                 font-weight: 600;
                 padding: 2px 6px;
@@ -354,10 +354,10 @@ class LeadRowWidget(QFrame):
         if self.property("selected"):
             self.setStyleSheet("""
                 QFrame#leadRow {
-                    background: rgba(10, 132, 255, 0.10);
+                    background: rgba(10, 132, 255, 0.15);
                     border: none;
-                    border-left: 2px solid #0A84FF;
-                    border-radius: 0px;
+                    border-radius: 6px;
+                    margin: 2px 0px;
                 }
             """)
         else:
@@ -365,11 +365,8 @@ class LeadRowWidget(QFrame):
                 QFrame#leadRow {
                     background: transparent;
                     border: none;
-                    border-left: 2px solid transparent;
-                    border-radius: 0px;
-                }
-                QFrame#leadRow:hover {
-                    background: #2C2C2E;
+                    border-radius: 6px;
+                    margin: 2px 0px;
                 }
             """)
 
@@ -817,13 +814,6 @@ class EditPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── page header / top bar ─────────────────────────────────────────────
-    def _build_ui(self):
-        self.setStyleSheet("QWidget#editPage { background: transparent; }")
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
         # Child 1: TopBar
         top_bar = QWidget()
         top_bar.setFixedHeight(64)
@@ -900,8 +890,9 @@ class EditPage(QWidget):
 
         # B. Search Bar
         search_w = QWidget()
-        search_lyt = QVBoxLayout(search_w)
+        search_lyt = QHBoxLayout(search_w)
         search_lyt.setContentsMargins(10, 10, 10, 6)
+        search_lyt.setSpacing(6)
         
         search_container = QWidget()
         search_container.setFixedHeight(32)
@@ -934,7 +925,30 @@ class EditPage(QWidget):
         
         sc_layout.addWidget(s_icon, 0, Qt.AlignVCenter)
         sc_layout.addWidget(self._search, 1, Qt.AlignVCenter)
-        search_lyt.addWidget(search_container)
+        search_lyt.addWidget(search_container, 1)
+
+        btn_import = QPushButton()
+        btn_import.setFixedSize(32, 32)
+        btn_import.setIcon(FluentIcon.ADD.icon(color="#0A84FF"))
+        btn_import.setIconSize(QSize(16, 16))
+        btn_import.setToolTip("Import leads from Excel (.xlsx) or CSV spreadsheet")
+        btn_import.setCursor(Qt.PointingHandCursor)
+        btn_import.setStyleSheet("""
+            QPushButton {
+                background: rgba(10, 132, 255, 0.15);
+                border: 1px solid rgba(10, 132, 255, 0.4);
+                border-radius: 7px;
+            }
+            QPushButton:hover {
+                background: rgba(10, 132, 255, 0.25);
+                border: 1px solid #0A84FF;
+            }
+            QPushButton:pressed {
+                background: rgba(10, 132, 255, 0.35);
+            }
+        """)
+        btn_import.clicked.connect(self._on_import_spreadsheet)
+        search_lyt.addWidget(btn_import, 0)
         layout.addWidget(search_w)
 
         # C. Segmented Control
@@ -970,8 +984,8 @@ class EditPage(QWidget):
         self._lead_list.setFrameShape(QFrame.NoFrame)
         self._lead_list.setStyleSheet("""
             QListWidget { background: transparent; outline: none; border: none; }
-            QListWidget::item { background: transparent; border: none; outline: none; }
-            QListWidget::item:selected { background: transparent; border: none; outline: none; }
+            QListWidget::item { background: transparent; border: none; outline: none; border-bottom: 1px solid #2C2C2E; padding: 0px 8px; }
+            QListWidget::item:selected { background: transparent; border: none; border-bottom: 1px solid #2C2C2E; outline: none; color: inherit; }
             QScrollBar:vertical { background: transparent; width: 3px; }
             QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
@@ -1614,6 +1628,104 @@ class EditPage(QWidget):
         except Exception as e:
             self._show_error("Delete Failed", str(e))
 
+    def _on_import_spreadsheet(self):
+        from PySide6.QtWidgets import QFileDialog
+        from src.services.export_service import ExportService
+        from src.core.config import get_memory_db_path
+        from pathlib import Path
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Leads from Excel or CSV",
+            "",
+            "Spreadsheets (*.xlsx *.xls *.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            service = ExportService()
+            new_records = service.import_spreadsheet(path)
+            if not new_records:
+                from qfluentwidgets import InfoBar, InfoBarPosition
+                InfoBar.warning(
+                    title="No Leads Found",
+                    content="Could not extract any leads from the selected file.",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=4000,
+                    parent=self.window()
+                )
+                return
+            db_path = str(get_memory_db_path())
+            service.save_records_to_db(new_records, db_path)
+
+            existing_emails = {r.email.lower(): r for r in self._records if r.email}
+            all_imported_ids = []
+            for r in new_records:
+                ek = (r.email or "").lower()
+                if ek and ek in existing_emails:
+                    old_r = existing_emails[ek]
+                    if r.company_name:
+                        old_r.company_name = r.company_name
+                    if r.contact_person:
+                        old_r.contact_person = r.contact_person
+                    if old_r.id in self._states:
+                        self._states[old_r.id].is_discarded = 0
+                    else:
+                        self._states[old_r.id] = LetterState(is_discarded=0)
+                    all_imported_ids.append(old_r.id)
+                else:
+                    self._states[r.id] = LetterState(is_discarded=0)
+                    self._records.append(r)
+                    if ek:
+                        existing_emails[ek] = r
+                    all_imported_ids.append(r.id)
+
+            import sqlite3
+            conn = sqlite3.connect(db_path, timeout=10.0)
+            try:
+                for lid in set(all_imported_ids):
+                    conn.execute(
+                        "INSERT INTO letter_state (lead_id, is_discarded) VALUES (?, 0) "
+                        "ON CONFLICT(lead_id) DO UPDATE SET is_discarded = 0",
+                        (lid,)
+                    )
+                conn.commit()
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+            self._active_filter = "all"
+            if hasattr(self, "_update_segment_styles"):
+                self._update_segment_styles("all")
+            self._populate_leads()
+            if self._pending_lead_records:
+                first_rec = self._pending_lead_records[0]
+                self._render_record(first_rec)
+
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            InfoBar.success(
+                title="Spreadsheet Imported",
+                content=f"Successfully imported and saved {len(new_records)} lead(s) from {Path(path).name}.",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=5000,
+                parent=self.window()
+            )
+        except Exception as e:
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            InfoBar.error(
+                title="Import Error",
+                content=str(e),
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=6000,
+                parent=self.window()
+            )
+
     def refresh(self):
         self._status.setText("Loading leads…")
         run_in_thread(
@@ -1801,6 +1913,7 @@ class EditPage(QWidget):
             needle = self._search.text().strip().lower() if hasattr(self, "_search") else ""
 
         counts = {"all": 0, "pending": 0, "sent": 0}
+        email_counts = {"all": 0, "pending": 0, "sent": 0}
         for record in self._records:
             state = self._states.get(record.id)
             if state and state.is_discarded:
@@ -1819,10 +1932,18 @@ class EditPage(QWidget):
             is_sent = bool(state and state.sent_at)
             counts["all"] += 1
             counts["sent" if is_sent else "pending"] += 1
+            if record.email and record.email.strip():
+                email_counts["all"] += 1
+                email_counts["sent" if is_sent else "pending"] += 1
 
         for key, btn in self._filter_btns.items():
             base_label = {"all": "ALL", "pending": "PENDING", "sent": "SENT"}[key]
-            btn.setText(f"{base_label} {counts[key]}")
+            c = counts[key]
+            ec = email_counts[key]
+            if c > 0 and ec != c:
+                btn.setText(f"{base_label} {c} ({ec} emails)")
+            else:
+                btn.setText(f"{base_label} {c}")
 
     def _append_lead_batch(self, token: int):
         if token != self._lead_population_token:
@@ -2594,6 +2715,10 @@ class EditPage(QWidget):
         action_jobsuche.triggered.connect(lambda: self._do_import("jobsuche"))
         menu.addAction(action_jobsuche)
         
+        action_dasoertliche = Action(FluentIcon.SEARCH, "From Das Oertliche", self)
+        action_dasoertliche.triggered.connect(lambda: self._do_import("dasoertliche"))
+        menu.addAction(action_dasoertliche)
+        
         action_maps = Action(FluentIcon.PIN, "From Google Maps", self)
         action_maps.triggered.connect(lambda: self._do_import("maps"))
         menu.addAction(action_maps)
@@ -2628,6 +2753,8 @@ class EditPage(QWidget):
             filtered = [r for r in all_records if r.source_type and "maps" in str(r.source_type).lower()]
         elif filter_type == "jobsuche":
             filtered = [r for r in all_records if r.source_type and "jobsuche" in str(r.source_type).lower()]
+        elif filter_type == "dasoertliche":
+            filtered = [r for r in all_records if r.source_type and "dasoertliche" in str(r.source_type).lower()]
         elif filter_type == "ausbildung":
             filtered = [r for r in all_records if r.source_type and "ausbildung" in str(r.source_type).lower()]
         elif filter_type == "aubi":
@@ -2797,8 +2924,8 @@ class EditPage(QWidget):
                 state.letter_text = text
                 state.edited_at   = ""
                 conn.execute(
-                    "INSERT INTO letter_state (lead_id, letter_text, edited_at) VALUES (?, ?, '') "
-                    "ON CONFLICT(lead_id) DO UPDATE SET letter_text=excluded.letter_text, edited_at=''",
+                    "INSERT INTO letter_state (lead_id, letter_text, edited_at, is_discarded) VALUES (?, ?, '', 0) "
+                    "ON CONFLICT(lead_id) DO UPDATE SET letter_text=excluded.letter_text, edited_at='', is_discarded=0",
                     (record.id, text)
                 )
             conn.commit()
@@ -3898,6 +4025,14 @@ class EditPage(QWidget):
         return output_path
 
     def _export_bewerbungsmappe_batch(self, out_dir: Path | None = None, records: list = None) -> None:
+        from ..core.power import WakeLock
+        WakeLock.acquire("Batch PDF Export")
+        try:
+            self._do_export_bewerbungsmappe_batch(out_dir, records)
+        finally:
+            WakeLock.release("Batch PDF Export")
+
+    def _do_export_bewerbungsmappe_batch(self, out_dir: Path | None = None, records: list = None) -> None:
         import pypdf
         import io
 

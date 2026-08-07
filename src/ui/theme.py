@@ -160,6 +160,31 @@ class Theme:
         return Theme.zugzwang_danger_button()
 
     @staticmethod
+    def zugzwang_destructive_button() -> str:
+        """Destructive button — solid vivid red bg, white text, no border (PURGE SENT style)."""
+        return f"""
+            QPushButton {{
+                background-color: #FF3B30;
+                border: none;
+                border-radius: 10px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI';
+                font-weight: 700;
+                font-size: 12px;
+                letter-spacing: 1.8px;
+                text-transform: uppercase;
+                padding: 0 18px;
+            }}
+            QPushButton:hover {{ background-color: #FF6961; }}
+            QPushButton:pressed {{ background-color: #D70015; }}
+            QPushButton:disabled {{ background-color: #3A1515; color: #5A3030; }}
+        """
+
+    @staticmethod
+    def destructive_button() -> str:
+        return Theme.zugzwang_destructive_button()
+
+    @staticmethod
     def zugzwang_warning_button() -> str:
         """Warning button — dark orange-tinted bg, vivid orange text, no border (PAUSE style)."""
         return f"""

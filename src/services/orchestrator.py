@@ -21,6 +21,7 @@ from .jobsuche_scraper import JobsucheScraper
 from .ausbildung_scraper import AusbildungScraper
 from .aubiplus_scraper import AubiPlusScraper
 from .azubiyo_scraper import AzubiyoScraper
+from .dasoertliche_scraper import DasOertlicheScraper
 from .export_service import ExportService
 from .import_service import ImportService
 from ..core.config import config_manager, get_data_dir, get_memory_db_path
@@ -59,6 +60,8 @@ class ScrapingWorker(QObject):
             except Exception as e:
                 logger.warning(f"Background app memory load failed: {e}")
 
+        from ..core.power import WakeLock
+        WakeLock.acquire(f"Scraping Job {self.job.id}")
         try:
             self.orchestrator._loop.run_until_complete(self.orchestrator._run_job_async(self.job))
         except Exception as e:
@@ -66,6 +69,7 @@ class ScrapingWorker(QObject):
             self.job.fail(str(e))
             event_bus.emit(event_bus.JOB_FAILED, job_id=self.job.id, error=str(e))
         finally:
+            WakeLock.release(f"Scraping Job {self.job.id}")
             self._drain_asyncio_loop()
             try:
                 self.orchestrator._loop.close()
@@ -437,6 +441,8 @@ class ScrapingOrchestrator:
                 self._scraper = AubiPlusScraper(self._session, job.config, job.id)
             elif job.config.source_type == SourceType.AZUBIYO:
                 self._scraper = AzubiyoScraper(self._session, job.config, job.id)
+            elif job.config.source_type == SourceType.DAS_OERTLICHE:
+                self._scraper = DasOertlicheScraper(self._session, job.config, job.id)
             else:
                 raise ValueError(f"Unsupported source type: {job.config.source_type}")
 
@@ -543,6 +549,22 @@ class ScrapingOrchestrator:
                     last_batch_emit = now
 
             # All results and progress emitted via batch logic above.
+            # Flush any remaining results in the batch
+            if result_batch:
+                for r in result_batch:
+                    event_bus.emit(event_bus.JOB_RESULT, job_id=job.id, record=r)
+                result_batch.clear()
+                
+                event_bus.emit(
+                    event_bus.JOB_PROGRESS,
+                    job_id=job.id,
+                    total_found=job.total_found,
+                    total_emails=job.total_emails,
+                    total_websites=job.total_websites,
+                    total_errors=job.total_errors,
+                    completion=job.completion_rate,
+                )
+
             job.total_errors = getattr(self._scraper, "_total_errors", job.total_errors)
 
             if job.status != ScrapingStatus.CANCELLED:

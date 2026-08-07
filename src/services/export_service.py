@@ -16,7 +16,7 @@ from typing import Optional
 
 from ..core.events import event_bus
 from ..core.logger import get_logger
-from ..core.models import LeadRecord, ScrapingJob
+from ..core.models import LeadRecord, ScrapingJob, SourceType
 
 logger = get_logger(__name__)
 
@@ -337,3 +337,143 @@ class ExportService:
         if source_type is not None and hasattr(source_type, "value"):
             data["source_type"] = source_type.value
         return data
+
+    def save_records_to_db(self, records: list[LeadRecord], db_path: str) -> int:
+        """Persist imported or scraped records into SQLite leads table."""
+        if not records:
+            return 0
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            self._init_db(conn)
+            count = 0
+            for record in records:
+                prepared = self._prepare_record(record)
+                row = prepared.to_dict()
+                conn.execute(
+                    f"INSERT OR REPLACE INTO leads ({','.join(EXPORT_COLUMNS)}) VALUES ({','.join(['?']*len(EXPORT_COLUMNS))})",
+                    [row.get(c, "") for c in EXPORT_COLUMNS],
+                )
+                count += 1
+            conn.commit()
+            return count
+        finally:
+            conn.close()
+
+    def import_spreadsheet(self, path: str) -> list[LeadRecord]:
+        """
+        Parse an Excel (.xlsx, .xls) or CSV spreadsheet into LeadRecord instances,
+        auto-mapping standard German/English headers (GmBh, ansprechner, email, etc.).
+        """
+        import uuid
+        import re
+        from datetime import datetime, timezone
+        p = Path(path)
+        if not p.exists():
+            return []
+        suffix = p.suffix.lower()
+        rows: list[list[str]] = []
+
+        if suffix == ".csv":
+            with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+                reader = csv.reader(f)
+                rows = [list(map(str, row)) for row in reader]
+        else:
+            import importlib.util
+            if importlib.util.find_spec("openpyxl") is not None and suffix == ".xlsx":
+                import openpyxl
+                wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                ws = wb.active
+                for row in ws.iter_rows(values_only=True):
+                    rows.append([str(c) if c is not None else "" for c in row])
+            elif importlib.util.find_spec("xlrd") is not None:
+                import xlrd
+                wb = xlrd.open_workbook(path)
+                ws = wb.sheet_by_index(0)
+                for rx in range(ws.nrows):
+                    rows.append([str(ws.cell(rx, cx).value) for cx in range(ws.ncols)])
+            else:
+                raise RuntimeError("Excel import requires openpyxl or xlrd.")
+
+        if not rows:
+            return []
+
+        raw_headers = [str(col or "").strip() for col in rows[0]]
+        norm_headers = [re.sub(r"[^a-z0-9]", "", h.lower()) for h in raw_headers]
+
+        col_map: dict[str, int] = {}
+        def match_col(field_name: str, keywords: list[str]):
+            for idx, nh in enumerate(norm_headers):
+                if idx in col_map.values():
+                    continue
+                if any(kw in nh for kw in keywords):
+                    col_map[field_name] = idx
+                    return
+
+        match_col("company_name", ["company", "firma", "gmbh", "name", "unternehmen", "einrichtung", "klinik", "heim", "betreiber", "organisation", "employer", "arbeitgeber"])
+        match_col("email", ["email", "e-mail", "mail", "e_mail", "kontakt_email", "emailadresse"])
+        match_col("contact_person", ["ansprech", "contact", "person", "hr", "leiter", "recipient", "empfnger", "empfaenger", "anrede"])
+        match_col("phone", ["phone", "telefon", "tel", "mobil", "rufnummer"])
+        match_col("website", ["website", "url", "web", "homepage", "site"])
+        match_col("city", ["city", "stadt", "ort", "location"])
+        match_col("postal_code", ["plz", "postal", "zip"])
+        match_col("address", ["address", "adresse", "str", "strasse", "strae"])
+        match_col("job_title", ["job", "stelle", "titel", "title", "position", "beruf", "ausschreibung"])
+
+        records: list[LeadRecord] = []
+        now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        for idx in range(1, len(rows)):
+            row = rows[idx]
+            if not any(str(c).strip() for c in row):
+                continue
+            def get_val(key: str) -> str:
+                cidx = col_map.get(key)
+                if cidx is not None and cidx < len(row):
+                    val = str(row[cidx]).strip()
+                    return val if val != "None" else ""
+                return ""
+
+            email = get_val("email").lower()
+            company_name = get_val("company_name")
+            contact_person = get_val("contact_person")
+            phone = get_val("phone")
+            website = get_val("website")
+            city = get_val("city")
+            postal_code = get_val("postal_code")
+            address = get_val("address")
+            job_title = get_val("job_title")
+
+            if not email:
+                for c in row:
+                    s = str(c).strip()
+                    if "@" in s and "." in s and len(s) < 100 and " " not in s:
+                        email = s.lower()
+                        break
+
+            if not email and not company_name:
+                continue
+
+            if not company_name and email:
+                dom = email.split("@")[-1].split(".")[0].capitalize()
+                company_name = dom
+
+            rec = LeadRecord(
+                id="",
+                source_type=SourceType.FILE,
+                company_name=company_name,
+                email=email,
+                contact_person=contact_person,
+                phone=phone,
+                website=website,
+                city=city,
+                postal_code=postal_code,
+                address=address,
+                job_title=job_title or "Initiativbewerbung",
+                scraped_at=now_ts,
+            )
+            rec.id = rec.stable_id()
+            records.append(rec)
+
+        return records

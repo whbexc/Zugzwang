@@ -117,6 +117,7 @@ class SearchSourceCard(QFrame):
             "jobsuche": "Search official German Federal Employment Agency listings",
             "ausbildung": "Find apprenticeship positions across Germany",
             "aubiplus": "High-quality vocational training and study positions",
+            "dasoertliche": "Search German business directory Das Örtliche",
             "azubiyo": "Sophisticated matching for apprenticeships (Coming Soon)"
         }
         self.setToolTip(tooltips.get(self._key, ""))
@@ -175,7 +176,7 @@ class SearchHistoryDropdown(QFrame):
     closed = Signal()
 
     # Internal key strings for source cards
-    _SOURCE_KEYS = ("maps", "jobsuche", "ausbildung", "aubiplus") #, "azubiyo" - Staged for v1.1.0
+    _SOURCE_KEYS = ("maps", "jobsuche", "ausbildung", "aubiplus", "dasoertliche") #, "azubiyo" - Staged for v1.1.0
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
@@ -569,6 +570,13 @@ class SearchPage(QWidget):
             tr("search.source.aubiplus.body", self._language),
             tr("search.selected", self._language),
         )
+        self._card_dasoertliche = SearchSourceCard(
+            "dasoertliche",
+            FluentIcon.DICTIONARY,
+            "Das Örtliche",
+            "Scrape German business directory",
+            tr("search.selected", self._language),
+        )
         # Azubiyo visible as disabled sneak-peek
         self._card_azubiyo = SearchSourceCard(
             "azubiyo",
@@ -587,13 +595,15 @@ class SearchPage(QWidget):
         self._card_jobsuche.activated.connect(self._select_source)
         self._card_ausbildung.activated.connect(self._select_source)
         self._card_aubiplus.activated.connect(self._select_source)
+        self._card_dasoertliche.activated.connect(self._select_source)
         
-        self._interactive_widgets.extend([self._card_maps, self._card_jobsuche, self._card_ausbildung, self._card_aubiplus])
+        self._interactive_widgets.extend([self._card_maps, self._card_jobsuche, self._card_ausbildung, self._card_aubiplus, self._card_dasoertliche])
 
         layout.addWidget(self._card_maps)
         layout.addWidget(self._card_jobsuche)
         layout.addWidget(self._card_ausbildung)
         layout.addWidget(self._card_aubiplus)
+        layout.addWidget(self._card_dasoertliche)
         layout.addWidget(self._card_azubiyo)
         layout.addStretch(1)
         return container
@@ -812,6 +822,7 @@ class SearchPage(QWidget):
         self._card_jobsuche.set_active(source == "jobsuche")
         self._card_ausbildung.set_active(source == "ausbildung")
         self._card_aubiplus.set_active(source == "aubiplus")
+        self._card_dasoertliche.set_active(source == "dasoertliche")
 
         settings = config_manager.settings
         self._offer_type_container.setEnabled(not is_maps)

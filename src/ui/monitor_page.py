@@ -576,7 +576,7 @@ class MonitorPage(QWidget):
             elif event_type == "trial_limit":
                 self._ui_trial_limit()
 
-        if latest_progress and not job_ended_in_batch:
+        if latest_progress:
             self._ui_progress(latest_progress)
 
         if self._dropped_log_count:
