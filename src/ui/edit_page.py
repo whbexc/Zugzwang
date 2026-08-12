@@ -2544,30 +2544,7 @@ class EditPage(QWidget):
         salutation = replacements.get("ANREDE")   or "Sehr geehrte Damen und Herren,"
         date_line  = replacements.get("DATUM")    or self._german_date()
 
-        if "{{" in cleaned or not self._looks_like_letter(cleaned):
-            city_phrase = f" in {city}" if city else ""
-            return "\n\n".join([
-                f"{company}{city_phrase}",
-                date_line,
-                f"Bewerbung um einen Ausbildungsplatz als {job}",
-                salutation,
-                (
-                    f"mit großem Interesse bewerbe ich mich bei {company} um einen "
-                    f"Ausbildungsplatz als {job}. Die Möglichkeit, in einem professionellen "
-                    "Umfeld praktische Erfahrung zu sammeln und mich fachlich "
-                    "weiterzuentwickeln, spricht mich besonders an."
-                ),
-                (
-                    "Ich arbeite zuverlässig, lerne schnell und gehe neue Aufgaben "
-                    "sorgfältig und motiviert an. Teamfähigkeit, Verantwortungsbewusstsein "
-                    "und eine klare Kommunikation sind für mich selbstverständlich."
-                ),
-                (
-                    "Gerne überzeuge ich Sie in einem persönlichen Gespräch von meiner "
-                    "Motivation. Über eine Einladung freue ich mich sehr."
-                ),
-                "Mit freundlichen Grüßen",
-            ])
+        # (Removed aggressive fallback that threw away user templates)
 
         # light lexical corrections
         corrections = {
@@ -2913,6 +2890,10 @@ class EditPage(QWidget):
         if w.exec() != QDialog.Accepted:
             return
             
+        # Force reload template in case the user edited the file manually
+        self._template_text = self._load_template()
+        self._template_status.setText(self._template_status_text())
+            
         total = len(self._pending_lead_records)
         import sqlite3
         from ..core.config import get_memory_db_path
@@ -2944,6 +2925,11 @@ class EditPage(QWidget):
     def _regenerate_current_letter(self):
         if not self._selected_record:
             return
+        
+        # Force reload template in case the user edited the file manually
+        self._template_text = self._load_template()
+        self._template_status.setText(self._template_status_text())
+
         text = self._assemble_letter(self._selected_record)
         self._rendered_text = text
         self._set_editor_text(text)
@@ -3983,11 +3969,16 @@ class EditPage(QWidget):
                 for page in reader.pages:
                     writer.add_page(page)
                 for new_page in letter_reader.pages:
+                    if num_pages > 0:
+                        orig_page = reader.pages[0]
+                        new_page.scale_to(float(orig_page.mediabox.width), float(orig_page.mediabox.height))
                     writer.add_page(new_page)
             else:
                 for i in range(num_pages):
                     if i == target_idx:
+                        orig_page = reader.pages[i]
                         for new_page in letter_reader.pages:
+                            new_page.scale_to(float(orig_page.mediabox.width), float(orig_page.mediabox.height))
                             writer.add_page(new_page)
                     else:
                         writer.add_page(reader.pages[i])
@@ -4092,10 +4083,15 @@ class EditPage(QWidget):
                     appended_at_end = True
                     for page in reader.pages:
                         writer.add_page(page)
+                    if num_pages > 0:
+                        orig_page = reader.pages[0]
+                        new_page.scale_to(float(orig_page.mediabox.width), float(orig_page.mediabox.height))
                     writer.add_page(new_page)
                 else:
                     for i in range(num_pages):
                         if i == target_idx:
+                            orig_page = reader.pages[i]
+                            new_page.scale_to(float(orig_page.mediabox.width), float(orig_page.mediabox.height))
                             writer.add_page(new_page)
                         else:
                             writer.add_page(reader.pages[i])

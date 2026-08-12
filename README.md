@@ -85,14 +85,30 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
 
 ## Core Screens
 
-| Screen | Purpose |
-|---|---|
-| Dashboard | Recent jobs, activity, startup diagnostics, top-level stats |
-| Search | Query builder, source selection, radius/city filters, history reuse |
-| Monitor | Live progress, runtime metrics, activity stream, pause/resume/stop |
-| Results | Persistent lead library, dedupe-aware review, export-ready records |
-| Send | SMTP broadcast workflow, queue control, inline email editing, sender profiles, attachments, HTML preview |
-| Settings / Logs | Runtime config, cache cleanup, diagnostics, activation, product state |
+### Dashboard
+<p align="center">
+  <img src="screenshot_dashboard_clean.png" alt="Dashboard" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### Search & Extract
+<p align="center">
+  <img src="screenshot_search_clean.png" alt="Search Interface" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### Persistent Lead Library
+<p align="center">
+  <img src="screenshot_results_clean.png" alt="Results Interface" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### Anschreiben Personalization
+<p align="center">
+  <img src="screenshot_edit_clean.png" alt="Cover Letter Editor" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### SMTP Outreach Workflow
+<p align="center">
+  <img src="screenshot_send_clean.png" alt="Email Sender" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
 
 ## Feature Snapshot
 
