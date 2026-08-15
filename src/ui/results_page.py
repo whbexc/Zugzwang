@@ -23,7 +23,7 @@ from qfluentwidgets import (
     TableWidget, PushButton, PrimaryPushButton, TransparentPushButton,
     SearchLineEdit, ComboBox, ProgressBar, TitleLabel, SubtitleLabel, setThemeColor,
     BodyLabel, CaptionLabel, StrongBodyLabel, IconWidget, FluentIcon, SimpleCardWidget,
-    ElevatedCardWidget, InfoBadge, RoundMenu, Action, MenuAnimationType, ScrollArea
+    ElevatedCardWidget, InfoBadge, Action, MenuAnimationType, ScrollArea
 )
 
 from .icons import load_icon
@@ -274,10 +274,9 @@ class FilterMenuItem(QWidget):
         self._update_style(False)
 
     def _update_style(self, hovering: bool):
-        bg = "#3A3A3C" if hovering else "transparent"
         text_color = "white" if hovering else ("#0A84FF" if self.is_selected else "#AEAEB2")
         self.label.setStyleSheet(self.label.styleSheet().replace("#AEAEB2", text_color).replace("#0A84FF", text_color).replace("white", text_color))
-        self.setStyleSheet(f"background: {bg}; border: none;")
+        self.setStyleSheet(f"background: transparent; border: none; margin: 2px 4px;")
 
     def enterEvent(self, event):
         self._update_style(True)
@@ -1526,7 +1525,8 @@ class ResultsPage(QWidget):
         shortcut_export.activated.connect(self._show_export_menu)
 
     def _show_export_menu(self):
-        menu = RoundMenu(parent=self._btn_export)
+        from src.ui.components import GlassMenu
+        menu = GlassMenu(parent=self._btn_export)
         menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.excel", self._language), triggered=lambda: self._export_results("xlsx")))
         menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.word", self._language), triggered=lambda: self._export_results("docx")))
         menu.addAction(Action(FluentIcon.DOCUMENT, tr("results.export.txt", self._language), triggered=lambda: self._export_results("txt")))
@@ -1538,14 +1538,15 @@ class ResultsPage(QWidget):
         
         # Calculate position
         pos = self._btn_export.mapToGlobal(self._btn_export.rect().bottomLeft())
-        menu.exec(pos, aniType=MenuAnimationType.PULL_UP)
+        menu.exec(pos)
 
     def _handle_import(self):
-        menu = RoundMenu(parent=self._btn_import)
+        from src.ui.components import GlassMenu
+        menu = GlassMenu(parent=self._btn_import)
         menu.addAction(Action(FluentIcon.COPY, "From Clipboard", triggered=self._import_from_clipboard))
         menu.addAction(Action(FluentIcon.DOCUMENT, "From File...", triggered=self._import_from_file))
         pos = self._btn_import.mapToGlobal(self._btn_import.rect().bottomLeft())
-        menu.exec(pos, aniType=MenuAnimationType.PULL_UP)
+        menu.exec(pos)
 
     def _import_from_clipboard(self):
         text = QGuiApplication.clipboard().text()
@@ -1855,7 +1856,8 @@ class ResultsPage(QWidget):
         if not record:
             return
 
-        menu = RoundMenu(parent=self)
+        from src.ui.components import GlassMenu
+        menu = GlassMenu(parent=self)
         
         selected_indexes = self._table.selectionModel().selectedRows()
         
@@ -1893,7 +1895,7 @@ class ResultsPage(QWidget):
         copy_all_action.triggered.connect(self._copy_all_emails_in_view)
         menu.addAction(copy_all_action)
         
-        menu.exec(QCursor.pos(), aniType=MenuAnimationType.DROP_DOWN)
+        menu.exec(QCursor.pos())
 
     def _copy_selected_records(self):
         selected = self._table.selectionModel().selectedRows()

@@ -19,10 +19,10 @@ from PySide6.QtGui import QColor
 from .results_page import FilterChip, FilterMenu
 from PySide6.QtCore import QPoint
 from qfluentwidgets import (
-    SearchLineEdit, ComboBox, PushButton,
-    LineEdit, InfoBar
+    SearchLineEdit, PushButton,
+    TitleLabel
 )
-
+from .components import StatCard
 from ..core.logger import register_ui_log_sink
 from ..core.i18n import get_language, tr
 from ..core.config import config_manager
@@ -83,17 +83,7 @@ class LogViewerPage(QWidget):
         root.setContentsMargins(28, 20, 28, 20)
         root.setSpacing(0)
 
-        # ── 1. Page title ────────────────────────────────────────────────────
-        title_box = QWidget()
-        tl = QVBoxLayout(title_box); tl.setContentsMargins(0, 0, 0, 14)
-        title = QLabel(tr("logs.title", self._language))
-        title.setStyleSheet(
-            "color: white;"
-            "font-family: 'PT Root UI', sans-serif;"
-            "font-size: 28px; font-weight: 600; background: transparent;"
-        )
-        tl.addWidget(title)
-        root.addWidget(title_box, 0)
+
 
         # ── 2. Controls Row ──────────────────────────────────────────────────
         ctrl_row = QHBoxLayout(); ctrl_row.setSpacing(8); ctrl_row.setContentsMargins(0, 0, 0, 12)
@@ -219,7 +209,7 @@ class LogViewerPage(QWidget):
             color: #8E8E93;
             background: transparent;
             border: none;
-            font-family: 'Menlo', 'SF Mono', 'Cascadia Code', monospace;
+            font-family: 'Menlo', 'Menlo', 'Cascadia Code', monospace;
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.6px;
@@ -237,7 +227,7 @@ class LogViewerPage(QWidget):
             background: #2C2C2E;
             border: 1px solid #3A3A3C;
             border-radius: 6px;
-            font-family: 'Menlo', 'SF Mono', 'Cascadia Code', monospace;
+            font-family: 'Menlo', 'Menlo', 'Cascadia Code', monospace;
             font-size: 11px;
             font-weight: 600;
             padding: 4px 10px;
@@ -260,7 +250,7 @@ class LogViewerPage(QWidget):
             QTextBrowser {
                 background: transparent;
                 border: none;
-                font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+                font-family: 'Menlo', 'Cascadia Code', 'Consolas', monospace;
                 font-size: 12px;
                 line-height: 1.7;
                 color: #D1D1D6;
@@ -428,7 +418,7 @@ class LogViewerPage(QWidget):
             self._log_view.setHtml(self._empty_state_html())
         else:
             self._log_view.setHtml(
-                '<div style="font-family: SF Mono, Cascadia Code, Consolas, monospace; '
+                '<div style="font-family: Menlo, Cascadia Code, Consolas, monospace; '
                 'font-size: 12px; line-height: 1.7;">'
                 + "".join(html_blocks) + "</div>"
             )

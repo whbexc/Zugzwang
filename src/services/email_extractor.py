@@ -62,7 +62,8 @@ EXCLUDED_EMAIL_DOMAINS = {
     "shopify.com", "webflow.io", "jimdo.com",
     # Social / big tech (never real contact emails)
     "google.com", "facebook.com", "twitter.com", "instagram.com",
-    "linkedin.com", "youtube.com", "github.com", "apple.com",
+    "linkedin.com", "youtube.com", "github.com", "apple.com", "stock.adobe.com",
+    "adobe.com", "microsoft.com", "amazon.com", "sentry.io",
     # Standards / spec bodies
     "w3.org", "schema.org", "iana.org",
     # Common German false-positives from CMS footers
@@ -487,7 +488,13 @@ def _is_valid_email(email: str) -> bool:
     # Domain validation
     if domain.lower() in EXCLUDED_EMAIL_DOMAINS:
         return False
-    if not re.match(r"^[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$", domain):
+        
+    try:
+        idn_domain = domain.encode("idna").decode("ascii")
+    except Exception:
+        return False
+        
+    if not re.match(r"^[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$", idn_domain):
         return False
 
     # Reject file extensions masquerading as TLDs

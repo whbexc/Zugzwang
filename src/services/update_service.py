@@ -195,6 +195,7 @@ class UpdateWorker(QThread):
 class UpdateService(QObject):
     """Facade for update operations."""
     update_available = Signal(str, str) # version, url
+    no_update_available = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -210,6 +211,8 @@ class UpdateService(QObject):
     def _on_check_finished(self, available, ver, url):
         if available:
             self.update_available.emit(ver, url)
+        else:
+            self.no_update_available.emit()
 
     def start_download(self, url, progress_callback, finished_callback, error_callback):
         self.worker = UpdateWorker(mode="download", url=url)

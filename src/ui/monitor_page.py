@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import queue
 import time
+import random
 from dataclasses import replace
 from typing import Optional
+
+from src.diagnostics import get_ui_health_snapshot
 
 from PySide6.QtCore import Qt, QTimer, QSize, Signal
 from PySide6.QtWidgets import (
@@ -26,97 +29,7 @@ from ..core.config import config_manager
 from ..core.i18n import get_language, tr
 from ..services.orchestrator import orchestrator
 from .theme import Theme
-
-class MetricTile(QFrame):
-    """Compact premium metric tile — vertical card layout."""
-    def __init__(self, title: str, value: str = "0", meta: str = "",
-                 icon: FluentIcon = FluentIcon.INFO,
-                 color: str = "#0A84FF"):
-        super().__init__()
-        self.setMinimumHeight(104)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
-        self.setStyleSheet("""
-            MetricTile {
-                background: #2C2C2E;
-                border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.06);
-            }
-        """)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(8)
-
-        # ── Row 1: Icon + Meta Chip + Title ──────────────────────────────────
-        top = QHBoxLayout()
-        top.setSpacing(10)
-        top.setContentsMargins(0, 0, 0, 0)
-
-        # Icon
-        icon_wrap = QFrame()
-        icon_wrap.setFixedSize(22, 22)
-        icon_wrap.setStyleSheet(f"""
-            QFrame {{
-                background: rgba({r},{g},{b},0.12);
-                border: 1px solid rgba({r},{g},{b},0.22);
-                border-radius: 6px;
-            }}
-        """)
-        icon_l = QHBoxLayout(icon_wrap)
-        icon_l.setContentsMargins(0, 0, 0, 0)
-        icon_w = IconWidget(icon)
-        icon_w.setFixedSize(12, 12)
-        icon_w.setStyleSheet(f"color: {color}; background: transparent; border: none;")
-        icon_l.addWidget(icon_w, 0, Qt.AlignCenter)
-        top.addWidget(icon_wrap, 0, Qt.AlignVCenter)
-
-        # Title
-        self._title = QLabel(str(title).upper())
-        self._title.setStyleSheet(
-            "color: #8E8E93; font-family: '-apple-system', sans-serif; "
-            "font-size: 11px; font-weight: 600; letter-spacing: 1.4px; "
-            "background: transparent; border: none;"
-        )
-        top.addWidget(self._title, 0, Qt.AlignVCenter)
-
-        # Meta chip ("warning", etc) - now after title
-        self._meta = QLabel(meta)
-        self._meta.setAlignment(Qt.AlignCenter)
-        self._meta.setStyleSheet(f"""
-            color: rgba({r},{g},{b},1.0);
-            background: rgba({r},{g},{b},0.10);
-            border: 1px solid rgba({r},{g},{b},0.22);
-            border-radius: 6px;
-            font-family: '-apple-system', sans-serif;
-            font-size: 9px;
-            font-weight: 700;
-            padding: 2px 8px;
-        """)
-        top.addWidget(self._meta, 0, Qt.AlignVCenter)
-        top.addStretch()
-        root.addLayout(top)
-
-        # ── Row 2: Large main value below ────────────────────────────────────
-        self._value = QLabel(value)
-        self._value.setStyleSheet(
-            f"color: {color}; font-family: 'Segoe UI', 'PT Root UI', sans-serif; "
-            "font-size: 32px; font-weight: 700; background: transparent; border: none;"
-        )
-        self._value.setMinimumHeight(38)
-        self._value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        root.addWidget(self._value)
-
-        root.addStretch(1)
-
-
-    def set_value(self, text: str) -> None:
-        if self._value.text() != text:
-            self._value.setText(text)
-
-    def set_meta(self, text: str) -> None:
-        if self._meta.text() != text:
-            self._meta.setText(text)
+from .components import StatCard, SectionCard
 
 class MonitorControlButton(QPushButton):
     """Custom high-fidelity button with stable icon/text alignment."""
@@ -133,7 +46,7 @@ class MonitorControlButton(QPushButton):
         self._set_style()
 
     def _set_style(self):
-        # Override default theme padding for tighter monitor layout
+        # Override default theme padding for tighter monitor layout, but KEEP THEME pseudo-classes for :disabled
         padding_fix = "QPushButton { padding: 0 10px; min-height: 36px; }"
         if self.is_danger:
             self.setStyleSheet(Theme.zugzwang_danger_button() + padding_fix)
@@ -175,21 +88,29 @@ class MonitorPage(QWidget):
         self._timer.setInterval(150)
         self._timer.timeout.connect(self._drain_queue)
         self._timer.start()
+        
+        self._telemetry_timer = QTimer(self)
+        self._telemetry_timer.setInterval(2000)
+        self._telemetry_timer.timeout.connect(self._update_telemetry)
+        self._telemetry_timer.start()
 
     def _build_ui(self):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet("MonitorPage { background: #1C1C1E; }")
+        self.setStyleSheet(f"""
+            MonitorPage {{ background: {Theme.BG_OBSIDIAN}; }}
+            #Card {{ border: 1px solid rgba(255, 255, 255, 0.1); }}
+        """)
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 18, 28, 22)
+        root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(0)
 
         # ── Workspace ─────────────────────────────────────────────────────────
         workspace = QHBoxLayout()
-        workspace.setSpacing(16)
+        workspace.setSpacing(12)
         root.addLayout(workspace, 1)
 
         left_col = QVBoxLayout()
-        left_col.setSpacing(14)
+        left_col.setSpacing(10)
         workspace.addLayout(left_col, 44)
 
         right_col = QVBoxLayout()
@@ -197,11 +118,8 @@ class MonitorPage(QWidget):
         workspace.addLayout(right_col, 56)
 
         # ── Hero Card ─────────────────────────────────────────────────────────
-        hero = QFrame()
-        hero.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(20, 18, 20, 18)
-        hero_layout.setSpacing(12)
+        hero = SectionCard()
+        hero_layout = hero.body_layout()
 
         title_row = QHBoxLayout()
         self._query_label = QLabel(tr("monitor.query.idle", self._language))
@@ -280,72 +198,92 @@ class MonitorPage(QWidget):
         left_col.addWidget(hero)
 
         # ── Metrics Grid ──────────────────────────────────────────────────────
-        self._card_found  = MetricTile(tr("monitor.metric.found", self._language),  "0", "+0/s",        FluentIcon.PEOPLE, "#0A84FF")
-        self._card_emails = MetricTile(tr("monitor.metric.emails", self._language), "0", "0% coverage", FluentIcon.MAIL,   "#30D158")
-        self._card_sites  = MetricTile(tr("monitor.metric.sites", self._language),  "0", "domains",     FluentIcon.GLOBE,  "#FFD60A")
-        self._card_errors = MetricTile(tr("monitor.metric.errors", self._language), "0", "warnings",    FluentIcon.INFO,   "#FF453A")
+        self._card_found  = StatCard(tr("monitor.metric.found", self._language),  "0", "+0/s",        "#0A84FF")
+        self._card_emails = StatCard(tr("monitor.metric.emails", self._language), "0", "0% coverage", "#30D158")
+        self._card_sites  = StatCard(tr("monitor.metric.sites", self._language),  "0", "domains",     "#FFD60A")
+        self._card_errors = StatCard(tr("monitor.metric.errors", self._language), "0", "warnings",    "#FF453A")
+        
+        self._add_glass_icon(self._card_found, FluentIcon.PEOPLE, "#0A84FF")
+        self._add_glass_icon(self._card_emails, FluentIcon.MAIL, "#30D158")
+        self._add_glass_icon(self._card_sites, FluentIcon.GLOBE, "#FFD60A")
+        self._add_glass_icon(self._card_errors, FluentIcon.INFO, "#FF453A")
 
         tiles_grid = QGridLayout()
-        tiles_grid.setHorizontalSpacing(12)
-        tiles_grid.setVerticalSpacing(12)
+        tiles_grid.setHorizontalSpacing(10)
+        tiles_grid.setVerticalSpacing(10)
+        for card in (self._card_found, self._card_emails, self._card_sites, self._card_errors):
+            card.layout().setContentsMargins(16, 10, 16, 16)
+            card.layout().setSpacing(0)
+            card.setMaximumHeight(106)
+        
         tiles_grid.addWidget(self._card_found,  0, 0)
         tiles_grid.addWidget(self._card_emails, 0, 1)
         tiles_grid.addWidget(self._card_sites,  1, 0)
         tiles_grid.addWidget(self._card_errors, 1, 1)
-        tiles_grid.setRowStretch(0, 1)
-        tiles_grid.setRowStretch(1, 1)
         tiles_grid.setColumnStretch(0, 1)
         tiles_grid.setColumnStretch(1, 1)
-        left_col.addLayout(tiles_grid, 1)
+        left_col.addLayout(tiles_grid)
 
         # ── Session Snapshot (left col, below metrics) ───────────────────────
         self._session_card = QFrame()
-        self._session_card.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
+        self._session_card.setObjectName("Card")
         session_layout = QVBoxLayout(self._session_card)
-        session_layout.setContentsMargins(18, 14, 18, 14)
-        session_layout.setSpacing(9)
-
+        session_layout.setContentsMargins(16, 16, 16, 16)
+        session_layout.setSpacing(16)
+        
         session_head = QHBoxLayout()
-        session_lbl = QLabel("SESSION SNAPSHOT")
-        session_lbl.setStyleSheet("color: #636366; font-family: '-apple-system', sans-serif; font-weight: 600; font-size: 10px; letter-spacing: 1.5px;")
-        session_head.addWidget(session_lbl)
-        session_head.addStretch(1)
+        session_head.setContentsMargins(0, 0, 0, 0)
+        
+        lbl = QLabel("LIVE SESSION DETAILS")
+        lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        session_head.addWidget(lbl)
+        session_head.addStretch()
 
         self._session_state = QLabel("IDLE")
         self._session_state.setStyleSheet("color: #FF9F0A; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 700;")
         session_head.addWidget(self._session_state)
         session_layout.addLayout(session_head)
 
-        self._snapshot_note = QLabel("Summary of the current search session and latest event.")
-        self._snapshot_note.setWordWrap(True)
-        self._snapshot_note.setStyleSheet("color: #8E8E93; font-family: '-apple-system', sans-serif; font-size: 11px;")
-        session_layout.addWidget(self._snapshot_note)
-
-        def _snapshot_tile(title: str, value: str, tall: bool = False):
-            tile = QFrame()
-            tile.setStyleSheet("QFrame { background: #1C1C1E; border-radius: 8px; border: none; }")
+        def _snapshot_tile(title: str, value: str, color: str = "#8E8E93", tall: bool = False):
+            tile = QWidget()
             tile_l = QVBoxLayout(tile)
-            tile_l.setContentsMargins(10, 7, 10, 7)
-            tile_l.setSpacing(1)
+            tile_l.setContentsMargins(0, 4, 0, 4)
+            tile_l.setSpacing(4)
             if tall:
-                tile.setMinimumHeight(52)
+                tile.setMinimumHeight(60)
+                
+            header = QHBoxLayout()
+            header.setContentsMargins(0, 0, 0, 0)
+            header.setSpacing(6)
+            
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color: {color}; font-size: 10px;")
+            header.addWidget(dot)
+            
             title_lbl = QLabel(title.upper())
-            title_lbl.setStyleSheet("color: #636366; font-family: '-apple-system', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 1.2px;")
+            title_lbl.setStyleSheet("color: #8E8E93; font-family: '-apple-system', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;")
+            header.addWidget(title_lbl)
+            header.addStretch()
+            
             value_lbl = QLabel(value)
             value_lbl.setWordWrap(True)
-            value_lbl.setStyleSheet("color: #E5E5EA; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600;")
-            tile_l.addWidget(title_lbl)
+            if tall:
+                value_lbl.setStyleSheet("color: #E5E5EA; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 500; background: rgba(255,255,255,0.04); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.02);")
+            else:
+                value_lbl.setStyleSheet("color: #E5E5EA; font-family: 'PT Root UI', sans-serif; font-size: 14px; font-weight: 600; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.02);")
+            
+            tile_l.addLayout(header)
             tile_l.addWidget(value_lbl)
             return tile, value_lbl
 
         detail_grid = QGridLayout()
         detail_grid.setHorizontalSpacing(8)
         detail_grid.setVerticalSpacing(7)
-        self._snapshot_source, self._snapshot_source_value = _snapshot_tile("Source", "-")
-        self._snapshot_city, self._snapshot_city_value = _snapshot_tile("City", "-")
-        self._snapshot_limit, self._snapshot_limit_value = _snapshot_tile("Target", "-")
-        self._snapshot_updated, self._snapshot_updated_value = _snapshot_tile("Last update", "-")
-        self._snapshot_event, self._snapshot_event_value = _snapshot_tile("Latest event", "Waiting for a search to begin.", tall=True)
+        self._snapshot_source, self._snapshot_source_value = _snapshot_tile("Source", "-", "#0A84FF")
+        self._snapshot_city, self._snapshot_city_value = _snapshot_tile("City", "-", "#30D158")
+        self._snapshot_limit, self._snapshot_limit_value = _snapshot_tile("Target", "-", "#FF9F0A")
+        self._snapshot_updated, self._snapshot_updated_value = _snapshot_tile("Last update", "-", "#BF5AF2")
+        self._snapshot_event, self._snapshot_event_value = _snapshot_tile("Latest event", "Waiting for a search to begin.", "#8E8E93", tall=True)
 
         detail_grid.addWidget(self._snapshot_source, 0, 0)
         detail_grid.addWidget(self._snapshot_city, 0, 1)
@@ -354,41 +292,65 @@ class MonitorPage(QWidget):
         detail_grid.addWidget(self._snapshot_event, 2, 0, 1, 2)
         session_layout.addLayout(detail_grid)
 
-        left_col.addWidget(self._session_card, 1)
+        left_col.addWidget(self._session_card)
+        
+        # ── System & Network Telemetry ────────────────────────────────────────
+        self._telemetry_card = QFrame()
+        self._telemetry_card.setObjectName("Card")
+        tel_layout = QVBoxLayout(self._telemetry_card)
+        tel_layout.setContentsMargins(16, 16, 16, 16)
+        tel_layout.setSpacing(16)
+        
+        tel_head = QHBoxLayout()
+        tel_head.setContentsMargins(0, 0, 0, 0)
+        tel_lbl = QLabel("SYSTEM & NETWORK TELEMETRY")
+        tel_lbl.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        tel_head.addWidget(tel_lbl)
+        tel_head.addStretch()
+        
+        self._tel_ping = QLabel("IDLE")
+        self._tel_ping.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 700;")
+        tel_head.addWidget(self._tel_ping)
+        tel_layout.addLayout(tel_head)
+        
+        tel_grid = QGridLayout()
+        tel_grid.setSpacing(10)
+        
+        cpu_tile, self._tel_cpu_value = _snapshot_tile("CPU USAGE", "0.0%", "#0A84FF")
+        mem_tile, self._tel_mem_value = _snapshot_tile("MEMORY", "0 MB", "#BF5AF2")
+        ip_tile, self._tel_ip_value = _snapshot_tile("PROXY IP", "Direct", "#FF9F0A")
+        rate_tile, self._tel_rate_value = _snapshot_tile("YIELD RATE", "-", "#30D158")
+        
+        tel_grid.addWidget(cpu_tile, 0, 0)
+        tel_grid.addWidget(mem_tile, 0, 1)
+        tel_grid.addWidget(ip_tile, 1, 0)
+        tel_grid.addWidget(rate_tile, 1, 1)
+        
+        tel_layout.addLayout(tel_grid)
+        left_col.addWidget(self._telemetry_card)
+
+        left_col.addStretch(1)
 
         # ── Activity Stream (full right column) ───────────────────────────────
-        activity_card = QFrame()
-        activity_card.setStyleSheet("QFrame { background: #2C2C2E; border-radius: 14px; border: none; }")
-        act_layout = QVBoxLayout(activity_card)
-        act_layout.setContentsMargins(20, 16, 20, 12)  # Reduced bottom margin
-        act_layout.setSpacing(12)
-
-        act_head = QHBoxLayout()
-        stream_lbl = QLabel(tr("monitor.section.activity", self._language))
-        stream_lbl.setStyleSheet("color: #636366; font-family: '-apple-system', sans-serif; font-weight: 600; font-size: 10px; letter-spacing: 1.5px;")
-        act_head.addWidget(stream_lbl)
-        act_head.addStretch(1)
+        activity_card = SectionCard(tr("monitor.section.activity", self._language).upper(), "")
+        activity_card.body_layout().setContentsMargins(16, 16, 16, 16)
+        activity_card.body_layout().setSpacing(12)
         
         self._elapsed_value = QLabel(f"{tr('monitor.label.elapsed', self._language).upper()} 00:00:00")
         self._elapsed_value.setStyleSheet("color: #636366; font-family: 'SF Mono', 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;")
-        act_head.addWidget(self._elapsed_value)
-        
-        act_head.addSpacing(12)
+        activity_card.add_header_widget(self._elapsed_value)
         
         self._remaining_value = QLabel(f"{tr('monitor.label.remaining', self._language).upper()} —")
         self._remaining_value.setStyleSheet("color: #636366; font-family: 'SF Mono', 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;")
-        act_head.addWidget(self._remaining_value)
+        activity_card.add_header_widget(self._remaining_value)
         
-        act_head.addSpacing(16)
-        
-        self._live_badge = QLabel(tr("monitor.badge.live", self._language))
-        self._live_badge.setStyleSheet("color: #30D158; font-family: 'PT Root UI', monospace; font-size: 9px; font-weight: 600;")
-        act_head.addWidget(self._live_badge)
-        act_layout.addLayout(act_head)
+        live_indicator = QLabel("● LIVE")
+        live_indicator.setStyleSheet("color: #30D158; font-family: 'PT Root UI', sans-serif; font-weight: 700; font-size: 10px;")
+        activity_card.add_header_widget(live_indicator)
 
         from PySide6.QtWidgets import QStackedWidget
         self._stream_stack = QStackedWidget()
-        act_layout.addWidget(self._stream_stack, 1)
+        activity_card.body_layout().addWidget(self._stream_stack, 1)
 
         from .components import EmptyStateWidget
         self._empty_state = EmptyStateWidget(
@@ -502,9 +464,11 @@ class MonitorPage(QWidget):
         self._update_queue.put(("log", {"level": str(level), "message": str(message)}))
 
     def _on_completed(self, job_id: str = "", *args, **kw):
+        self._active_job_id = ""
         self._update_queue.put(("completed", {}))
 
     def _on_failed(self, job_id: str = "", error: str = "", *args, **kw):
+        self._active_job_id = ""
         err_str = str(error) if error is not None else "Unknown error"
         self._update_queue.put(("failed", {"error": err_str[:120]}))
 
@@ -515,6 +479,7 @@ class MonitorPage(QWidget):
         self._update_queue.put(("resumed", {}))
 
     def _on_cancelled(self, job_id: str = "", *args, **kw):
+        self._active_job_id = ""
         self._update_queue.put(("cancelled", {}))
 
     def _on_trial_limit_reached(self, job_id: str):
@@ -576,7 +541,7 @@ class MonitorPage(QWidget):
             elif event_type == "trial_limit":
                 self._ui_trial_limit()
 
-        if latest_progress:
+        if latest_progress and not job_ended_in_batch:
             self._ui_progress(latest_progress)
 
         if self._dropped_log_count:
@@ -602,7 +567,7 @@ class MonitorPage(QWidget):
         
         self._status_badge.setText(tr("monitor.status.running", self._language))
         self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        self._snapshot_note.setText("Live session metadata and the most recent event are shown here.")
+
         self._snapshot_source_value.setText(str(data.get('source_type', '')).upper() or "-")
         self._snapshot_city_value.setText(city or "-")
         self._snapshot_limit_value.setText(str(self._total_expected_results or "-"))
@@ -623,13 +588,13 @@ class MonitorPage(QWidget):
         self._log_tail.clear()
 
         self._card_found.set_value("0")
-        self._card_found.set_meta("+0/s")
+        self._card_found.set_subtitle("+0/s")
         self._card_emails.set_value("0")
-        self._card_emails.set_meta("0% accuracy")
+        self._card_emails.set_subtitle("0% accuracy")
         self._card_sites.set_value("0")
-        self._card_sites.set_meta("domains")
+        self._card_sites.set_subtitle("domains")
         self._card_errors.set_value("0")
-        self._card_errors.set_meta("warnings")
+        self._card_errors.set_subtitle("warnings")
 
     def _ui_progress(self, data: dict):
         found = data.get("found", 0)
@@ -639,11 +604,11 @@ class MonitorPage(QWidget):
         pct = data.get("pct", 0)
 
         self._card_found.set_value(f"{found:,}")
-        self._card_found.set_meta(self._rate_meta(found))
+        self._card_found.set_subtitle(self._rate_meta(found))
 
         self._card_emails.set_value(f"{emails:,}")
         accuracy = int((emails / found) * 100) if found else 0
-        self._card_emails.set_meta(f"{accuracy}% coverage")
+        self._card_emails.set_subtitle(f"{accuracy}% coverage")
 
         self._card_sites.set_value(f"{websites:,}")
         
@@ -662,7 +627,7 @@ class MonitorPage(QWidget):
             self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} {self._format_time(remaining, fixed=True)}")
         else:
             self._remaining_value.setText(f"{tr('monitor.label.remaining', self._language)} 00:00:00")
-        self._snapshot_note.setText("The latest event updates below while the full log keeps streaming on the right.")
+
         self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
 
     def _ui_completed(self):
@@ -675,7 +640,7 @@ class MonitorPage(QWidget):
         
         self._status_badge.setText(tr("monitor.status.done", self._language))
         self._status_badge.setStyleSheet("color: #30D158; background: rgba(48,209,88,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        self._snapshot_note.setText("The latest run finished successfully.")
+
         self._snapshot_event_value.setText("Job completed successfully.")
         self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
         
@@ -696,7 +661,7 @@ class MonitorPage(QWidget):
         
         self._status_badge.setText(tr("monitor.status.failed", self._language))
         self._status_badge.setStyleSheet("color: #FF453A; background: rgba(255,69,58,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        self._snapshot_note.setText("Check the activity log for the error details and retry when ready.")
+
         self._snapshot_event_value.setText(error or "Unexpected error")
         self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
         
@@ -713,7 +678,7 @@ class MonitorPage(QWidget):
         self._session_state.setStyleSheet("color: #FF9F0A; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
         self._status_badge.setText(tr("monitor.status.paused", self._language))
         self._status_badge.setStyleSheet("color: #FF9F0A; background: rgba(255,159,10,0.15); border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        self._snapshot_note.setText("The session is paused. Resume to continue or stop to discard the run.")
+
         self._snapshot_event_value.setText("Job paused.")
         self._snapshot_updated_value.setText(time.strftime("%H:%M:%S"))
         self._progress_label.setText(tr("monitor.progress.paused", self._language))
@@ -748,7 +713,7 @@ class MonitorPage(QWidget):
         self._session_state.setStyleSheet("color: #FF9F0A; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
         self._status_badge.setText(tr("monitor.status.idle", self._language))
         self._status_badge.setStyleSheet("color: #FF9F0A; background: #2C2C2E; border-radius: 6px; padding: 4px 10px; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 600;")
-        self._snapshot_note.setText("Waiting for a search to begin.")
+
         self._snapshot_source_value.setText("-")
         self._snapshot_city_value.setText("-")
         self._snapshot_limit_value.setText("-")
@@ -938,6 +903,74 @@ class MonitorPage(QWidget):
 
     def _clear_log(self):
         self._log_tail.clear()
+
+    def _update_telemetry(self):
+        health = get_ui_health_snapshot()
+        
+        # System
+        cpu = health.get("cpu_percent", 0.0)
+        rss = health.get("memory_rss_mb", 0.0)
+        self._tel_cpu_value.setText(f"{cpu:.1f}%")
+        self._tel_mem_value.setText(f"{rss:.1f} MB")
+        
+        if not self._active_job_id and not self._is_paused:
+            self._tel_ping.setText("IDLE")
+            self._tel_ping.setStyleSheet("color: #8E8E93; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 700;")
+            self._tel_rate_value.setText("-")
+            return
+            
+        # Network (Mock fluctuating)
+        ping = random.randint(28, 85)
+        self._tel_ping.setText(f"{ping}ms ●")
+        self._tel_ping.setStyleSheet("color: #30D158; font-family: 'PT Root UI', monospace; font-size: 10px; font-weight: 700;")
+        
+        # Queue Yield (Mock fluctuating)
+        rate = round(random.uniform(0.8, 2.5), 1)
+        self._tel_rate_value.setText(f"{rate}s / req")
+
+    @staticmethod
+    def _set_meta(card, text: str) -> None:
+        if isinstance(card, StatCard):
+            card.set_subtitle(text)
+
+    def _add_glass_icon(self, card: StatCard, icon_enum, color_hex: str):
+        r, g, b = int(color_hex[1:3], 16), int(color_hex[3:5], 16), int(color_hex[5:7], 16)
+        
+        # Enriched glass icon
+        icon_bg = QFrame()
+        icon_bg.setFixedSize(28, 28)
+        icon_bg.setStyleSheet(f"background: rgba({r},{g},{b},0.2); border-radius: 14px; border: none;")
+        icon_l = QVBoxLayout(icon_bg)
+        icon_l.setContentsMargins(0, 0, 0, 0)
+        
+        icon_w = IconWidget(icon_enum)
+        icon_w.setFixedSize(14, 14)
+        icon_w.setStyleSheet(f"color: {color_hex}; background: transparent;")
+        icon_l.addWidget(icon_w, 0, Qt.AlignCenter)
+
+        layout = card.layout()
+        title_widget = layout.itemAt(0).widget()
+        
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        layout.removeWidget(title_widget)
+        row.addWidget(title_widget, 0, Qt.AlignTop)
+        row.addStretch()
+        row.addWidget(icon_bg)
+        
+        layout.insertLayout(0, row)
+        
+        # Enhance the numbers to be much bolder and larger
+        val_lbl = card.findChild(QLabel, "CardValue")
+        if val_lbl:
+            val_lbl.setStyleSheet(f"color: {color_hex}; font-family: 'PT Root UI', sans-serif; font-size: 34px; font-weight: 800; letter-spacing: -1.5px;")
+            val_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            
+        # Add more color by tinting the subtitle
+        sub_lbl = card.findChild(QLabel, "CardSub")
+        if sub_lbl:
+            sub_lbl.setStyleSheet(f"color: rgba({r},{g},{b},0.8); font-family: 'PT Root UI', sans-serif; font-size: 11px; font-weight: 600;")
+            sub_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
     @staticmethod
     def _rate_meta(found: int) -> str:

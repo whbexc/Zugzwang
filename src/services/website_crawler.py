@@ -289,6 +289,15 @@ class WebsiteEmailCrawler:
             return (source_score, kw_score, domain_score)
 
         unique_emails.sort(key=email_hr_priority)
+        unique_emails = unique_emails[:1]  # Keep only the single absolute best email
+        
+        # Fallback synthesis: If we couldn't find ANY email, guess info@domain
+        if not unique_emails and base_host:
+            fallback_email = f"info@{base_host}"
+            unique_emails.append(fallback_email)
+            if not best_source:
+                best_source = website
+                
         result = (unique_emails, best_phone, best_source, socials, best_contact)
         self._all_contact_cache[cache_key] = (list(unique_emails), best_phone, best_source, dict(socials), best_contact)
         return result
@@ -508,7 +517,15 @@ class WebsiteEmailCrawler:
             clean_path = path.strip("/")
             if not clean_path:
                 continue
-            urls.append(urljoin(root + "/", clean_path))
+                
+            # Slugify the path to ensure it forms a valid URL
+            slug = clean_path.lower()
+            slug = slug.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+            slug = slug.replace(" ", "-")
+            import urllib.parse
+            slug = urllib.parse.quote(slug)
+            
+            urls.append(urljoin(root + "/", slug))
 
         # Deduplicate while preserving order
         seen = set()

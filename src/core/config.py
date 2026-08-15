@@ -19,8 +19,8 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.1.0 Beta4"
-APP_BUILD = 4
+APP_VERSION = "1.1.0 Beta5"
+APP_BUILD = 5
 APP_AUTHOR = "ZUGZWANG"
 
 
@@ -194,6 +194,8 @@ class ConfigManager(QObject):
             "email_interval": settings.email_interval,
             "email_recipients": settings.email_recipients,
             "email_attachments": settings.email_attachments,
+            "bewerbung_anschreiben_page": settings.bewerbung_anschreiben_page,
+            "last_search_latest_offers_only": settings.last_search_latest_offers_only,
         }
 
     def _reset_cached_state_for_upgrade(self, settings: AppSettings, previous_version: str) -> AppSettings:

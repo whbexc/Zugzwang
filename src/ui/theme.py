@@ -463,4 +463,15 @@ class Theme:
                 border: none;
                 background: none;
             }}
+            
+            /* Tooltips */
+            QToolTip {{
+                background: rgba(44, 44, 46, 0.90);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+            }}
         """

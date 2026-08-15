@@ -13,7 +13,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-30D158?style=for-the-badge">
   <img alt="UI" src="https://img.shields.io/badge/UI-PySide6-5AC8FA?style=for-the-badge">
   <img alt="Automation" src="https://img.shields.io/badge/automation-Playwright-FF9F0A?style=for-the-badge">
-<img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta4-E5E5EA?style=for-the-badge&color=2C2C2E">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0%20Beta%205-E5E5EA?style=for-the-badge&color=2C2C2E">
 </p>
 
 <p align="center">
@@ -27,12 +27,6 @@
 ZUGZWANG is a PySide6 desktop application built for high-volume lead discovery and outbound workflow. It combines browser-based scraping, local lead persistence, enrichment, review, and SMTP outreach inside one interface.
 
 It is designed for:
-
-- local business discovery
-- recruitment research
-- apprenticeship/job lead collection
-- outbound contact workflows
-- cross-platform standalone usage (macOS, Linux, Windows)
 
 ## What It Does
 
@@ -283,9 +277,22 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.1.0 Beta4**
+**1.1.0 Beta5**
 
 Recent work includes:
+
+- **Consecutive Multi-Search Reliability** — Resolved an issue where starting a new search after job completion required restarting the app; worker event loops are now strictly isolated with bounded 5-second browser session teardowns
+- **Send Tab Attachment Isolation** — Manually attached files in the Send tab are now strictly isolated, preventing unexpected Anschreiben PDFs from being automatically merged into outbound emails
+- **Deleted Bewerbung Ghost Removal** — Deleting an uploaded PDF in the Edit page now immediately purges raw copies and cached batch PDFs from disk, preventing deleted files from being sent
+- **Extended Multi-Browser Engine** — Overhauled browser automation with native detection and execution support for Safari, Brave, Arc, Dia, and custom Chromium/WebKit installations
+- **Project Obsidian UI Overhaul** — Full aesthetic refactor aligning the entire application (Settings, Dashboard, Monitor, Edit) with Apple macOS System Preferences dark theme standards (`#1C1C1E`)
+- **Unified Component Outlines** — Standardized all card borders (SectionCards and small metric cards) to a consistent, subtle `0.5px solid rgba(255, 255, 255, 0.1)` across all views
+- **Activation & Licensing Dialog Polish** — Rebuilt with native glassmorphism styling, synchronized button icon colors with label typography, dedicated grey 'Reset to Trial', and vibrant green 'Activate' CTA
+- **Dashboard Action Hierarchy** — Streamlined dashboard controls with a primary green 'Support Us' action and removed redundant export triggers
+- **Monitor Page Seamless Integration** — Background perfectly linked to global Obsidian palette, removing clunky inner card shadows for a clean flat surface
+- **Destructive Action Safety** — Distinct solid red warning buttons for high-risk operations (such as 'Purge Sent') to prevent inadvertent data loss
+- **Search History Dropdown macOS Ghost Shadow** — Eliminated the buggy rectangular bounding box on macOS transparent popups; redesigned 'Clear History' into a clean, centered text-link
+- **Monitor Activity Log Spam Reduction** — Aggressively filtered low-level PyPDF warning noise ('Ignoring wrong pointing object') to keep live telemetry and activity streams clean
 
 - **Azubiyo & Das Örtliche Scrapers** — Brand new, highly accurate extraction engines for dual study programs and local regional directories
 - **Ausbildung.de Pagination** — Native infinite scroll support for limitless lead extraction without capping out early

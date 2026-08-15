@@ -420,6 +420,9 @@ class AppSettings:
     column_visibility: str = ""       # JSON: ResultsPage column visibility
     results_table_state: str = ""     # Hex: ResultsPage table header state
     last_seen_version: str = ""       # For "What's New" popup trigger
+    default_export_dir: str = ""
+    notify_job_completion: bool = True
+    max_concurrent_jobs: int = 5
 
     email_smtp_host: str = "smtp.gmail.com"
     email_smtp_port: str = "587"
@@ -446,11 +449,14 @@ class AppSettings:
     license_key: str = ""
     is_activated: bool = False
 
-    # Update Sync
+    # Update Sync & Backup
     git_repo_url: str = "https://github.com/whbexc/Zugzwang"
     auto_update_enabled: bool = True
-    app_version: str = "1.1.0 Beta4"
-    app_build: int = 4
+    auto_backup: bool = True
+    backup_dir: str = ""
+
+    app_version: str = "1.1.0 Beta5"
+    app_build: int = 5
 
 
     # Free Trial Tracking

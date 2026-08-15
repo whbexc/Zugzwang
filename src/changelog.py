@@ -1,14 +1,70 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.1.0 Beta4"
+APP_VERSION = "1.1.0 Beta5"
 
 CHANGELOG = [
     {
-        "version": "1.1.0 Beta4",
-        "date": "August 2, 2026",
+        "version": "1.1.0 Beta5",
+        "date": "August 15, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
+        "changes": [
+            {
+                "type": "new",
+                "text": "Extended Multi-Browser Engine — Overhauled browser automation with native detection and execution support for Safari, Brave, Arc, Dia, and custom Chromium/WebKit installations."
+            },
+            {
+                "type": "improved",
+                "text": "Project Obsidian UI Overhaul — Full aesthetic refactor aligning the entire application (Settings, Dashboard, Monitor, Edit) with Apple macOS System Preferences dark theme standards (#1C1C1E)."
+            },
+            {
+                "type": "improved",
+                "text": "Unified Component Outlines — Standardized all card borders (SectionCards and small metric cards) to a consistent, subtle 0.5px solid rgba(255, 255, 255, 0.1) across all views."
+            },
+            {
+                "type": "improved",
+                "text": "Activation & Licensing Dialog Polish — Rebuilt with native glassmorphism styling, synchronized button icon colors with label typography, dedicated grey 'Reset to Trial', and vibrant green 'Activate' CTA."
+            },
+            {
+                "type": "improved",
+                "text": "Dashboard Action Hierarchy — Streamlined dashboard controls with a primary green 'Support Us' action and removed redundant export triggers."
+            },
+            {
+                "type": "improved",
+                "text": "Monitor Page Seamless Integration — Background perfectly linked to global Obsidian palette, removing clunky inner card shadows for a clean flat surface."
+            },
+            {
+                "type": "improved",
+                "text": "Destructive Action Safety — Distinct solid red warning buttons for high-risk operations (such as 'Purge Sent') to prevent inadvertent data loss."
+            },
+            {
+                "type": "fixed",
+                "text": "Consecutive Multi-Search Reliability — Resolved an issue where starting a new search after job completion required restarting the app; worker event loops are now strictly isolated with bounded 5-second browser session teardowns."
+            },
+            {
+                "type": "fixed",
+                "text": "Send Tab Attachment Isolation — Manually attached files in the Send tab are now strictly isolated, preventing unexpected Anschreiben PDFs from being automatically merged into outbound emails."
+            },
+            {
+                "type": "fixed",
+                "text": "Deleted Bewerbung Ghost Removal — Deleting an uploaded PDF in the Edit page now immediately purges raw copies and cached batch PDFs from disk, preventing deleted files from being sent."
+            },
+            {
+                "type": "fixed",
+                "text": "Search History Dropdown macOS Ghost Shadow — Eliminated the buggy rectangular bounding box on macOS transparent popups; redesigned 'Clear History' into a clean, centered text-link."
+            },
+            {
+                "type": "fixed",
+                "text": "Monitor Activity Log Spam Reduction — Aggressively filtered low-level PyPDF warning noise ('Ignoring wrong pointing object') to keep live telemetry and activity streams clean."
+            },
+        ],
+    },
+    {
+        "version": "1.1.0 Beta4",
+        "date": "August 2, 2026",
+        "label": "RELEASED",
+        "label_color": "#007AFF",
         "changes": [
             {
                 "type": "new",
@@ -540,10 +596,72 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.1.0 Beta4",
-        "date": "2 أغسطس 2026",
+        "version": "1.1.0 Beta5",
+        "date": "15 أغسطس 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
+        "type_labels": {
+            "new": "جديد",
+            "improved": "مُحسَّن",
+            "fixed": "مُصلَّح",
+            "removed": "مُزال"
+        },
+        "changes": [
+            {
+                "type": "new",
+                "text": "دعم موسع لمتصفحات متعددة — ترقية محرك الأتمتة ليدعم أصلياً الكشف والتشغيل لمتصفحات Safari و Brave و Arc و Dia بالإضافة إلى إصدارات Chromium و WebKit."
+            },
+            {
+                "type": "improved",
+                "text": "تحديث تصميم مشروع Obsidian — إعادة تصميم شاملة لواجهة المستخدم لتتوافق مع إرشادات macOS Dark Mode (#1C1C1E) عبر جميع الصفحات."
+            },
+            {
+                "type": "improved",
+                "text": "توحيد حواف وحدود البطاقات — توحيد الإطارات والحدود لجميع البطاقات الكبيرة والصغيرة بلون رمادي شفاف متناسق 0.5px solid rgba(255, 255, 255, 0.1)."
+            },
+            {
+                "type": "improved",
+                "text": "تحسين نافذة التفعيل والترخيص — إعادة بناء النافذة بتأثير زجاجي أنيق، ومطابقة ألوان الأيقونات مع النصوص، مع زر تفعيل أخضر مميز وزر إعادة تعيين رمادي."
+            },
+            {
+                "type": "improved",
+                "text": "تحسين لوحة التحكم (Dashboard) — إعادة ترتيب الأزرار لتقديم زر الدعم 'Support Us' باللون الأخضر وإزالة أزرار التصدير الزائدة."
+            },
+            {
+                "type": "improved",
+                "text": "تحسين صفحة المراقبة (Monitor) — ربط الخلفية بلون Obsidian وإزالة الظلال الزائدة من البطاقات الداخلية لضمان مظهر مسطح ونظيف."
+            },
+            {
+                "type": "improved",
+                "text": "أمان الإجراءات الحساسة — تصميم أزرار حمراء واضحة للعمليات الحساسة (مثل مسح الرسائل المرسلة) لمنع فقدان البيانات."
+            },
+            {
+                "type": "fixed",
+                "text": "استقرار البحث المتتالي — حل مشكلة عدم القدرة على بدء بحث جديد بعد انتهاء البحث السابق دون إعادة تشغيل التطبيق، مع عزل حلقات الأحداث وإنهاء جلسات المتصفح في 5 ثوان كحد أقصى."
+            },
+            {
+                "type": "fixed",
+                "text": "عزل مرفقات صفحة الإرسال — المرفقات اليدوية في صفحة الإرسال معزولة تماماً الآن لمنع إرفاق خطابات تقديم (Anschreiben) قديمة بشكل تلقائي غير مرغوب فيه."
+            },
+            {
+                "type": "fixed",
+                "text": "حذف الملفات الملغاة في صفحة التعديل — حذف ملف التقديم في صفحة التعديل يقوم فورياً بإزالة النسخ المحفوظة على القرص لمنع إرسال ملفات محذوفة."
+            },
+            {
+                "type": "fixed",
+                "text": "إصلاح ظل قائمة سجل البحث في macOS — إزالة الظل المستطيل المشوه في نظام ماك، وجعل زر 'مسح السجل' في المنتصف بتصميم نصوص أنيق."
+            },
+            {
+                "type": "fixed",
+                "text": "تصفية رسائل التحذير المزعجة في السجل — تصفية تحذيرات PyPDF المتكررة للحفاظ على نظافة سجل النشاط المباشر."
+            },
+        ]
+    },
+    {
+        "version": "1.1.0 Beta4",
+        "date": "2 أغسطس 2026",
+        "label": "تم الإصدار",
+        "label_color": "#007AFF",
         "type_labels": {
             "new": "جديد",
             "improved": "مُحسَّن",

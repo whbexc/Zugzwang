@@ -50,7 +50,7 @@ class DashboardMetricCard(QFrame):
         self.setFixedSize(220, 124) # Match SearchSourceCard exactly
         self.setObjectName("DashboardMetricCard")
         
-        # ZUGZWANG Styling: Zinc bg, 12px radii, no border
+        # ZUGZWANG Styling: Zinc bg, 12px radii, subtle border
         self.setStyleSheet(
             f"QFrame#DashboardMetricCard {{ "
             f"background: #2C2C2E; "
@@ -82,7 +82,7 @@ class DashboardMetricCard(QFrame):
         l_wrap = QHBoxLayout(self.metaLabelWrapper)
         l_wrap.setContentsMargins(8, 2, 8, 2)
         self.metaLabel = QLabel(meta.upper())
-        self.metaLabel.setStyleSheet(f"color: {self._accent}; font-family: 'SF Mono', 'Menlo', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; background: transparent; border: none;")
+        self.metaLabel.setStyleSheet(f"color: {self._accent}; font-family: 'Menlo', 'Menlo', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; background: transparent; border: none;")
         l_wrap.addWidget(self.metaLabel)
         
         top_row.addWidget(self.metaLabelWrapper)
@@ -95,7 +95,7 @@ class DashboardMetricCard(QFrame):
         self.main_layout.addWidget(self.valueLabel)
 
         self.titleLabel = QLabel(title.upper())
-        self.titleLabel.setStyleSheet(f"color: #8E8E93; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; background: transparent; border: none;")
+        self.titleLabel.setStyleSheet(f"color: #8E8E93; font-family: 'Menlo', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; background: transparent; border: none;")
         self.main_layout.addWidget(self.titleLabel)
 
     def enterEvent(self, event):
@@ -109,11 +109,18 @@ class DashboardMetricCard(QFrame):
     def set_value(self, value: str):
         self.valueLabel.setText(str(value))
 
-    def set_meta(self, text: str):
-        self.metaLabel.setText(str(text).upper())
+    def set_meta(self, meta: str):
+        self.metaLabel.setText(str(meta).upper())
 
-    def set_title(self, text: str):
-        self.titleLabel.setText(str(text).upper())
+    def set_meta_color(self, color: str):
+        self._accent = color
+        self.metaLabelWrapper.setStyleSheet(
+            f"background: transparent; border: 1px solid {self._accent}; border-radius: 8px;"
+        )
+        self.metaLabel.setStyleSheet(f"color: {self._accent}; font-family: 'Menlo', 'Menlo', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; background: transparent; border: none;")
+
+    def set_title(self, title: str):
+        self.titleLabel.setText(str(title).upper())
 
 class TrialStatusCard(DashboardMetricCard):
     """Special card for free trial users, Obsidian Core style."""
@@ -130,6 +137,14 @@ class TrialStatusCard(DashboardMetricCard):
         status = LicenseManager.get_trial_status()
         self.set_value(f"{status['remaining']}")
         self.set_meta(f"{status['used']} / {status['total']}")
+        
+        used = status.get('used', 0)
+        if used < 15:
+            self.set_meta_color("#8E8E93")
+        elif used < 20:
+            self.set_meta_color("#FF9F0A")
+        else:
+            self.set_meta_color("#FF453A")
         
         if status['is_active']:
             self.hide()
@@ -198,8 +213,23 @@ class JobTableRow(QFrame):
         title.setToolTip("Your defined search query or job title")
         text_col.addWidget(title)
 
-        started = str(getattr(job, "started_at", "") or tr("dashboard.job.time.now", self._language))
-        meta_txt = tr("dashboard.job.records", self._language).format(count=job.total_found, started=started[:16])
+        def _format_time(ts):
+            if not ts: return "Just now"
+            try:
+                import datetime
+                dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if dt.tzinfo is None: dt = dt.replace(tzinfo=datetime.timezone.utc)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                diff = now - dt
+                if diff.total_seconds() < 60: return "Just now"
+                if diff.total_seconds() < 3600: return f"{int(diff.total_seconds() // 60)} min ago"
+                if diff.total_seconds() < 86400: return f"{int(diff.total_seconds() // 3600)} hr ago"
+                return dt.strftime("%b %d, %I:%M %p").replace(" 0", " ")
+            except:
+                return ts[:16]
+
+        started = _format_time(getattr(job, "started_at", ""))
+        meta_txt = tr("dashboard.job.records", self._language).format(count=job.total_found, started=started)
         if source_val != "unknown":
             meta_txt = f"{source_val.replace('_', ' ').title()}  •  {meta_txt}"
             
@@ -213,33 +243,29 @@ class JobTableRow(QFrame):
         status = str(job.status.value).upper()
         badge_label = QLabel(status)
         
-        b_bg = "rgba(142, 142, 147, 0.1)"
+        b_bg = "rgba(142, 142, 147, 0.15)"
         b_clr = "#8E8E93"
-        b_border = "rgba(142, 142, 147, 0.2)"
         
-        if status in {"RUNNING", "PAUSED", "PENDING"}:
-            b_bg = "rgba(10, 132, 255, 0.1)"
+        if status in {"RUNNING", "PAUSED", "PENDING", "QUEUED"}:
+            b_bg = "rgba(10, 132, 255, 0.15)"
             b_clr = "#0A84FF"
-            b_border = "rgba(10, 132, 255, 0.3)"
         elif status == "COMPLETED":
-            b_bg = "rgba(48, 209, 88, 0.1)"
+            b_bg = "rgba(48, 209, 88, 0.15)"
             b_clr = "#30D158"
-            b_border = "rgba(48, 209, 88, 0.3)"
         elif status == "FAILED":
-            b_bg = "rgba(255, 69, 58, 0.1)"
+            b_bg = "rgba(255, 69, 58, 0.15)"
             b_clr = "#FF453A"
-            b_border = "rgba(255, 69, 58, 0.3)"
 
         badge_label.setStyleSheet(f"""
             QLabel {{
                 background: {b_bg};
                 color: {b_clr};
-                border: 1px solid {b_border};
+                border: none;
                 border-radius: 6px;
-                font-family: 'SF Mono', monospace;
-                font-size: 10px;
+                font-family: 'PT Root UI', 'Segoe UI', sans-serif;
+                font-size: 11px;
                 font-weight: 700;
-                padding: 4px 8px;
+                padding: 4px 10px;
             }}
         """)
         badge_label.setToolTip(f"Current scraping status: {status}")
@@ -279,101 +305,91 @@ class DashboardPage(QWidget):
         self._load_recent_jobs_from_disk()
 
     def _load_recent_jobs_from_disk(self):
-        """Loads historical job definitions to populate the Recent Jobs list.
-
-        Each .db file is read in its own QThreadPool worker (non-blocking).
-        The UI is refreshed exactly once after ALL workers have completed.
-        """
-        from ..core.config import get_data_dir
+        """Loads historical job definitions from app_memory.db to populate the Recent Jobs list."""
+        from ..core.config import get_memory_db_path
         from ..utils.db_worker import run_in_thread
-        import glob
+        import sqlite3
         import os
+        import json
 
-        data_dir = get_data_dir()
-        db_files = sorted(
-            glob.glob(os.path.join(data_dir, "job_*.db")), reverse=True
-        )[:6]
-
-        if not db_files:
-            active = orchestrator.current_job
-            if active:
-                self._jobs = [active]
-                self._refresh_job_list()
-            return
-
-        # All on_result / on_finished callbacks land on the main thread via
-        # Qt queued connections, so no threading.Lock is needed here.
-        collected: list = []
-        remaining = [len(db_files)]  # one-element list gives us a mutable int
-
-        def _on_result(db_path: str, payload):
-            """Parse job metadata on the main thread (no I/O, fast)."""
-            meta = payload
-            if not meta:
-                return
+        def _fetch_jobs():
+            db_path = str(get_memory_db_path())
+            if not os.path.exists(db_path):
+                return []
+            
+            conn = sqlite3.connect(db_path, timeout=5.0)
             try:
-                from ..core.models import ScrapingStatus, SearchConfig, SourceType, ScrapingJob  # noqa: F811
-                config_data = json.loads(meta.get("config_json", "{}"))
-                if config_data.get("source_type") and isinstance(config_data["source_type"], str):
-                    val = config_data["source_type"]
-                    if val == "google_maps":
-                        val = "maps"
-                    elif val == "ausbildung_de":
-                        val = "ausbildung"
-                    elif val == "aubiplus_de":
-                        val = "aubiplus"
-                    config_data["source_type"] = SourceType(val)
+                conn.execute("PRAGMA journal_mode=WAL")
+                tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'")]
+                if not tables:
+                    return []
+                    
+                rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 20").fetchall()
+                if not rows:
+                    return []
+                    
+                cols = [d[0] for d in conn.execute("SELECT * FROM jobs LIMIT 0").description]
+                return [dict(zip(cols, row)) for row in rows]
+            except Exception as e:
+                print(f"[DASHBOARD] Failed to load jobs from {db_path}: {e}")
+                return []
+            finally:
+                conn.close()
 
-                job = ScrapingJob(
-                    config=SearchConfig(
-                        **{k: v for k, v in config_data.items()
-                           if k in SearchConfig.__dataclass_fields__}
-                    ),
-                    status=ScrapingStatus(meta.get("status", "completed")),
-                )
-                job.id = meta.get("id", "unknown")
-                job.created_at = meta.get("created_at")
-                job.started_at = meta.get("started_at")
-                job.completed_at = meta.get("completed_at")
-
-                stats = json.loads(meta.get("stats_json", "{}"))
-                job.total_found = stats.get("total_found", 0)
-                job.total_emails = stats.get("total_emails", 0)
-                job.total_websites = stats.get("total_websites", 0)
-                job.total_errors = stats.get("total_errors", 0)
-
-                collected.append(job)
-            except Exception as exc:
-                print(f"[DASHBOARD] Failed to parse job from {db_path}: {exc}")
-
-        def _on_finished():
-            """Called on the main thread each time a worker exits."""
-            remaining[0] -= 1
-            if remaining[0] > 0:
-                return  # still waiting for other workers
-
-            # All workers done — refresh the UI exactly once
-            if collected:
-                self._jobs = collected
-                self._refresh_stats()
-                self._refresh_job_list()
-            else:
+        def _on_result(payloads):
+            if not payloads:
                 active = orchestrator.current_job
                 if active:
                     self._jobs = [active]
                     self._refresh_job_list()
+                return
 
-        # Fire one worker per file; they run concurrently in Qt's thread-pool
-        for db_path in db_files:
-            run_in_thread(
-                orchestrator._export.load_job_metadata,
-                db_path,
-                on_result=lambda meta, p=db_path: _on_result(p, meta),
-                on_error=lambda err, p=db_path: print(
-                    f"[DASHBOARD] DB load failed for {p}: {err}"
-                ),
-                on_finished=_on_finished,
-            )
+            collected = []
+            for meta in payloads:
+                try:
+                    from ..core.models import ScrapingStatus, SearchConfig, SourceType, ScrapingJob
+                    config_data = json.loads(meta.get("config_json", "{}"))
+                    if config_data.get("source_type") and isinstance(config_data["source_type"], str):
+                        val = config_data["source_type"]
+                        if val == "google_maps":
+                            val = "maps"
+                        elif val == "ausbildung_de":
+                            val = "ausbildung"
+                        elif val == "aubiplus_de":
+                            val = "aubiplus"
+                        config_data["source_type"] = SourceType(val)
+
+                    job = ScrapingJob(
+                        config=SearchConfig(
+                            **{k: v for k, v in config_data.items()
+                               if k in SearchConfig.__dataclass_fields__}
+                        ),
+                        status=ScrapingStatus(meta.get("status", "completed")),
+                    )
+                    job.id = meta.get("id", "unknown")
+                    job.created_at = meta.get("created_at")
+                    job.started_at = meta.get("started_at")
+                    job.completed_at = meta.get("completed_at")
+
+                    stats = json.loads(meta.get("stats_json", "{}"))
+                    job.total_found = stats.get("total_found", 0)
+                    job.total_emails = stats.get("total_emails", 0)
+                    job.total_websites = stats.get("total_websites", 0)
+                    job.total_errors = stats.get("total_errors", 0)
+
+                    collected.append(job)
+                except Exception as exc:
+                    print(f"[DASHBOARD] Failed to parse job: {exc}")
+            
+            self._jobs = collected
+            self._refresh_stats()
+            self._refresh_job_list()
+
+        run_in_thread(
+            _fetch_jobs,
+            on_result=_on_result,
+            on_error=lambda err: print(f"[DASHBOARD] Job fetch failed: {err}")
+        )
 
     def _build_ui(self):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -410,27 +426,30 @@ class DashboardPage(QWidget):
         header.addLayout(title_wrap)
         header.addStretch(1)
 
+
+
         from PySide6.QtWidgets import QPushButton as _QPB
-        self.exportBtn = _QPB(tr("dashboard.button.export", self._language))
-        self.exportBtn.setFixedSize(160, 36)
-        self.exportBtn.setCursor(Qt.PointingHandCursor)
-        self.exportBtn.setStyleSheet("""
+        self.loveBtn = _QPB(tr("dashboard.button.support", self._language))
+        self.loveBtn.setFixedSize(140, 36)
+        self.loveBtn.setCursor(Qt.PointingHandCursor)
+        self.loveBtn.setStyleSheet("""
             QPushButton {
-                background-color: #2C2C2E;
-                border: 1px solid #3A3A3C;
+                background-color: #30D158;
+                border: none;
                 border-radius: 10px;
-                color: white;
+                color: #FFFFFF;
                 height: 36px;
-                padding: 0 18px;
+                padding: 0 16px;
                 font-family: 'PT Root UI', sans-serif;
                 font-size: 11px;
                 font-weight: 600;
                 letter-spacing: 1.6px;
                 text-transform: uppercase;
             }
-            QPushButton:hover { background-color: #3A3A3C; }
+            QPushButton:hover { background-color: #34E25F; }
         """)
-        header.addWidget(self.exportBtn, 0, Qt.AlignVCenter)
+        self.loveBtn.clicked.connect(self._open_feedback)
+        header.addWidget(self.loveBtn, 0, Qt.AlignVCenter)
 
         self.newSearchBtn = _QPB(tr("dashboard.button.new", self._language))
         self.newSearchBtn.setFixedSize(160, 36)
@@ -452,28 +471,6 @@ class DashboardPage(QWidget):
             QPushButton:hover { background-color: #409CFF; }
         """)
         header.addWidget(self.newSearchBtn, 0, Qt.AlignVCenter)
-
-        self.loveBtn = _QPB(tr("dashboard.button.support", self._language))
-        self.loveBtn.setFixedSize(140, 36)
-        self.loveBtn.setCursor(Qt.PointingHandCursor)
-        self.loveBtn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: 1.5px solid #3A3A3C;
-                border-radius: 10px;
-                color: #30D158;
-                height: 36px;
-                padding: 0 16px;
-                font-family: 'PT Root UI', sans-serif;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 1.2px;
-                text-transform: uppercase;
-            }
-            QPushButton:hover { background-color: rgba(48, 209, 88, 0.05); border-color: rgba(48, 209, 88, 0.3); }
-        """)
-        self.loveBtn.clicked.connect(self._open_feedback)
-        header.addWidget(self.loveBtn, 0, Qt.AlignVCenter)
 
         body.addLayout(header)
 
@@ -503,8 +500,8 @@ class DashboardPage(QWidget):
         left_col.setSpacing(12)
 
         jobs_hdr = QHBoxLayout()
-        jobs_lbl = QLabel(tr("dashboard.section.jobs", self._language))
-        jobs_lbl.setObjectName("SectionLabel")
+        jobs_lbl = QLabel(tr("dashboard.section.jobs", self._language).upper())
+        jobs_lbl.setStyleSheet("color: #EBEBF5; font-size: 13px; font-weight: 600; letter-spacing: 1.5px; background: transparent; border: none;")
         jobs_hdr.addWidget(jobs_lbl)
         jobs_hdr.addStretch(1)
         left_col.addLayout(jobs_hdr)
@@ -520,9 +517,22 @@ class DashboardPage(QWidget):
         )
         jobs_host_layout = QVBoxLayout(self.jobsHost)
         jobs_host_layout.setSpacing(8)
-        self.jobsFrame = QVBoxLayout()
+        jobs_host_layout.setContentsMargins(0, 0, 0, 0)
+        from PySide6.QtWidgets import QScrollArea
+        self.jobsScroll = QScrollArea()
+        self.jobsScroll.setWidgetResizable(True)
+        self.jobsScroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar:vertical { width: 0px; }")
+        
+        self.jobsContainer = QWidget()
+        self.jobsContainer.setStyleSheet("background: transparent;")
+        
+        self.jobsFrame = QVBoxLayout(self.jobsContainer)
         self.jobsFrame.setSpacing(10)
-        jobs_host_layout.addLayout(self.jobsFrame)
+        self.jobsFrame.setContentsMargins(0, 0, 0, 0)
+        self.jobsFrame.setAlignment(Qt.AlignTop)
+        
+        self.jobsScroll.setWidget(self.jobsContainer)
+        jobs_host_layout.addWidget(self.jobsScroll)
         left_col.addWidget(self.jobsHost, 1)
         lower_split.addLayout(left_col, 2)
 
@@ -530,21 +540,24 @@ class DashboardPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(12)
 
-        activity_lbl = QLabel(tr("dashboard.section.activity", self._language))
-        activity_lbl.setObjectName("SectionLabel")
-        right_col.addWidget(activity_lbl)
+        act_hdr = QHBoxLayout()
+        activity_lbl = QLabel(tr("dashboard.section.activity", self._language).upper())
+        activity_lbl.setStyleSheet("color: #EBEBF5; font-size: 13px; font-weight: 600; letter-spacing: 1.5px; background: transparent; border: none;")
+        act_hdr.addWidget(activity_lbl)
+        act_hdr.addStretch(1)
+        right_col.addLayout(act_hdr)
 
         self.activityCard = QFrame()
         self.activityCard.setObjectName("DashboardSideCard")
         self.activityCard.setStyleSheet(
             f"QFrame#DashboardSideCard {{ "
-            f"background: transparent; "
-            f"border: none; "
+            f"background: #1C1C1E; "
+            f"border: 1px solid #2C2C2E; "
             f"border-radius: 12px; "
             f"}}"
         )
         activity_layout = QVBoxLayout(self.activityCard)
-        activity_layout.setContentsMargins(0, 0, 0, 0)
+        activity_layout.setContentsMargins(16, 16, 16, 16)
         activity_layout.setSpacing(8)
         activity_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.activityLayout = activity_layout
@@ -576,7 +589,6 @@ class DashboardPage(QWidget):
         event_bridge.job_result.connect(self._on_live_result)
 
         self.newSearchBtn.clicked.connect(self.navigate_to_search.emit)
-        self.exportBtn.clicked.connect(self.navigate_to_results.emit)
 
     def _record_activity(self, text: str):
         if not text:
@@ -691,19 +703,23 @@ class DashboardPage(QWidget):
         self.metric_leads.set_value(f"{total_leads:,}")
         self.metric_leads.set_title(tr("dashboard.metric.leads", self._language))
         self.metric_leads.set_meta(tr("dashboard.meta.no_data", self._language) if total_leads == 0 else tr("dashboard.meta.ready", self._language))
+        self.metric_leads.set_meta_color("#30D158" if total_leads > 0 else "#8E8E93")
 
         self.metric_websites.set_value(f"{total_websites:,}")
         self.metric_websites.set_title(tr("dashboard.metric.websites", self._language))
-        self.metric_websites.set_meta(tr("dashboard.meta.live", self._language) if total_websites else tr("dashboard.meta.queued", self._language))
+        self.metric_websites.set_meta(tr("dashboard.meta.live", self._language) if total_websites else tr("dashboard.meta.no_data", self._language))
+        self.metric_websites.set_meta_color("#5E5CE6" if total_websites > 0 else "#8E8E93")
 
         email_ratio = int((total_emails / total_leads) * 100) if total_leads else 0
         self.metric_emails.set_value(f"{total_emails:,}")
         self.metric_emails.set_title(tr("dashboard.metric.emails", self._language))
-        self.metric_emails.set_meta(tr("dashboard.meta.valid", self._language).format(ratio=email_ratio))
+        self.metric_emails.set_meta(tr("dashboard.meta.valid", self._language).format(ratio=email_ratio) if total_emails else tr("dashboard.meta.no_data", self._language))
+        self.metric_emails.set_meta_color("#30D158" if total_emails > 0 else "#8E8E93")
 
         self.metric_active.set_value(f"{active_jobs}")
         self.metric_active.set_title(tr("dashboard.metric.active", self._language))
         self.metric_active.set_meta(tr("dashboard.meta.running", self._language) if active_jobs else tr("dashboard.meta.idle", self._language))
+        self.metric_active.set_meta_color("#0A84FF" if active_jobs > 0 else "#8E8E93")
 
         if hasattr(self, 'metric_trial'):
             self.metric_trial._refresh()
@@ -718,7 +734,7 @@ class DashboardPage(QWidget):
     def _refresh_job_list(self):
         # Sort by completion date or creation date if not completed
         self._jobs.sort(key=lambda j: j.completed_at or j.created_at, reverse=True)
-        recent = self._jobs[:4]
+        recent = self._jobs[:10]
         
         # Check if we actually need to rebuild (simple ID-based check)
         recent_ids = [j.id for j in recent]
@@ -758,8 +774,8 @@ class DashboardPage(QWidget):
                     item = self.activityLayout.takeAt(0)
                     if item.widget(): item.widget().deleteLater()
                 
-                # Left alignment for empty state
-                self.activityLayout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                # Top-center alignment for empty state
+                self.activityLayout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
                 
                 placeholder_container = QWidget()
                 placeholder_container.setStyleSheet("background: transparent; border: none;")
@@ -773,7 +789,7 @@ class DashboardPage(QWidget):
                 pv.addWidget(icon, 0, Qt.AlignHCenter)
 
                 empty = QLabel(tr("dashboard.empty.activity", self._language))
-                empty.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1px; border: none;")
+                empty.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-family: 'Menlo', 'Menlo', monospace; font-size: 11px; font-weight: 600; letter-spacing: 1px; border: none;")
                 pv.addWidget(empty, 0, Qt.AlignHCenter)
 
                 desc = QLabel(tr("dashboard.empty.activity.body", self._language))
@@ -794,7 +810,7 @@ class DashboardPage(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
             
-            self.activityLayout.setContentsMargins(0, 0, 0, 0)
+            self.activityLayout.setContentsMargins(16, 16, 16, 16)
             self.activityLayout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
             
             # Pre-create 8 rows maximum
@@ -813,7 +829,7 @@ class DashboardPage(QWidget):
                 label = QLabel("")
                 label.setWordWrap(False)
                 label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-                label.setStyleSheet(f"color: #8E8E93; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11px; background: transparent; border: none;")
+                label.setStyleSheet(f"color: #8E8E93; font-family: 'Menlo', 'Menlo', monospace; font-size: 11px; background: transparent; border: none;")
                 label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
                 row_layout.addWidget(dot, 0, Qt.AlignTop)

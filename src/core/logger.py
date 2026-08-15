@@ -166,6 +166,7 @@ def setup_logging(level: str = "INFO") -> None:
     # Silence noisy third-party loggers
     for noisy in ["playwright", "asyncio", "urllib3", "httpx"]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
 def get_logger(name: str) -> logging.Logger:

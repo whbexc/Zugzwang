@@ -1,5 +1,5 @@
 """
-ZUGZWANG 1.1.0 Beta4 - Post-Build Script
+ZUGZWANG 1.1.0 Beta5 - Post-Build Script
 Run this AFTER `pyinstaller zugzwang.spec` to copy the Playwright
 Chromium browser into the dist folder so the .exe works out of the box.
 

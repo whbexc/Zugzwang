@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QFrame, QGraphicsDropShadowEffect, QPushButton
 )
 from qfluentwidgets import (
-    FluentIcon, IconWidget, LineEdit, InfoBar
+    FluentIcon, IconWidget, LineEdit, InfoBar, InfoBarPosition
 )
 from .theme import Theme
 from ..core.security import LicenseManager
@@ -40,7 +40,7 @@ class ActivationDialog(QDialog):
         self.container.setObjectName("MainContainer")
         self.container.setStyleSheet("""
             QFrame#MainContainer {
-                background: #242426;
+                background: rgba(36, 36, 38, 0.75);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 14px;
             }
@@ -145,7 +145,7 @@ class ActivationDialog(QDialog):
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 6px;
                 color: #FFFFFF;
-                font-family: "SF Mono", "Menlo", monospace;
+                font-family: "Menlo", "Menlo", monospace;
                 font-size: 13px; padding: 0 10px; letter-spacing: 1px;
             }
             LineEdit:focus { 
@@ -169,7 +169,7 @@ class ActivationDialog(QDialog):
         
         self.mid_field = QLabel()
         self.mid_field.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.mid_field.setStyleSheet("color: #AEAEB2; font-family: 'SF Mono', 'Menlo', monospace; font-size: 11.5px; letter-spacing: 0.5px; background: transparent;")
+        self.mid_field.setStyleSheet("color: #AEAEB2; font-family: 'Menlo', 'Menlo', monospace; font-size: 11.5px; letter-spacing: 0.5px; background: transparent;")
         mid_layout.addWidget(self.mid_field)
         
         copy_btn = QPushButton()
@@ -308,7 +308,7 @@ class ActivationDialog(QDialog):
             self._refresh_machine_id()
             machine_id = self.mid_field.text().strip()
         QGuiApplication.clipboard().setText(machine_id)
-        InfoBar.success("Copied", "Machine ID copied to clipboard.", duration=2000, parent=self)
+        InfoBar.success("Copied", "Machine ID copied to clipboard.", duration=2000, position=InfoBarPosition.TOP, parent=self)
 
     def _refresh_machine_id(self):
         machine_id = (LicenseManager.get_machine_id() or "").strip().upper()

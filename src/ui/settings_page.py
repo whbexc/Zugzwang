@@ -4,7 +4,7 @@ Apple macOS System Preferences — Obsidian Edition.
 """
 
 from __future__ import annotations
-import re
+import re, os
 
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QDoubleValidator, QColor, QPainter, QBrush
@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import (
     ElevatedCardWidget, StrongBodyLabel, BodyLabel, CaptionLabel,
-    SpinBox, DoubleSpinBox, ComboBox, TextEdit,
+    SpinBox, DoubleSpinBox, TextEdit,
     PrimaryPushButton, PushButton, FluentIcon, SearchLineEdit,
-    LineEdit, InfoBar, IconWidget, SwitchButton
+    LineEdit, InfoBar, IconWidget
 )
+from .components import MacSwitch, MacComboBox, StatCard, SectionCard, FlowLayout
+from .theme import Theme
 
 from ..core.config import config_manager
 from ..core.i18n import SUPPORTED_LANGUAGES, get_language, tr
@@ -43,33 +45,46 @@ class SettingsPage(QWidget):
         self._dirty = False
         self._cache_cleanup_in_progress = False
         self._language = get_language(config_manager.settings.app_language)
+        self._original_state = {}
         self._build_ui()
         self._load_values()
         self._connect_change_tracking()
+        self._update_deep_scan_state()
         config_manager.cache_cleanup_finished.connect(self._on_cache_cleanup_finished)
 
     # ── Widget Factories ─────────────────────────────────────────────────────
 
-    def _row(self, title: str, widget: QWidget, caption: str = "") -> QWidget:
+    def _row(self, title: str, widget: QWidget, caption: str = "", icon: FluentIcon = None) -> QWidget:
         """A standard macOS-style left-label / right-control row."""
         frame = QFrame()
-        frame.setMinimumHeight(56 if caption else 48)
+        frame.setFixedHeight(48 if caption else 34)
         frame.setStyleSheet(
             "QFrame { background: transparent; border-radius: 4px; border: none; }"
-            "QFrame:hover { background: #3A3A3C; }"
         )
         hl = QHBoxLayout(frame)
         hl.setContentsMargins(12, 4, 12, 4)
         hl.setSpacing(12)
+        
+        if icon:
+            ic = IconWidget(icon)
+            ic.setFixedSize(16, 16)
+            ic.setStyleSheet("IconWidget { color: #8E8E93; } IconWidget:disabled { color: #3A3A3C; }")
+            hl.addWidget(ic)
 
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 14px; background: transparent; border: none;")
+        title_lbl.setStyleSheet(
+            "QLabel { color: white; font-family: 'PT Root UI', sans-serif; font-size: 14px; background: transparent; border: none; } "
+            "QLabel:disabled { color: #4A4A4C; }"
+        )
         text_col.addWidget(title_lbl)
         if caption:
             cap = QLabel(caption)
-            cap.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 11px; background: transparent; border: none;")
+            cap.setStyleSheet(
+                f"QLabel {{ color: {Theme.TEXT_SECONDARY}; font-size: 11px; background: transparent; border: none; }} "
+                "QLabel:disabled { color: #3A3A3C; }"
+            )
             cap.setWordWrap(True)
             text_col.addWidget(cap)
 
@@ -94,7 +109,7 @@ class SettingsPage(QWidget):
     def _card(self, num: str, title: str, content: QWidget, has_divider: bool = True) -> QFrame:
         card = QFrame()
         card.setObjectName(f"StepCard{num}")
-        card.setStyleSheet(f"QFrame#StepCard{num} {{ background: #2C2C2E; border-radius: 14px; border: none; }}")
+        card.setStyleSheet(f"QFrame#StepCard{num} {{ background: transparent; border-radius: 14px; border: 1px solid #2C2C2E; }}")
         vl = QVBoxLayout(card)
         vl.setContentsMargins(16, 18, 16, 18) # FIX 3: exact padding
         vl.setSpacing(10)
@@ -125,13 +140,13 @@ class SettingsPage(QWidget):
         vl.addWidget(content, 1) # FIX 3: Content fills card
         return card
 
-    def _sw(self) -> SwitchButton:
-        s = SwitchButton()
+    def _sw(self) -> MacSwitch:
+        s = MacSwitch()
         return s
 
     def _style_combo(self, combo: QWidget) -> None:
         combo.setStyleSheet("""
-            ComboBox {
+            QComboBox {
                 background: #3A3A3C;
                 border: 1px solid #4A4A4C;
                 border-radius: 8px;
@@ -141,50 +156,52 @@ class SettingsPage(QWidget):
                 font-weight: 600;
                 padding: 0 12px;
             }
-            ComboBox:hover {
+            QComboBox:hover {
                 border: 1px solid #5A5A5C;
             }
-            ComboBox:focus {
+            QComboBox:focus {
                 border: 1px solid #0A84FF;
             }
         """)
 
     def _style_input(self, widget: QWidget) -> None:
+        if hasattr(widget, "setCustomFocusedBorderColor"):
+            from PySide6.QtGui import QColor
+            widget.setCustomFocusedBorderColor(QColor(0,0,0,0), QColor(0,0,0,0))
         widget.setStyleSheet("""
-            QLineEdit, SearchLineEdit, QTextEdit {
-                background: #3A3A3C;
-                border: 1px solid #4A4A4C;
+            LineEdit, QLineEdit, SearchLineEdit, TextEdit, QTextEdit {
+                background-color: #252528;
+                border: 1px solid #2C2C2E;
                 border-radius: 8px;
-                color: #F2F2F7;
+                color: #FFFFFF;
+                padding-left: 10px;
+                padding-top: 4px;
+                padding-bottom: 4px;
                 font-family: 'PT Root UI', sans-serif;
-                font-size: 12px;
-                padding: 0 12px;
+                font-size: 13px;
+                font-weight: 500;
             }
-            QLineEdit:focus, SearchLineEdit:focus, QTextEdit:focus {
+            LineEdit:focus, QLineEdit:focus, SearchLineEdit:focus, TextEdit:focus, QTextEdit:focus {
                 border: 1px solid #0A84FF;
+                background-color: #2C2C2E;
             }
-            QLineEdit:disabled, SearchLineEdit:disabled, QTextEdit:disabled {
-                color: #6E6E73;
-                background: #2A2A2C;
-                border: 1px solid #3A3A3C;
+            LineEdit:disabled, QLineEdit:disabled, SearchLineEdit:disabled, TextEdit:disabled, QTextEdit:disabled {
+                background-color: #1C1C1E;
+                color: #636366;
             }
         """)
 
     # ── Main Layout ──────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        self.setObjectName("SettingsPage")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.ClickFocus)
+        self.setStyleSheet(f"QWidget#SettingsPage {{ background: {Theme.BG_OBSIDIAN}; }}")
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 20, 28, 20) # FIX 3: Exact padding
         root.setSpacing(0) # Spacing handled by internal components
 
-        # Header Title
-        title_box = QWidget()
-        tl = QVBoxLayout(title_box); tl.setContentsMargins(0, 0, 0, 12)
-        self._title_label = QLabel(tr("settings.title", self._language))
-        self._title_label.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 28px; font-weight: 600;")
-        tl.addWidget(self._title_label)
-        root.addWidget(title_box, 0)
 
         # Top Row (3 columns)
         top_row = QHBoxLayout()
@@ -196,7 +213,7 @@ class SettingsPage(QWidget):
         # Bottom Row (2 columns, 50/50 split)
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(12)
-        bottom_row.addWidget(self._card("4", tr("settings.network.title", self._language),self._build_network()))
+        bottom_row.addWidget(self._card("4", "SYSTEM PREFERENCES", self._build_network()))
         bottom_row.addWidget(self._card("5", tr("settings.system", self._language), self._build_system()))
 
         # Grid Container (100vh behavior via flex: 1)
@@ -216,140 +233,332 @@ class SettingsPage(QWidget):
 
     def _build_scraping(self) -> QWidget:
         container = QWidget(); container.setStyleSheet("background: transparent;")
-        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(6)
+        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(4)
 
-        self._chk_headless = self._sw()
-        self._chk_robots   = self._sw()
-        vl.addWidget(self._row(tr("settings.headless.title", self._language), self._chk_headless))
-        vl.addWidget(self._row(tr("settings.robots.title", self._language),    self._chk_robots))
-
-        # Browser Engine Selection
-        self._engine_combo = ComboBox()
-        self._engine_combo.setFixedWidth(200)
-        self._engine_combo.setFixedHeight(36)
+        # 1. Browser Engine Selection
+        self._engine_combo = MacComboBox()
         self._engine_combo.addItem("Chromium (Bundled)", "chromium")
-        self._engine_combo.addItem("Google Chrome (System)", "chrome")
-        self._engine_combo.addItem("Microsoft Edge (System)", "msedge")
+        self._engine_combo.addItem("Google Chrome", "chrome")
+        self._engine_combo.addItem("Microsoft Edge", "msedge")
+        self._engine_combo.addItem("Apple Safari", "safari")
+        self._engine_combo.addItem("Mozilla Firefox", "firefox")
+        self._engine_combo.addItem("Brave Browser", "brave")
+        self._engine_combo.addItem("Arc Browser", "arc")
         self._style_combo(self._engine_combo)
-        vl.addWidget(self._row("Scraping Engine", self._engine_combo, "Change the underlying browser."))
-
         self._engine_combo.currentIndexChanged.connect(self._on_engine_changed)
 
-        # Inputs (LineEdits = 0 Arrows)
-        self._delay_min   = LineEdit(); self._delay_min.setFixedHeight(40); self._delay_min.setMinimumWidth(84)
-        self._delay_max   = LineEdit(); self._delay_max.setFixedHeight(40); self._delay_max.setMinimumWidth(84)
-        self._max_results = LineEdit(); self._max_results.setFixedHeight(40); self._max_results.setMinimumWidth(84)
+        # 2. Toggles (Headless + Robots) side-by-side
+        self._chk_headless = self._sw()
+        self._chk_robots   = self._sw()
+        toggles_row = QHBoxLayout()
+        toggles_row.setContentsMargins(0, 0, 0, 0); toggles_row.setSpacing(6)
+        
+        headless_frame = self._row(tr("settings.headless.title", self._language), self._chk_headless, icon=FluentIcon.COMMAND_PROMPT)
+        robots_frame = self._row(tr("settings.robots.title", self._language), self._chk_robots, icon=FluentIcon.ROBOT)
+        toggles_row.addWidget(headless_frame)
+        toggles_row.addWidget(robots_frame)
+        vl.addLayout(toggles_row)
+
+        # 3. Inputs (LineEdits) all in one frame
+        self._delay_min   = LineEdit(); self._delay_min.setFixedHeight(36)
+        self._delay_max   = LineEdit(); self._delay_max.setFixedHeight(36)
+        self._max_results = LineEdit(); self._max_results.setFixedHeight(36)
+        self._max_retries = LineEdit(); self._max_retries.setFixedHeight(36)
+        self._max_concurrent = LineEdit(); self._max_concurrent.setFixedHeight(36)
         
         dv = QDoubleValidator(0.5, 60.0, 1, self); dv.setNotation(QDoubleValidator.StandardNotation)
         iv = QDoubleValidator(5, 10000, 0, self); iv.setNotation(QDoubleValidator.StandardNotation)
+        rv = QDoubleValidator(0, 10, 0, self); rv.setNotation(QDoubleValidator.StandardNotation)
+        cv = QDoubleValidator(1, 20, 0, self); cv.setNotation(QDoubleValidator.StandardNotation)
         
         self._delay_min.setValidator(dv); self._delay_max.setValidator(dv); self._max_results.setValidator(iv)
-        for widget in [self._delay_min, self._delay_max, self._max_results]:
+        self._max_retries.setValidator(rv); self._max_concurrent.setValidator(cv)
+        
+        for widget in [self._delay_min, self._delay_max, self._max_results, self._max_retries, self._max_concurrent]:
             self._style_input(widget)
 
         spin_frame = QFrame()
         spin_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
-        spin_hl = QHBoxLayout(spin_frame); spin_hl.setContentsMargins(12, 11, 12, 11); spin_hl.setSpacing(16)
+        spin_hl = QHBoxLayout(spin_frame); spin_hl.setContentsMargins(12, 11, 12, 11); spin_hl.setSpacing(12)
         for label_key, widget in [
-            ("settings.delay.min", self._delay_min), 
-            ("settings.delay.max", self._delay_max), 
-            ("settings.limit.title", self._max_results)
+            ("MIN", self._delay_min), 
+            ("MAX", self._delay_max), 
+            ("LIMIT", self._max_results),
+            ("RETRY", self._max_retries),
+            ("JOBS", self._max_concurrent)
         ]:
             col = QVBoxLayout(); col.setSpacing(4)
-            l = QLabel(tr(label_key, self._language)); l.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700; background: transparent;")
+            l = QLabel(label_key); l.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700; background: transparent;")
             col.addWidget(l); col.addWidget(widget)
             spin_hl.addLayout(col)
-        spin_hl.addStretch()
         vl.addWidget(spin_frame)
+        vl.addSpacing(2)
+
+        # 4. Proxy + Rotate UA Toggles side-by-side
+        self._chk_proxy = self._sw()
+        self._chk_proxy.toggled.connect(self._on_proxy_toggled)
+        self._chk_rotate_ua = self._sw()
+
+        net_toggles_row = QHBoxLayout()
+        net_toggles_row.setContentsMargins(0, 0, 0, 0); net_toggles_row.setSpacing(6)
+        proxy_toggle_frame = self._row("Custom Proxy", self._chk_proxy, icon=FluentIcon.GLOBE)
+        rotate_toggle_frame = self._row("Rotate UA", self._chk_rotate_ua, icon=FluentIcon.SYNC)
+        net_toggles_row.addWidget(proxy_toggle_frame)
+        net_toggles_row.addWidget(rotate_toggle_frame)
+        vl.addLayout(net_toggles_row)
+
+        # 5. Proxy URL/Port
+        proxy_frame = QFrame()
+        proxy_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
+        ph = QHBoxLayout(proxy_frame); ph.setContentsMargins(10, 8, 10, 8); ph.setSpacing(8)
+        self._proxy_url  = SearchLineEdit(); self._proxy_url.setFixedHeight(30); self._proxy_url.setPlaceholderText("http://user:pass@proxy.com")
+        self._proxy_port = LineEdit();       self._proxy_port.setFixedHeight(30); self._proxy_port.setPlaceholderText("8080"); self._proxy_port.setFixedWidth(70)
+        self._style_input(self._proxy_url); self._style_input(self._proxy_port)
+        ph.addWidget(self._proxy_url, 1); ph.addWidget(self._proxy_port)
+        vl.addWidget(proxy_frame)
+
+        # 6. User Agents
+        ua_header = QHBoxLayout()
+        ua_header.setSpacing(8)
+        ua_header.addWidget(self._section_label("USER AGENTS POOL"))
+        self._ua_count_lbl = QLabel("0 AGENTS")
+        self._ua_count_lbl.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 600; background: transparent; border: none;")
+        ua_header.addWidget(self._ua_count_lbl)
+        ua_header.addStretch()
+        vl.addLayout(ua_header)
+
+        self._user_agents = TextEdit()
+        self._user_agents.setMinimumHeight(120)
+        self._style_input(self._user_agents)
+        vl.addWidget(self._user_agents)
+
+        vl.addWidget(self._row("Browser Engine", self._engine_combo, icon=FluentIcon.APPLICATION))
+
         vl.addStretch()
         return container
 
     def _build_email(self) -> QWidget:
         container = QWidget(); container.setStyleSheet("background: transparent;")
-        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(12)
+        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(4)
 
-        # ── ROW 1: Toggle rows ───────────────────────────────────────────────
+        # ── ROW 1: Toggle rows (no caption, tight) ───────────────────────────
         self._chk_scrape_emails = self._sw()
         self._chk_debug_screenshots = self._sw()
-        
-        toggles_layout = QVBoxLayout()
-        toggles_layout.setSpacing(4)
-        toggles_layout.addWidget(self._row("Deep Scan", self._chk_scrape_emails,
-                               "Visit company websites to find hidden emails"))
-        toggles_layout.addWidget(self._row("Debug Output", self._chk_debug_screenshots,
-                               "Save screenshots for troubleshooting"))
-        vl.addLayout(toggles_layout)
+
+        vl.addWidget(self._row("Deep Scan", self._chk_scrape_emails, icon=FluentIcon.SEARCH))
+        self._debug_out_frame = self._row("Debug Output", self._chk_debug_screenshots, icon=FluentIcon.DEVELOPER_TOOLS)
+        vl.addWidget(self._debug_out_frame)
 
         # ── ROW 2: Discovery Paths ───────────────────────────────────────────
         paths_title = QLabel("DISCOVERY PATHS (COMMA SEPARATED)")
         paths_title.setStyleSheet(
             "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
             "font-size: 10px; font-weight: 600; letter-spacing: 1.3px; "
-            "text-transform: uppercase; background: transparent; border: none;"
+            "background: transparent; border: none; padding-left: 4px;"
         )
+        vl.addSpacing(2)
         vl.addWidget(paths_title)
 
         self._discovery_paths_edit = TextEdit()
-        self._discovery_paths_edit.setFixedHeight(50)
+        self._discovery_paths_edit.setMinimumHeight(95)
         self._discovery_paths_edit.setPlaceholderText("impressum, kontakt, karriere...")
         self._style_input(self._discovery_paths_edit)
         vl.addWidget(self._discovery_paths_edit)
 
-        # ── ROW 3: SMTP Credentials ──────────────────────────────────────────
-        smtp_title = QLabel("SMTP SERVER")
+        # ── ROW 3: Depth + Timeout ───────────────────────────────────────────
+        vl.addSpacing(6)
+        depth_frame = QFrame()
+        depth_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
+        depth_hl = QHBoxLayout(depth_frame); depth_hl.setContentsMargins(12, 8, 12, 8); depth_hl.setSpacing(16)
+
+        self._max_depth = LineEdit(); self._max_depth.setFixedHeight(30); self._max_depth.setMinimumWidth(60)
+        ddv = QDoubleValidator(1, 10, 0, self); ddv.setNotation(QDoubleValidator.StandardNotation)
+        self._max_depth.setValidator(ddv)
+        self._style_input(self._max_depth)
+
+        self._disc_timeout = LineEdit(); self._disc_timeout.setFixedHeight(30); self._disc_timeout.setMinimumWidth(60)
+        dtv = QDoubleValidator(5, 300, 0, self); dtv.setNotation(QDoubleValidator.StandardNotation)
+        self._disc_timeout.setValidator(dtv)
+        self._style_input(self._disc_timeout)
+
+        for lbl_text, widget in [("DEPTH", self._max_depth), ("TIMEOUT (S)", self._disc_timeout)]:
+            col = QVBoxLayout(); col.setSpacing(4)
+            l = QLabel(lbl_text); l.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700; background: transparent;")
+            col.addWidget(l); col.addWidget(widget)
+            depth_hl.addLayout(col)
+        depth_hl.addStretch()
+        vl.addWidget(depth_frame)
+
+        smtp_title = QLabel("SMTP CONFIGURATION")
         smtp_title.setStyleSheet(
             "color: #8E8E93; font-family: 'PT Root UI', sans-serif; "
             "font-size: 10px; font-weight: 600; letter-spacing: 1.3px; "
-            "text-transform: uppercase; background: transparent; border: none;"
+            "background: transparent; border: none; padding-left: 4px;"
         )
+        vl.addSpacing(4)
         vl.addWidget(smtp_title)
 
-        smtp_row = QHBoxLayout()
-        smtp_row.setContentsMargins(0, 0, 0, 0)
-        smtp_row.setSpacing(12)
+        smtp_frame = QFrame()
+        smtp_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
+        smtp_hl = QHBoxLayout(smtp_frame); smtp_hl.setContentsMargins(12, 8, 12, 8); smtp_hl.setSpacing(8)
 
         self._smtp_host_cfg = LineEdit()
-        self._smtp_host_cfg.setFixedHeight(36)
-        self._smtp_host_cfg.setPlaceholderText("Server Host (e.g., smtp.gmail.com)")
+        self._smtp_host_cfg.setFixedHeight(30)
+        self._smtp_host_cfg.setPlaceholderText("smtp.gmail.com")
         self._style_input(self._smtp_host_cfg)
-        
+
         self._smtp_port_cfg = LineEdit()
-        self._smtp_port_cfg.setFixedHeight(36)
-        self._smtp_port_cfg.setFixedWidth(80)
-        self._smtp_port_cfg.setPlaceholderText("Port")
+        self._smtp_port_cfg.setFixedHeight(30)
+        self._smtp_port_cfg.setFixedWidth(60)
+        self._smtp_port_cfg.setPlaceholderText("587")
         self._style_input(self._smtp_port_cfg)
 
-        smtp_row.addWidget(self._smtp_host_cfg, 1)
-        smtp_row.addWidget(self._smtp_port_cfg, 0)
-        vl.addLayout(smtp_row)
+        smtp_hl.addWidget(self._smtp_host_cfg, 1)
+        smtp_hl.addWidget(self._smtp_port_cfg, 0)
+        vl.addWidget(smtp_frame)
 
+        self._chk_validate = self._sw()
+        self._email_val_frame = self._row("Email Validation", self._chk_validate, icon=FluentIcon.MAIL)
+        vl.addWidget(self._email_val_frame)
+
+        vl.addStretch()
         return container
 
     # ── Discovery Paths management removed (handled entirely via TextEdit value) ──
 
 
     def _build_network(self) -> QWidget:
+        """Repurposed as System Preferences to fix UI overlap."""
         container = QWidget(); container.setStyleSheet("background: transparent;")
-        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(6)
+        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(8)
 
-        self._chk_proxy = self._sw()
-        self._chk_proxy.checkedChanged.connect(self._on_proxy_toggled)
-        vl.addWidget(self._row(tr("settings.proxy.title", self._language), self._chk_proxy))
+        conf_group = QFrame()
+        conf_group.setObjectName("PrefGroup")
+        conf_group.setStyleSheet("""
+            QFrame#PrefGroup {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 rgba(44, 44, 46, 0.4),
+                                          stop:1 rgba(28, 28, 30, 0.3));
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+            }
+        """)
+        conf_vl = QVBoxLayout(conf_group); conf_vl.setContentsMargins(16, 6, 16, 6); conf_vl.setSpacing(0)
 
-        proxy_frame = QFrame()
-        proxy_frame.setStyleSheet(f"QFrame {{ background: {Theme.BG_HOVER_LIGHT}; border-radius: 8px; border: none; }}")
-        ph = QHBoxLayout(proxy_frame); ph.setContentsMargins(10, 8, 10, 8); ph.setSpacing(8)
-        self._proxy_url  = SearchLineEdit(); self._proxy_url.setFixedHeight(40); self._proxy_url.setPlaceholderText("http://user:pass@proxy.com")
-        self._proxy_port = LineEdit();       self._proxy_port.setFixedHeight(40); self._proxy_port.setPlaceholderText("8080"); self._proxy_port.setFixedWidth(70)
-        self._style_input(self._proxy_url); self._style_input(self._proxy_port)
-        ph.addWidget(self._proxy_url, 1); ph.addWidget(self._proxy_port)
-        vl.addWidget(proxy_frame)
+        def _setting_row(icon: FluentIcon, title: str, description: str, widget: QWidget):
+            row = QFrame()
+            row.setStyleSheet("background: transparent; border: none;")
+            row_hl = QHBoxLayout(row); row_hl.setContentsMargins(0, 8, 0, 8); row_hl.setSpacing(12)
+            from qfluentwidgets import IconWidget
+            ic = IconWidget(icon); ic.setFixedSize(16, 16); ic.setStyleSheet("color: #8E8E93;")
+            row_hl.addWidget(ic)
+            txt_vl = QVBoxLayout(); txt_vl.setSpacing(2); txt_vl.setContentsMargins(0, 0, 0, 0)
+            t = QLabel(title); t.setStyleSheet("color: white; font-size: 13px; font-weight: 600;")
+            d = QLabel(description); d.setStyleSheet("color: #8E8E93; font-size: 11px;")
+            txt_vl.addWidget(t); txt_vl.addWidget(d)
+            row_hl.addLayout(txt_vl, 1); row_hl.addWidget(widget)
+            return row
 
-        vl.addWidget(self._section_label(tr("settings.user_agents.title", self._language)))
-        self._user_agents = TextEdit()
-        self._user_agents.setMinimumHeight(0)
-        self._style_input(self._user_agents)
-        vl.addWidget(self._user_agents, 1) # flex factor 1
+        # 1. Auto Save
+        self._chk_auto_save = self._sw()
+        conf_vl.addWidget(_setting_row(FluentIcon.SAVE, "Auto Save", "Save settings automatically.", self._chk_auto_save))
+        div3 = QFrame(); div3.setFixedHeight(1); div3.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;"); conf_vl.addWidget(div3)
+
+        # 2. Job Notifications
+        self._chk_notify = self._sw()
+        conf_vl.addWidget(_setting_row(FluentIcon.RINGER, "Job Notifications", "Notify when scraping finishes.", self._chk_notify))
+        div4 = QFrame(); div4.setFixedHeight(1); div4.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;"); conf_vl.addWidget(div4)
+
+        # 3. Log Retention
+        self._log_retention = MacComboBox()
+        self._log_retention.setFixedWidth(120); self._log_retention.setFixedHeight(30)
+        self._log_retention.addItems(["7 DAYS", "30 DAYS", "90 DAYS", "FOREVER"])
+        self._style_combo(self._log_retention)
+        conf_vl.addWidget(_setting_row(FluentIcon.HISTORY, "Log Retention", "How long to keep log files.", self._log_retention))
+        div5 = QFrame(); div5.setFixedHeight(1); div5.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;"); conf_vl.addWidget(div5)
+
+        self._default_export_dir = LineEdit(); self._default_export_dir.setFixedSize(280, 30)
+        self._default_export_dir.setPlaceholderText("Browse...")
+        self._default_export_dir.setReadOnly(True)
+        self._default_export_dir.setFocusPolicy(Qt.NoFocus)
+        self._default_export_dir.setCursor(Qt.PointingHandCursor)
+        self._style_input(self._default_export_dir)
+        
+        def _browse_export_dir(event):
+            from PySide6.QtWidgets import QFileDialog
+            import os
+            start_path = self._default_export_dir.text() or os.path.expanduser("~")
+            path = QFileDialog.getExistingDirectory(self, "Select Export Directory", start_path)
+            if path:
+                self._default_export_dir.setText(path)
+                
+        self._default_export_dir.mousePressEvent = _browse_export_dir
+        conf_vl.addWidget(_setting_row(FluentIcon.FOLDER, "Export Directory", "Default path for exports.", self._default_export_dir))
+
+        vl.addWidget(conf_group)
+
+        # ── Product License (moved from Card 3) ──────────────────────────────
+        vl.addSpacing(8)
+        lic_card = QFrame()
+        lic_card.setObjectName("LicCard")
+        lic_card.setStyleSheet(
+            "QFrame#LicCard { background: rgba(48, 209, 88, 0.07); "
+            "border: 1px solid rgba(48, 209, 88, 0.18); border-radius: 12px; }"
+        )
+        lic_hl = QHBoxLayout(lic_card); lic_hl.setContentsMargins(16, 12, 16, 12); lic_hl.setSpacing(12)
+        
+        l_ic = IconWidget(FluentIcon.CERTIFICATE.icon(color=QColor("#30D158")))
+        l_ic.setFixedSize(16, 16)
+        lic_hl.addWidget(l_ic)
+        
+        lic_lt = QVBoxLayout(); lic_lt.setSpacing(2); lic_lt.setContentsMargins(0, 0, 0, 0)
+        lic_lbl = QLabel("PRODUCT LICENSE")
+        lic_lbl.setStyleSheet("color: rgba(48, 209, 88, 0.95); font-size: 10px; font-weight: 800; letter-spacing: 1px;")
+        self._lic_desc_card4 = QLabel("Loading..."); self._lic_desc_card4.setStyleSheet("color: #8E8E93; font-size: 11px; background: transparent;")
+        lic_lt.addWidget(lic_lbl); lic_lt.addWidget(self._lic_desc_card4)
+        lic_hl.addLayout(lic_lt, 1)
+
+        self._btn_deactivate_card4 = _QPBtn(tr("settings.button.reset_trial", self._language).upper())
+        self._btn_deactivate_card4.setFixedSize(160, 40)
+        self._btn_deactivate_card4.setCursor(Qt.PointingHandCursor)
+        self._btn_deactivate_card4.setStyleSheet("""
+            QPushButton {
+                background-color: #2C2C2E;
+                border: none;
+                border-radius: 10px;
+                color: #8E8E93;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1.4px;
+                padding: 0 12px;
+            }
+            QPushButton:hover { background-color: #3A3A3C; color: #E5E5EA; }
+            QPushButton:pressed { background-color: #2C2C2E; }
+        """)
+        self._btn_deactivate_card4.clicked.connect(self._reset_to_trial)
+        lic_hl.addWidget(self._btn_deactivate_card4)
+
+        self._btn_activate_card4 = _QPBtn(tr("settings.button.activate", self._language).upper())
+        self._btn_activate_card4.setFixedSize(160, 40)
+        self._btn_activate_card4.setCursor(Qt.PointingHandCursor)
+        self._btn_activate_card4.setStyleSheet("""
+            QPushButton {
+                background-color: #0F3A20;
+                border: none;
+                border-radius: 10px;
+                color: #30D158;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1.4px;
+                padding: 0 12px;
+            }
+            QPushButton:hover { background-color: #144C2A; color: #4CD964; }
+            QPushButton:pressed { background-color: #0F3A20; }
+        """)
+        lic_hl.addWidget(self._btn_activate_card4)
+        vl.addWidget(lic_card)
+
+        vl.addStretch()
         return container
 
     def _build_system(self) -> QWidget:
@@ -402,12 +611,12 @@ class SettingsPage(QWidget):
         div = QFrame(); div.setFixedHeight(1); div.setStyleSheet("background: rgba(255, 255, 255, 0.04); margin: 0 10px;")
         conf_vl.addWidget(div)
 
-        self._language_combo = ComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
+        self._language_combo = MacComboBox(); self._language_combo.setFixedHeight(30); self._language_combo.setFixedWidth(140)
         self._style_combo(self._language_combo)
         for code, label in SUPPORTED_LANGUAGES.items():
             self._language_combo.addItem(label, userData=code)
         conf_vl.addWidget(_setting_row(FluentIcon.LANGUAGE, tr("settings.language.title", self._language), tr("settings.language.desc", self._language), self._language_combo))
-        
+
         top_split.addWidget(conf_group, 3)
 
         # ── RIGHT: Action Stack ──────────────────────────────────────────
@@ -460,13 +669,13 @@ class SettingsPage(QWidget):
         cache_card.setStyleSheet("QFrame#CacheCard { background: rgba(255, 159, 10, 0.05); border: 1px solid rgba(255, 159, 10, 0.14); border-radius: 12px; }")
         cache_hl = QHBoxLayout(cache_card); cache_hl.setContentsMargins(16, 12, 16, 12); cache_hl.setSpacing(12)
 
-        c_ic = IconWidget(FluentIcon.SYNC); c_ic.setFixedSize(16, 16); c_ic.setStyleSheet("color: #FF9F0A;")
+        c_ic = IconWidget(FluentIcon.SYNC.icon(color=QColor("#FFB340")))
+        c_ic.setFixedSize(16, 16)
         cache_hl.addWidget(c_ic)
 
         ctxt = QVBoxLayout(); ctxt.setSpacing(2); ctxt.setContentsMargins(0, 0, 0, 0)
         ch = QLabel("CACHED APPDATA"); ch.setStyleSheet("color: rgba(255, 159, 10, 0.95); font-size: 10px; font-weight: 800; letter-spacing: 1px;")
-        cb = QLabel("Reset stale AppData settings and local cache while keeping SMTP and scraped leads.")
-        cb.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        cb = QLabel("Reset stale AppData settings and local cache while keeping SMTP and scraped leads."); cb.setStyleSheet("color: #8E8E93; font-size: 11px;")
         ctxt.addWidget(ch); ctxt.addWidget(cb)
         cache_hl.addLayout(ctxt, 1)
 
@@ -500,7 +709,8 @@ class SettingsPage(QWidget):
         danger_card.setStyleSheet("QFrame#DangerCard { background: rgba(255, 69, 58, 0.05); border: 1px solid rgba(255, 69, 58, 0.12); border-radius: 12px; }")
         danger_hl = QHBoxLayout(danger_card); danger_hl.setContentsMargins(16, 12, 16, 12); danger_hl.setSpacing(12)
         
-        d_ic = IconWidget(FluentIcon.INFO); d_ic.setFixedSize(16, 16); d_ic.setStyleSheet("color: #FF453A;")
+        d_ic = IconWidget(FluentIcon.INFO.icon(color=QColor("#FF453A")))
+        d_ic.setFixedSize(16, 16)
         danger_hl.addWidget(d_ic)
 
         dtxt = QVBoxLayout(); dtxt.setSpacing(2); dtxt.setContentsMargins(0, 0, 0, 0)
@@ -542,20 +752,17 @@ class SettingsPage(QWidget):
 
     def _build_protection(self) -> QWidget:
         container = QWidget(); container.setStyleSheet("background: transparent;")
-        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(8)
+        vl = QVBoxLayout(container); vl.setContentsMargins(0, 0, 0, 0); vl.setSpacing(4)
 
-        # PIN controls merged for density
-        pin_ctrls = QWidget()
-        ph = QHBoxLayout(pin_ctrls); ph.setContentsMargins(0,0,0,0); ph.setSpacing(8)
-        self._btn_set_pin = PushButton(tr("settings.button.change_license", self._language).replace("LICENSE", "PIN")) # Reuse or new key? Let's use a direct key for clarity.
-        self._btn_set_pin.setFixedHeight(36)
+        # PIN controls hidden per user request (kept for state compatibility)
+        self._btn_set_pin = PushButton(tr("settings.button.change_license", self._language).replace("LICENSE", "PIN"))
+        self._btn_set_pin.hide()
         self._chk_security_enabled = self._sw()
-        ph.addWidget(self._btn_set_pin); ph.addWidget(self._chk_security_enabled)
-        vl.addWidget(self._row("Startup PIN Lock", pin_ctrls, "Enable 4-digit security."))
+        self._chk_security_enabled.hide()
 
         # Auto Update
         self._chk_auto_update = self._sw()
-        vl.addWidget(self._row(tr("settings.auto_update.title", self._language), self._chk_auto_update, tr("settings.auto_update.desc", self._language)))
+        vl.addWidget(self._row(tr("settings.auto_update.title", self._language), self._chk_auto_update, tr("settings.auto_update.desc", self._language), icon=FluentIcon.UPDATE))
 
         # Core Repo URL
         url_frame = QFrame()
@@ -567,37 +774,89 @@ class SettingsPage(QWidget):
         uh.addWidget(self._git_repo_url)
         vl.addWidget(url_frame)
 
-        # Product License
-        lic_frame = QFrame()
-        lh = QHBoxLayout(lic_frame); lh.setContentsMargins(12, 8, 12, 0); lh.setSpacing(10)
-        lt = QVBoxLayout(); lt.setSpacing(2)
-        lbl = QLabel(tr("settings.license.title", self._language)); lbl.setStyleSheet("color: white; font-family: 'PT Root UI', sans-serif; font-size: 13px; font-weight: 600;")
-        self._lic_desc = QLabel(tr("settings.license.activating", self._language)); self._lic_desc.setStyleSheet("background: transparent; border: none;")
-        lt.addWidget(lbl); lt.addWidget(self._lic_desc); lh.addLayout(lt, 1)
-        
-        self._btn_activate = _QPBtn(tr("settings.button.activate", self._language))
-        self._btn_activate.setFixedHeight(30)
-        self._btn_activate.setCursor(Qt.PointingHandCursor)
-        self._btn_activate.setStyleSheet("""
-            QPushButton {
-                background: #0A84FF;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                font-family: "-apple-system", "SF Pro Text", sans-serif;
-                font-size: 13px; font-weight: 600;
-                padding: 0 16px;
-            }
-            QPushButton:hover { background: #0070DF; }
-        """)
+        # Product License moved to Card 4 — keep widgets for state compatibility
+        lic_frame_hidden = QFrame(); lic_frame_hidden.hide()
+        lh_h = QHBoxLayout(lic_frame_hidden); lh_h.setContentsMargins(0, 0, 0, 0)
+        self._lic_desc = QLabel(tr("settings.license.activating", self._language)); self._lic_desc.hide()
+        self._btn_activate = _QPBtn(tr("settings.button.activate", self._language)); self._btn_activate.hide()
         self._btn_deactivate = PushButton(tr("settings.button.reset_trial", self._language))
-        self._btn_deactivate.setFixedHeight(36)
-        self._btn_deactivate.setStyleSheet(Theme.secondary_button())
+        self._btn_deactivate.hide()
         self._btn_deactivate.clicked.connect(self._reset_to_trial)
+
+
+        # ── New: Update Channel + Automatic Backup ───────────────────────────
+        self._update_channel = MacComboBox()
+        self._update_channel.setFixedWidth(140); self._update_channel.setFixedHeight(36)
+        self._update_channel.addItems(["STABLE", "BETA", "DEV"])
+        self._style_combo(self._update_channel)
+        vl.addWidget(self._row("Update Channel", self._update_channel, "Release stream preference.", icon=FluentIcon.TAG))
+
+        self._chk_backup = self._sw()
+        vl.addWidget(self._row("Automatic Backup", self._chk_backup, "Back up settings periodically.", icon=FluentIcon.SAVE))
         
-        lh.addWidget(self._btn_deactivate)
-        lh.addWidget(self._btn_activate)
-        vl.addWidget(lic_frame)
+        self._backup_dir = LineEdit(); self._backup_dir.setFixedSize(280, 30)
+        self._backup_dir.setPlaceholderText("Browse...")
+        self._backup_dir.setReadOnly(True)
+        self._backup_dir.setFocusPolicy(Qt.NoFocus)
+        self._backup_dir.setCursor(Qt.PointingHandCursor)
+        self._style_input(self._backup_dir)
+        
+        def _browse_backup_dir(event):
+            from PySide6.QtWidgets import QFileDialog
+            import os
+            start_path = self._backup_dir.text() or os.path.expanduser("~")
+            path = QFileDialog.getExistingDirectory(self, "Select Backup Directory", start_path)
+            if path:
+                self._backup_dir.setText(path)
+                
+        self._backup_dir.mousePressEvent = _browse_backup_dir
+        vl.addWidget(self._row("Backup Location", self._backup_dir, "Destination for automatic backups.", icon=FluentIcon.FOLDER))
+
+        vl.addSpacing(8)
+
+        # ── Update Card (blue, styled like CLEAN CACHE) ───────────────────────
+        update_card = QFrame()
+        update_card.setObjectName("UpdateCard")
+        update_card.setStyleSheet(
+            "QFrame#UpdateCard { background: rgba(10, 132, 255, 0.07); "
+            "border: 1px solid rgba(10, 132, 255, 0.18); border-radius: 12px; }"
+        )
+        update_hl = QHBoxLayout(update_card)
+        update_hl.setContentsMargins(16, 12, 16, 12)
+        update_hl.setSpacing(12)
+
+        u_ic = IconWidget(FluentIcon.UPDATE.icon(color=QColor("#0A84FF")))
+        u_ic.setFixedSize(16, 16)
+        update_hl.addWidget(u_ic)
+
+        utxt = QVBoxLayout(); utxt.setSpacing(2); utxt.setContentsMargins(0, 0, 0, 0)
+        uh = QLabel("SOFTWARE UPDATE"); uh.setStyleSheet("color: rgba(10, 132, 255, 0.95); font-size: 10px; font-weight: 800; letter-spacing: 1px;")
+        ub = QLabel("Check GitHub for a newer version and download it automatically.")
+        ub.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        utxt.addWidget(uh); utxt.addWidget(ub)
+        update_hl.addLayout(utxt, 1)
+
+        self._check_update_btn = _QPBtn("CHECK FOR UPDATES")
+        self._check_update_btn.setFixedSize(160, 40)
+        self._check_update_btn.setCursor(Qt.PointingHandCursor)
+        self._check_update_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0A2540;
+                border: none;
+                border-radius: 10px;
+                color: #0A84FF;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1.4px;
+                padding: 0 12px;
+            }
+            QPushButton:hover { background-color: #0D3060; color: #4DA6FF; }
+            QPushButton:pressed { background-color: #0A2540; }
+        """)
+        self._check_update_btn.clicked.connect(self._trigger_update_check)
+        update_hl.addWidget(self._check_update_btn)
+
+        vl.addWidget(update_card)
 
         vl.addStretch()
         return container
@@ -773,13 +1032,22 @@ class SettingsPage(QWidget):
             
         mid_label = tr("settings.license.machine_id", self._language)
         self._lic_desc.setText(
-            f'<span style="color: {color}; font-family: \'SF Mono\'; font-size: 11px;">{status}</span>'
-            f' <span style="color: #3A3A3C; font-family: \'SF Mono\'; font-size: 11px;">|</span>'
-            f' <span style="color: #636366; font-family: \'SF Mono\'; font-size: 11px;">{mid_label}: {mid}</span>'
+            f'<span style="color: {color}; font-family: \'Menlo\'; font-size: 11px;">{status}</span>'
+            f' <span style="color: #3A3A3C; font-family: \'Menlo\'; font-size: 11px;">|</span>'
+            f' <span style="color: #636366; font-family: \'Menlo\'; font-size: 11px;">{mid_label}: {mid}</span>'
         )
-        self._btn_activate.setText(btn_text)
-        self._btn_activate.setVisible(not is_active)
-        self._btn_deactivate.setVisible(is_active)
+        # Keep Card 4 label in sync
+        self._lic_desc_card4.setText(
+            f'<span style="color: {color}; font-size: 11px;">{status}</span>'
+            f' <span style="color: #636366; font-size: 11px;">| {mid_label}: {mid}</span>'
+        )
+        # Card 3 stubs: always keep hidden (orphaned widgets, display is in Card 4)
+        self._btn_activate.setVisible(False)
+        self._btn_deactivate.setVisible(False)
+        # Card 4 buttons drive the actual UI
+        self._btn_activate_card4.setText(btn_text)
+        self._btn_activate_card4.setVisible(not is_active)
+        self._btn_deactivate_card4.setVisible(is_active)
 
     def header_action_widgets(self) -> list[QWidget]:
         return []
@@ -787,28 +1055,91 @@ class SettingsPage(QWidget):
     def _connect_change_tracking(self):
         for chk in [self._chk_headless, self._chk_robots, self._chk_proxy,
                     self._chk_security_enabled, self._chk_auto_update,
-                    self._chk_scrape_emails, self._chk_debug_screenshots]:
-            chk.checkedChanged.connect(self._mark_dirty)
-        self._chk_security_enabled.checkedChanged.connect(self._on_security_toggled)
+                    self._chk_scrape_emails, self._chk_debug_screenshots,
+                    self._chk_validate, self._chk_rotate_ua, self._chk_auto_save,
+                    self._chk_notify, self._chk_backup]:
+            chk.toggled.connect(self._smart_mark_dirty)
+        self._chk_security_enabled.toggled.connect(self._on_security_toggled)
+        self._chk_scrape_emails.toggled.connect(self._update_deep_scan_state)
         self._btn_activate.clicked.connect(self._open_activation)
+        self._btn_activate_card4.clicked.connect(self._open_activation)
         self._btn_set_pin.clicked.connect(self._change_pin)
         for te in [self._user_agents, self._delay_min, 
                     self._delay_max, self._max_results, self._request_timeout,
-                    self._discovery_paths_edit, self._smtp_host_cfg, self._smtp_port_cfg]:
-            te.textChanged.connect(self._mark_dirty)
-        self._proxy_url.textChanged.connect(self._mark_dirty)
-        self._proxy_port.textChanged.connect(self._mark_dirty)
-        self._git_repo_url.textChanged.connect(self._mark_dirty)
-        self._language_combo.currentIndexChanged.connect(self._mark_dirty)
+                    self._discovery_paths_edit, self._smtp_host_cfg, self._smtp_port_cfg,
+                    self._max_retries, self._max_concurrent, self._max_depth,
+                    self._disc_timeout, self._default_export_dir, self._backup_dir]:
+            te.textChanged.connect(self._smart_mark_dirty)
+        self._user_agents.textChanged.connect(self._update_ua_count)
+        self._proxy_url.textChanged.connect(self._smart_mark_dirty)
+        self._proxy_port.textChanged.connect(self._smart_mark_dirty)
+        self._git_repo_url.textChanged.connect(self._smart_mark_dirty)
+        for cb in [self._language_combo, self._engine_combo, self._update_channel, self._log_retention]:
+            cb.currentIndexChanged.connect(self._smart_mark_dirty)
+
+    # ── Smart State Tracking ─────────────────────────────────────────────────
+
+    def _snapshot_state(self):
+        """Capture the current state as the clean baseline."""
+        self._original_state = self._get_current_state_dict()
+
+    def _get_current_state_dict(self):
+        return dict(
+            delay_min=self._delay_min.text(), delay_max=self._delay_max.text(),
+            max_results=self._max_results.text(), timeout=self._request_timeout.text(),
+            max_retries=self._max_retries.text(), max_concurrent=self._max_concurrent.text(),
+            headless=self._chk_headless.isChecked(), robots=self._chk_robots.isChecked(),
+            scrape=self._chk_scrape_emails.isChecked(), debug=self._chk_debug_screenshots.isChecked(),
+            validate=self._chk_validate.isChecked(),
+            max_depth=self._max_depth.text(), disc_timeout=self._disc_timeout.text(),
+            paths=self._discovery_paths_edit.toPlainText(),
+            proxy=self._chk_proxy.isChecked(), proxy_url=self._proxy_url.text(),
+            proxy_port=self._proxy_port.text(),
+            uas=self._user_agents.toPlainText(), rotate_ua=self._chk_rotate_ua.isChecked(),
+            security=self._chk_security_enabled.isChecked(),
+            repo=self._git_repo_url.text(), auto_update=self._chk_auto_update.isChecked(),
+            lang=self._language_combo.currentData(), engine=self._engine_combo.currentData(),
+            smtp_host=self._smtp_host_cfg.text(), smtp_port=self._smtp_port_cfg.text(),
+            auto_save=self._chk_auto_save.isChecked(), notify=self._chk_notify.isChecked(),
+            backup=self._chk_backup.isChecked(),
+            update_channel=self._update_channel.currentText(),
+            log_retention=self._log_retention.currentText(),
+            export_dir=self._default_export_dir.text(),
+            backup_dir=self._backup_dir.text(),
+        )
+
+    def _smart_mark_dirty(self, *args):
+        """Compare current state to snapshot. If identical, revert to clean."""
+        current = self._get_current_state_dict()
+        is_dirty = current != self._original_state
+        if is_dirty != self._dirty:
+            self._dirty = is_dirty
+            if is_dirty:
+                self._save_btn.setText(tr("settings.button.save", self._language) + " *")
+            else:
+                self._save_btn.setText(tr("settings.button.save", self._language))
 
     def _mark_dirty(self):
-        if not self._dirty:
-            self._dirty = True
-            self._save_btn.setText(tr("settings.button.save", self._language) + " *")
+        """Legacy fallback."""
+        self._smart_mark_dirty()
 
     def _mark_clean(self):
         self._dirty = False
         self._save_btn.setText(tr("settings.button.save", self._language))
+
+    def _update_ua_count(self):
+        """Update the UA count label."""
+        uas = [ua.strip() for ua in self._user_agents.toPlainText().splitlines() if ua.strip()]
+        self._ua_count_lbl.setText(f"{len(uas)} AGENT{'S' if len(uas) != 1 else ''}")
+
+    def _update_deep_scan_state(self):
+        """Enable/disable discovery-related fields based on Deep Scan toggle."""
+        is_on = self._chk_scrape_emails.isChecked()
+        self._discovery_paths_edit.setEnabled(is_on)
+        self._debug_out_frame.setEnabled(is_on)
+        self._email_val_frame.setEnabled(is_on)
+        self._max_depth.setEnabled(is_on)
+        self._disc_timeout.setEnabled(is_on)
 
     def _on_proxy_toggled(self, enabled: bool):
         self._proxy_url.setEnabled(enabled)
@@ -837,6 +1168,19 @@ class SettingsPage(QWidget):
         self._btn_set_pin.setVisible(s.security_enabled)
         self._git_repo_url.setText(s.git_repo_url)
         self._chk_auto_update.setChecked(s.auto_update_enabled)
+
+        # New fields
+        self._max_retries.setText(str(getattr(s, "default_max_retries", 3)))
+        self._max_concurrent.setText(str(getattr(s, "max_concurrent_jobs", 5)))
+        self._chk_validate.setChecked(getattr(s, "validate_emails", True))
+        self._max_depth.setText(str(getattr(s, "max_discovery_depth", 2)))
+        self._disc_timeout.setText(str(getattr(s, "discovery_timeout", 60)))
+        self._chk_rotate_ua.setChecked(getattr(s, "rotate_user_agent", False))
+        self._chk_auto_save.setChecked(getattr(s, "auto_save", True))
+        self._chk_notify.setChecked(getattr(s, "notify_job_completion", True))
+        self._chk_backup.setChecked(getattr(s, "auto_backup", True))
+        self._default_export_dir.setText(getattr(s, "default_export_dir", ""))
+        self._backup_dir.setText(getattr(s, "backup_dir", ""))
         
         # Load Browser Engine
         engine = getattr(s, "browser_engine", "chromium")
@@ -858,6 +1202,8 @@ class SettingsPage(QWidget):
         self._smtp_port_cfg.setText(getattr(s, "email_smtp_port", "587"))
 
         self._mark_clean()
+        self._update_ua_count()
+        self._snapshot_state()
 
     @staticmethod
     def _extract_proxy_port(proxy_url: str) -> str:
@@ -920,11 +1266,16 @@ class SettingsPage(QWidget):
             # SMTP
             email_smtp_host=self._smtp_host_cfg.text().strip() or "smtp.gmail.com",
             email_smtp_port=self._smtp_port_cfg.text().strip() or "587",
-            # End settings update
+            # New fields
+            max_concurrent_jobs=int(float(self._max_concurrent.text() or "5")),
+            notify_job_completion=self._chk_notify.isChecked(),
+            default_export_dir=self._default_export_dir.text().strip(),
+            auto_backup=self._chk_backup.isChecked(),
+            backup_dir=self._backup_dir.text().strip(),
         )
         self._language = selected_language
-        self._title_label.setText(tr("settings.title", self._language))
         self._mark_clean()
+        self._snapshot_state()
         InfoBar.success(tr("settings.saved", self._language), tr("settings.saved.body", self._language), duration=2000, parent=self.window())
         if selected_language != previous_language:
             InfoBar.info(tr("settings.title", self._language), tr("settings.language.restart", self._language), duration=3000, parent=self.window())
@@ -995,3 +1346,36 @@ class SettingsPage(QWidget):
             InfoBar.success("Cache Cleaned", "Old AppData settings were reset. SMTP and saved leads were preserved.", duration=2500, parent=self.window())
         else:
             InfoBar.error("Cleanup Failed", f"Could not clean cached AppData: {error}", parent=self.window())
+
+    def _trigger_update_check(self):
+        self._check_update_btn.setEnabled(False)
+        self._check_update_btn.setText("CHECKING...")
+        try:
+            from ..services.update_service import UpdateService
+            self._update_svc = UpdateService(self)
+            self._update_svc.update_available.connect(self._on_update_available)
+            self._update_svc.no_update_available.connect(self._on_no_update)
+            self._update_svc.check()
+        except Exception as e:
+            InfoBar.warning("Check Failed", str(e), duration=3000, parent=self.window())
+            self._check_update_btn.setEnabled(True)
+            self._check_update_btn.setText("CHECK FOR UPDATES")
+
+    def _on_update_available(self, version: str, url: str):
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("CHECK FOR UPDATES")
+        InfoBar.success(
+            "Update Available",
+            f"Version {version} is ready — download from GitHub.",
+            duration=5000, parent=self.window()
+        )
+
+    def _on_no_update(self):
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("CHECK FOR UPDATES")
+        InfoBar.info(
+            "Up to Date",
+            "You are running the latest version.",
+            duration=3000, parent=self.window()
+        )
+

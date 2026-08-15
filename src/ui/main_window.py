@@ -863,9 +863,19 @@ class MainWindow(FramelessWindow):
             orchestrator.cancel_job()
         thread = getattr(orchestrator, "_thread", None)
         if thread and thread.isRunning():
-            logger.info("[window] Waiting for scraping worker thread to shut down...")
-            if not thread.wait(3000):
-                logger.warning("[window] Scraping worker thread still running after shutdown wait")
+            logger.info("[window] Shutting down scraping worker thread...")
+            # 1. Signal the thread's event loop to stop gracefully
+            if hasattr(thread, "requestInterruption"):
+                thread.requestInterruption()
+            thread.quit()
+            # 2. Give it up to 2s to exit cleanly
+            if not thread.wait(2000):
+                # 3. Last resort: terminate and then ALWAYS wait so the
+                #    destructor never sees a live thread (avoids Qt SIGABRT).
+                logger.warning("[window] Thread did not exit cleanly — terminating")
+                thread.terminate()
+                thread.wait()  # Must wait after terminate before destruction
+            logger.info("[window] Scraping worker thread stopped.")
         event.accept()
 
     def _on_captcha_challenge(self, job_id: str, image: bytes, **kw):

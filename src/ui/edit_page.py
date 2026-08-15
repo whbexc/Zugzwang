@@ -85,8 +85,10 @@ from PySide6.QtWidgets import (
     QSplitter,
     QSpacerItem,
     QGraphicsOpacityEffect,
+    QScrollBar,
 )
-from qfluentwidgets import InfoBar, LineEdit, PushButton, InfoBarPosition, CaptionLabel, FluentIcon, IconWidget, RoundMenu, Action
+from qfluentwidgets import InfoBar, LineEdit, PushButton, InfoBarPosition, CaptionLabel, FluentIcon, IconWidget, Action
+from .components import StatCard, GlassToolTipFilter
 
 
 class SegmentTabButton(QPushButton):
@@ -279,13 +281,15 @@ class ElidedLabel(QLabel):
 class LeadRowWidget(QFrame):
     """Compact lead browser row with status badge."""
 
-    def __init__(self, record: LeadRecord, state: LetterState | None = None):
+    def __init__(self, record: LeadRecord, state: LetterState | None = None, is_last: bool = False):
         super().__init__()
         self.record_id = record.id
+        self._is_last = is_last
         self.setObjectName("leadRow")
         self.setProperty("selected", False)
         self.setFixedHeight(70)
         self.setCursor(Qt.PointingHandCursor)
+        self.setLayoutDirection(Qt.LeftToRight)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 4, 4, 4)
@@ -305,6 +309,8 @@ class LeadRowWidget(QFrame):
             border: none;
             padding: 0px;
         """)
+        company.setToolTip(record.company_name or "Unknown company")
+        company.installEventFilter(GlassToolTipFilter(company))
         top.addWidget(company, 1)
 
         # Show GEN badge only when generated (not sent)
@@ -357,16 +363,19 @@ class LeadRowWidget(QFrame):
                     background: rgba(10, 132, 255, 0.15);
                     border: none;
                     border-radius: 6px;
-                    margin: 2px 0px;
+                    margin: 0px;
                 }
             """)
         else:
             self.setStyleSheet("""
                 QFrame#leadRow {
-                    background: transparent;
+                    background: rgba(255, 255, 255, 0.03);
                     border: none;
-                    border-radius: 6px;
-                    margin: 2px 0px;
+                    border-radius: 8px;
+                    margin: 1px 0px;
+                }
+                QFrame#leadRow:hover {
+                    background: rgba(255, 255, 255, 0.06);
                 }
             """)
 
@@ -730,7 +739,7 @@ class AppleConfirmDialog(QDialog):
 class CustomSplitterHandle(QSplitterHandle):
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#3A3A3C"))
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
 
 class EditPage(QWidget):
     """Three-panel workspace for auto-generated motivation letters."""
@@ -811,43 +820,9 @@ class EditPage(QWidget):
     def _build_ui(self):
         self.setStyleSheet("QWidget#editPage { background: transparent; }")
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(8, 24, 8, 24)
         root.setSpacing(0)
 
-        # Child 1: TopBar
-        top_bar = QWidget()
-        top_bar.setFixedHeight(64)
-        top_bar.setStyleSheet("background: #1C1C1E; border-bottom: 0.5px solid #3A3A3C;")
-        
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(16, 0, 12, 0)
-        top_layout.setSpacing(0)
-        top_layout.setAlignment(Qt.AlignVCenter)
-
-        # LEFT
-        left_box = QVBoxLayout()
-        left_box.setSpacing(1)
-        left_box.setAlignment(Qt.AlignVCenter)
-
-        title_lbl = QLabel("Edit")
-        title_lbl.setStyleSheet("""
-            color: #FFFFFF;
-            font-family: 'PT Root UI', sans-serif;
-            font-size: 28px;
-            font-weight: 600;
-            background: transparent;
-            border: none;
-        """)
-
-        left_box.addWidget(title_lbl)
-        top_layout.addLayout(left_box)
-
-        # SPACER
-        top_layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
-
-
-
-        root.addWidget(top_bar)
 
         # Child 2: BodySplitter
         class StyledSplitter(QSplitter):
@@ -856,7 +831,7 @@ class EditPage(QWidget):
 
         workspace = StyledSplitter(Qt.Horizontal)
         workspace.setChildrenCollapsible(False)
-        workspace.setHandleWidth(1)
+        workspace.setHandleWidth(12)
 
         left_panel = self._build_left_panel()
         left_panel.setFixedWidth(280)
@@ -880,10 +855,17 @@ class EditPage(QWidget):
         self._set_actions_enabled(False)
 
     def _build_left_panel(self) -> QWidget:
-        left = QWidget()
-        left.setStyleSheet("background: #1C1C1E;")
+        left = QFrame()
+        left.setObjectName("EditLeftPanel")
+        left.setStyleSheet("""
+            QFrame#EditLeftPanel {
+                background: #1C1C1E;
+                border: 1px solid #2C2C2E;
+                border-radius: 12px;
+            }
+        """)
         layout = QVBoxLayout(left)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 12)
         layout.setSpacing(0)
 
         # A. Header Row (Removed)
@@ -891,7 +873,7 @@ class EditPage(QWidget):
         # B. Search Bar
         search_w = QWidget()
         search_lyt = QHBoxLayout(search_w)
-        search_lyt.setContentsMargins(10, 10, 10, 6)
+        search_lyt.setContentsMargins(10, 0, 10, 6)
         search_lyt.setSpacing(6)
         
         search_container = QWidget()
@@ -936,12 +918,17 @@ class EditPage(QWidget):
         btn_import.setStyleSheet("""
             QPushButton {
                 background: rgba(10, 132, 255, 0.15);
-                border: 1px solid rgba(10, 132, 255, 0.4);
+                border: none;
                 border-radius: 7px;
+                outline: none;
+            }
+            QPushButton:focus {
+                border: none;
+                outline: none;
             }
             QPushButton:hover {
                 background: rgba(10, 132, 255, 0.25);
-                border: 1px solid #0A84FF;
+                border: none;
             }
             QPushButton:pressed {
                 background: rgba(10, 132, 255, 0.35);
@@ -979,20 +966,43 @@ class EditPage(QWidget):
 
         # D. Lead List
         self._lead_list = QListWidget()
+        self._lead_list.setLayoutDirection(Qt.LeftToRight)
         self._lead_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._lead_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._lead_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._lead_list.setFrameShape(QFrame.NoFrame)
         self._lead_list.setStyleSheet("""
             QListWidget { background: transparent; outline: none; border: none; }
-            QListWidget::item { background: transparent; border: none; outline: none; border-bottom: 1px solid #2C2C2E; padding: 0px 8px; }
-            QListWidget::item:selected { background: transparent; border: none; border-bottom: 1px solid #2C2C2E; outline: none; color: inherit; }
-            QScrollBar:vertical { background: transparent; width: 3px; }
-            QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
+            QListWidget::item { background: transparent; border: none; outline: none; padding: 0px 12px 0px 2px; }
+            QListWidget::item:selected { background: transparent; border: none; outline: none; color: inherit; }
+        """)
+        self._lead_list.itemClicked.connect(self._on_lead_clicked)
+
+        self._lead_scrollbar = QScrollBar(Qt.Vertical)
+        self._lead_scrollbar.setFixedWidth(8)
+        self._lead_scrollbar.setStyleSheet("""
+            QScrollBar:vertical { background: transparent; margin: 0px; }
+            QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 4px; min-height: 20px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; border: none; height: 0px; }
         """)
-        self._lead_list.itemClicked.connect(self._on_lead_clicked)
-        layout.addWidget(self._lead_list, 1)
+        
+        self._lead_scrollbar.valueChanged.connect(self._lead_list.verticalScrollBar().setValue)
+        self._lead_list.verticalScrollBar().valueChanged.connect(self._lead_scrollbar.setValue)
+        
+        def sync_range(min_val, max_val):
+            self._lead_scrollbar.setRange(min_val, max_val)
+            self._lead_scrollbar.setPageStep(self._lead_list.verticalScrollBar().pageStep())
+            
+        self._lead_list.verticalScrollBar().rangeChanged.connect(sync_range)
+
+        list_container = QWidget()
+        list_lyt = QHBoxLayout(list_container)
+        list_lyt.setContentsMargins(0, 0, 0, 0)
+        list_lyt.setSpacing(2)
+        list_lyt.addWidget(self._lead_scrollbar)
+        list_lyt.addWidget(self._lead_list)
+
+        layout.addWidget(list_container, 1)
 
 
 
@@ -1032,10 +1042,17 @@ class EditPage(QWidget):
                 """)
 
     def _build_center_panel(self) -> QWidget:
-        center = QWidget()
-        center.setStyleSheet("background: #141416;")
+        center = QFrame()
+        center.setObjectName("EditCenterPanel")
+        center.setStyleSheet("""
+            QFrame#EditCenterPanel {
+                background: #141416;
+                border: 1px solid #2C2C2E;
+                border-radius: 12px;
+            }
+        """)
         layout = QVBoxLayout(center)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 8, 0, 12)
         layout.setSpacing(0)
 
         # A. Letter Header
@@ -1134,7 +1151,8 @@ class EditPage(QWidget):
         self._editor.setReadOnly(False)
         self._editor.setStyleSheet("""
             QTextEdit {
-                background-color: transparent;
+                background-color: #141416;
+                border-radius: 11px;
                 border: none;
                 padding: 20px 32px 32px 32px;
                 color: #C7C7CC;
@@ -1143,10 +1161,23 @@ class EditPage(QWidget):
                 font-weight: 400;
                 line-height: 1.7;
             }
-            QScrollBar:vertical { background: transparent; width: 3px; }
-            QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
+            QScrollBar:vertical {
+                background: #141416;
+                border: none;
+                width: 6px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #3A3A3C;
+                border-radius: 3px;
+                min-height: 20px;
+            }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; border: none; height: 0px; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+                border: none;
+                height: 0px;
+            }
         """)
         self._editor.textChanged.connect(self._on_text_changed)
         
@@ -1193,14 +1224,19 @@ class EditPage(QWidget):
 
     def _build_right_panel(self) -> QScrollArea:
         scroll = QScrollArea()
+        scroll.setObjectName("EditRightPanel")
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
+            QScrollArea#EditRightPanel { 
+                background: #1C1C1E; 
+                border: 1px solid #2C2C2E;
+                border-radius: 12px;
+            }
             QWidget#rightContainer { background: transparent; }
-            QScrollBar:vertical { background: transparent; width: 3px; }
+            QScrollBar:vertical { background: transparent; width: 8px; margin: 0px 2px 0px 2px; }
             QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 2px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; border: none; height: 0px; }
@@ -1209,7 +1245,7 @@ class EditPage(QWidget):
         container = QWidget()
         container.setObjectName("rightContainer")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(8, 10, 8, 10)
+        layout.setContentsMargins(8, 8, 8, 12)
         layout.setSpacing(16)
 
         def _create_card():
@@ -1265,16 +1301,19 @@ class EditPage(QWidget):
 
         # CARD 6 - BEWERBUNG
         card6, cl6 = _create_card()
+        
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        
         lbl6 = _section_label("BEWERBUNG")
-        cl6.addWidget(lbl6)
-        cl6.addSpacing(7)
+        header_row.addWidget(lbl6)
+        header_row.addSpacing(8)
 
         self._bewerbung_status_label = QLabel("No PDF")
         self._bewerbung_status_label.setFixedHeight(22)
         self._bewerbung_status_label.setStyleSheet("""
             QLabel {
                 background: #2C2C2E;
-                border: 0.5px solid #3A3A3C;
                 border-radius: 6px;
                 color: #8E8E93;
                 padding: 3px 10px;
@@ -1284,11 +1323,11 @@ class EditPage(QWidget):
             }
         """)
         
-        status_row = QHBoxLayout()
-        status_row.addWidget(self._bewerbung_status_label)
-        status_row.addStretch()
-        cl6.addLayout(status_row)
-        cl6.addSpacing(6)
+        header_row.addWidget(self._bewerbung_status_label)
+        header_row.addStretch()
+        
+        cl6.addLayout(header_row)
+        cl6.addSpacing(7)
 
         # PAGE INDEX ROW (styled perfectly to match sidebar buttons)
         page_widget = QWidget()
@@ -1339,7 +1378,7 @@ class EditPage(QWidget):
         from ..core.config import config_manager
         saved_page = getattr(config_manager.settings, "bewerbung_anschreiben_page", 1)
         self._page_input.setText(str(saved_page))
-        self._page_input.textChanged.connect(self._save_anschreiben_page)
+        self._page_input.editingFinished.connect(self._save_anschreiben_page)
         self._save_anschreiben_page()
         
         page_row.addWidget(icon_w)
@@ -1351,7 +1390,8 @@ class EditPage(QWidget):
         cl6.addSpacing(4)
 
         def _show_export_menu():
-            menu = RoundMenu(parent=self)
+            from src.ui.components import GlassMenu
+            menu = GlassMenu(parent=self)
             menu.addAction(Action(FluentIcon.DOCUMENT, "Export .txt", triggered=self._export_letter))
             menu.addAction(Action(FluentIcon.DOCUMENT, "Export .docx", triggered=self._export_docx))
             menu.exec(self._btn_export.mapToGlobal(QPoint(0, self._btn_export.height())))
@@ -1952,13 +1992,13 @@ class EditPage(QWidget):
         end = min(self._pending_lead_index + batch_size, len(self._pending_lead_records))
         self._lead_list.setUpdatesEnabled(False)
         try:
-            for record in self._pending_lead_records[self._pending_lead_index:end]:
+            for i, record in enumerate(self._pending_lead_records[self._pending_lead_index:end]):
                 item = QListWidgetItem()
                 item.setData(Qt.UserRole, record.id)
                 item.setSizeHint(QSize(0, 74))
-                item.setToolTip(record.company_name or "Lead")
                 self._lead_list.addItem(item)
-                row_widget = LeadRowWidget(record, self._states.get(record.id))
+                is_last = (self._pending_lead_index + i == len(self._pending_lead_records) - 1)
+                row_widget = LeadRowWidget(record, self._states.get(record.id), is_last)
                 row_widget.set_selected(record.id == self._selected_lead_id)
                 if record.id == self._selected_lead_id:
                     self._selected_row_widget = row_widget
@@ -2407,7 +2447,8 @@ class EditPage(QWidget):
 
     def _edit_pdf_settings(self) -> None:
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
-        from qfluentwidgets import PushButton, PrimaryPushButton, ComboBox, SpinBox
+        from qfluentwidgets import PushButton, PrimaryPushButton, SpinBox
+        from src.ui.components import MacComboBox
         
         dialog = QDialog(self)
         dialog.setWindowTitle("PDF Styling Options")
@@ -2430,7 +2471,7 @@ class EditPage(QWidget):
         lbl_font = QLabel("Font Family")
         lbl_font.setStyleSheet("color: #E5E5EA; font-weight: 500; font-size: 12px; background: transparent;")
         layout.addWidget(lbl_font)
-        cb_font = ComboBox()
+        cb_font = MacComboBox()
         cb_font.addItems(["Helvetica", "Times-Roman", "Courier"])
         cb_font.setCurrentText(settings.get("font", "Helvetica"))
         layout.addWidget(cb_font)
@@ -2463,7 +2504,7 @@ class EditPage(QWidget):
         lbl_align = QLabel("Text Alignment")
         lbl_align.setStyleSheet("color: #E5E5EA; font-weight: 500; font-size: 12px; background: transparent;")
         layout.addWidget(lbl_align)
-        cb_align = ComboBox()
+        cb_align = MacComboBox()
         cb_align.addItems(["Justified", "Left"])
         cb_align.setCurrentText(settings.get("alignment", "Justified"))
         layout.addWidget(cb_align)
@@ -2670,9 +2711,10 @@ class EditPage(QWidget):
         self._show_success("Exported .docx", Path(path).name)
 
     def _show_import_menu(self):
-        from qfluentwidgets import RoundMenu, Action
+        from qfluentwidgets import Action
         from PySide6.QtCore import QPoint
-        menu = RoundMenu(parent=self)
+        from src.ui.components import GlassMenu
+        menu = GlassMenu(parent=self)
         
         action_all = Action(FluentIcon.DOWNLOAD, "Import All Results", self)
         action_all.triggered.connect(lambda: self._do_import("all"))
@@ -3669,7 +3711,6 @@ class EditPage(QWidget):
             self._bewerbung_status_label.setStyleSheet("""
                 QLabel {
                     background: #1A2A3A;
-                    border: 0.5px solid #0A84FF;
                     border-radius: 6px;
                     color: #0A84FF;
                     padding: 3px 10px;
@@ -3683,7 +3724,6 @@ class EditPage(QWidget):
             self._bewerbung_status_label.setStyleSheet("""
                 QLabel {
                     background: #1A3A1A;
-                    border: 0.5px solid #30A46C;
                     border-radius: 6px;
                     color: #30A46C;
                     padding: 3px 10px;
@@ -3697,7 +3737,6 @@ class EditPage(QWidget):
             self._bewerbung_status_label.setStyleSheet("""
                 QLabel {
                     background: #2C2C2E;
-                    border: 0.5px solid #3A3A3C;
                     border-radius: 6px;
                     color: #8E8E93;
                     padding: 3px 10px;
@@ -3721,6 +3760,22 @@ class EditPage(QWidget):
             self._btn_generate.setEnabled(False)
 
         self._save_persisted_pdf_path("")
+
+        # Delete any persisted raw uploaded copy or stale batch PDFs from exports dir
+        try:
+            from ..core.config import get_exports_dir
+            out_dir = get_exports_dir()
+            if out_dir.exists():
+                raw_pdf = out_dir / "Bewerbung_Raw_Uploaded.pdf"
+                if raw_pdf.exists():
+                    raw_pdf.unlink(missing_ok=True)
+                for p in out_dir.glob("Bewerbung als *.pdf"):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def _save_anschreiben_page(self):
         try:

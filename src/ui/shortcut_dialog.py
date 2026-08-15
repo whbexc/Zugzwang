@@ -101,7 +101,7 @@ class ShortcutHelpDialog(QDialog):
                 key_pill.setStyleSheet("""
                     QLabel {
                         background: #2C2C2E; border-radius: 6px;
-                        color: #0A84FF; font-family: 'SF Mono', 'Menlo', monospace;
+                        color: #0A84FF; font-family: 'Menlo', 'Menlo', monospace;
                         font-size: 12px; font-weight: 600;
                         padding: 0 8px;
                     }

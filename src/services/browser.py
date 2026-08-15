@@ -112,12 +112,13 @@ class BrowserSession:
         configure_browsers_path()
 
         engine = (self.settings.browser_engine or "chromium").strip().lower()
-        if engine not in {"chromium", "chrome", "msedge"}:
+        supported_engines = {"chromium", "chrome", "msedge", "firefox", "safari", "brave", "arc"}
+        if engine not in supported_engines:
             logger.warning(f"[{self.job_id}] Invalid browser engine '{engine}'. Falling back to chromium.")
             engine = "chromium"
         
         # Validation
-        if engine in ["chromium", "chrome", "msedge"] and not self.settings.browser_channel:
+        if engine in ["chromium", "chrome", "msedge", "brave", "arc"] and not self.settings.browser_channel:
              # If using bundled chromium, check if installed
              if engine == "chromium" and not is_chromium_installed():
                 raise BrowserError(
@@ -169,8 +170,27 @@ class BrowserSession:
 
             if engine in ["chrome", "msedge"]:
                 launch_kwargs["channel"] = engine
-
-            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+                self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            elif engine == "firefox":
+                # Firefox doesn't support some chromium-specific args
+                launch_kwargs["args"] = [a for a in launch_kwargs["args"] if not a.startswith("--disable-blink-features") and not a.startswith("--js-flags")]
+                self._browser = await self._playwright.firefox.launch(**launch_kwargs)
+            elif engine == "safari":
+                # WebKit doesn't support some chromium-specific args
+                launch_kwargs["args"] = [a for a in launch_kwargs["args"] if not a.startswith("--disable-blink-features") and not a.startswith("--js-flags")]
+                self._browser = await self._playwright.webkit.launch(**launch_kwargs)
+            elif engine == "brave":
+                if sys.platform == "darwin":
+                    launch_kwargs["executable_path"] = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+                elif sys.platform == "win32":
+                    launch_kwargs["executable_path"] = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+                self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            elif engine == "arc":
+                if sys.platform == "darwin":
+                    launch_kwargs["executable_path"] = "/Applications/Arc.app/Contents/MacOS/Arc"
+                self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+            else:
+                self._browser = await self._playwright.chromium.launch(**launch_kwargs)
             logger.info(f"[{self.job_id}] Local {engine} launched.")
 
         user_agent = random.choice(self.settings.user_agents)
@@ -227,24 +247,33 @@ class BrowserSession:
         logger.info(f"[{self.job_id}] Browser session ready with UA: {user_agent[:50]}...")
 
     async def stop(self) -> None:
-        """Gracefully close all browser resources."""
+        """Gracefully close all browser resources with strict timeouts to prevent hanging."""
         self._closing = True
         try:
             if self._context:
                 if self._route_installed:
                     try:
-                        await self._context.unroute("**/*", self._route_request)
+                        await asyncio.wait_for(self._context.unroute("**/*", self._route_request), timeout=1.5)
                     except Exception as e:
                         logger.debug(f"[{self.job_id}] Could not remove browser route before close: {e}")
                     finally:
                         self._route_installed = False
-                await self._context.close()
+                try:
+                    await asyncio.wait_for(self._context.close(), timeout=3.0)
+                except Exception as e:
+                    logger.debug(f"[{self.job_id}] Context close warning: {e}")
                 self._context = None
             if self._browser:
-                await self._browser.close()
+                try:
+                    await asyncio.wait_for(self._browser.close(), timeout=3.0)
+                except Exception as e:
+                    logger.debug(f"[{self.job_id}] Browser close warning: {e}")
                 self._browser = None
             if self._playwright:
-                await self._playwright.stop()
+                try:
+                    await asyncio.wait_for(self._playwright.stop(), timeout=3.0)
+                except Exception as e:
+                    logger.debug(f"[{self.job_id}] Playwright stop warning: {e}")
                 self._playwright = None
             logger.debug(f"[{self.job_id}] Browser session closed successfully.")
         except Exception as e:

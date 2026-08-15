@@ -446,7 +446,7 @@ QMenu::item:selected {
 
 #Card {
     background: #1B181C;
-    border: 1px solid #262227;
+    border: none;
     border-radius: 18px;
 }
 
@@ -1078,7 +1078,7 @@ QTextEdit#RichLog {
     border-radius: 16px;
     padding: 16px;
     color: #F2F2F7;
-    font-family: 'SF Mono', 'Input', monospace;
+    font-family: 'Menlo', 'Input', monospace;
     font-size: 12px;
     line-height: 1.5;
 }
@@ -1242,7 +1242,7 @@ QFrame#ResultsFiltersCard {
 QFrame#SectionCard,
 QWidget#SectionCard {
     background: #171C22;
-    border: 1px solid #2A313B;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 24px;
 }
 

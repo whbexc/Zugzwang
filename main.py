@@ -258,9 +258,15 @@ def main():
     # ------------------------------------------------
 
     app = QApplication(sys.argv)
+    app.setApplicationName("ZUGZWANG")
+    app.setApplicationDisplayName("ZUGZWANG")
     
     # Normalizes underlying geometries across OS (crucial for custom stylesheets)
     app.setStyle("Fusion")
+    
+    from src.ui.components import GlassToolTipFilter
+    app.tooltip_filter = GlassToolTipFilter()
+    app.installEventFilter(app.tooltip_filter)
     
     from PySide6.QtWidgets import QProxyStyle, QStyle
     class ZugzwangStyle(QProxyStyle):
@@ -357,6 +363,15 @@ def main():
         install_diagnostics(app)
     except Exception as e:
         print(f"Warning: Could not install diagnostics: {e}")
+
+    # 4. Start Background Services
+    try:
+        from src.services.backup_service import BackupService
+        backup_service = BackupService(app)
+        # Keep a reference so it doesn't get garbage collected
+        app._backup_service = backup_service
+    except Exception as e:
+        print(f"Warning: Could not start BackupService: {e}")
 
     # If the app exits event loop cleanly, exit process cleanly
     sys.exit(app.exec())

@@ -146,7 +146,7 @@ class WhatsNewDialog(QDialog):
         self.title_label.setStyleSheet("color: #FFFFFF; font-family: 'Zariantz', '-apple-system', 'SF Pro Display', sans-serif; font-size: 24px; font-weight: 600; background: transparent; border: none;")
         
         self.subtitle_label = QLabel(f"ZUGZWANG v{self.current_version}")
-        self.subtitle_label.setStyleSheet("color: #636366; font-family: 'SF Mono', monospace; font-size: 11px; background: transparent; border: none;")
+        self.subtitle_label.setStyleSheet("color: #636366; font-family: 'Menlo', monospace; font-size: 11px; background: transparent; border: none;")
         
         title_col.addWidget(self.title_label)
         

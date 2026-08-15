@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QVBoxLayout, QWidget,
 )
-from qfluentwidgets import ComboBox, LineEdit
+from qfluentwidgets import LineEdit
+from src.ui.components import MacComboBox
 
 
 class LoadLeadsDialog(QDialog):
@@ -69,7 +70,7 @@ class LoadLeadsDialog(QDialog):
         # Source filter
         src_lbl = self._field_label("SOURCE")
         layout.addWidget(src_lbl)
-        self._source_combo = ComboBox()
+        self._source_combo = MacComboBox()
         self._source_combo.addItems(["All Sources", "Google Maps", "Jobsuche", "Ausbildung.de", "Aubi-Plus", "Das Oertliche"])
         self._source_combo.setStyleSheet(self._combo_style())
         self._source_combo.setFixedHeight(38)

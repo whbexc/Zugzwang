@@ -6,13 +6,15 @@ Shared widgets used across multiple pages.
 from __future__ import annotations
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread, Signal, QSize, QPropertyAnimation, QEasingCurve, Property, QRectF
-from PySide6.QtGui import QColor, QFont, QPainter, QBrush
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QPropertyAnimation, QEasingCurve, Property, QRectF, QRect, QEvent
+from PySide6.QtGui import QColor, QFont, QPainter, QBrush, QPixmap, QPen, QPainterPath, QLinearGradient
 from PySide6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout, QVBoxLayout,
-    QPushButton, QFrame, QSizePolicy, QDialog,
+    QPushButton, QFrame, QSizePolicy, QDialog, QComboBox, QStyledItemDelegate, QStyle,
 )
-from qfluentwidgets import IconWidget, FluentIconBase
+from qfluentwidgets import (
+    IconWidget, FluentIconBase, FluentIcon, drawIcon, EditableComboBox
+)
 
 from .icons import apply_button_icon
 
@@ -312,8 +314,9 @@ class ZugzwangDialog(QDialog):
     """
     def __init__(self, title: str, message: str, parent=None, confirm_text: str = "OK", cancel_text: str = "Cancel", single_button: bool = False, destructive: bool = False):
         super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowModality(Qt.NonModal)
         self.setFixedSize(320, 160)
         self._drag_pos = None
         
@@ -451,7 +454,7 @@ class FeedbackDialog(QDialog):
         social_box = QWidget()
         sl = QVBoxLayout(social_box); sl.setContentsMargins(0,5,0,5); sl.setSpacing(10)
         share_title = QLabel("PROMOTE ON SOCIAL MEDIA")
-        share_title.setStyleSheet("color: #8E8E93; font-family: 'SF Mono'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        share_title.setStyleSheet("color: #8E8E93; font-family: 'Menlo'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
         share_title.setAlignment(Qt.AlignCenter)
         sl.addWidget(share_title)
 
@@ -484,7 +487,7 @@ class FeedbackDialog(QDialog):
         contact_box = QWidget()
         cl = QVBoxLayout(contact_box); cl.setContentsMargins(0,5,0,5); cl.setSpacing(10)
         contact_title = QLabel("DIRECT SUPPORT")
-        contact_title.setStyleSheet("color: #8E8E93; font-family: 'SF Mono'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        contact_title.setStyleSheet("color: #8E8E93; font-family: 'Menlo'; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
         contact_title.setAlignment(Qt.AlignCenter)
         cl.addWidget(contact_title)
 
@@ -622,7 +625,7 @@ class MacSwitch(QWidget):
         self.setCursor(Qt.PointingHandCursor)
         self._checked = False
         
-        self._on_color = QColor("#30D158")
+        self._on_color = QColor("#0A84FF")
         self._thumb_x = 2.0
         self._anim = QPropertyAnimation(self, b"thumb_x", self)
         self._anim.setDuration(200)
@@ -655,6 +658,11 @@ class MacSwitch(QWidget):
         super().setEnabled(enabled)
         self.update()
 
+    def changeEvent(self, event):
+        if event.type() == QEvent.EnabledChange:
+            self.update()
+        super().changeEvent(event)
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.isEnabled():
             self.setChecked(not self._checked)
@@ -680,6 +688,128 @@ class MacSwitch(QWidget):
             painter.setBrush(QBrush(QColor("#FFFFFF")))
             painter.drawEllipse(thumb_rect)
 
+
+class MacComboBoxDelegate(QStyledItemDelegate):
+    """Custom delegate to draw dropdown items with a checkmark on the right (like FilterMenu)."""
+    def __init__(self, parent_combo, parent=None):
+        super().__init__(parent)
+        self.parent_combo = parent_combo
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        is_hovered = bool(option.state & (QStyle.State_MouseOver | QStyle.State_Selected))
+        
+        # Determine if this item is currently selected in the combobox
+        is_current = False
+        if hasattr(self.parent_combo, "currentIndex") and self.parent_combo.currentIndex() == index.row():
+            is_current = True
+            
+        # Text
+        text = index.data(Qt.DisplayRole)
+        text_color = QColor("#0A84FF") if is_current else (QColor("white") if is_hovered else QColor("#AEAEB2"))
+        
+        font = option.font
+        font.setFamily("PT Root UI")
+        font.setPointSize(13)
+        font.setWeight(QFont.DemiBold if is_current else QFont.Normal)
+        painter.setFont(font)
+        
+        text_rect = option.rect.adjusted(14, 0, -30, 0)
+        painter.setPen(text_color)
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
+        
+        # Checkmark for current item
+        if is_current:
+            icon_rect = QRect(option.rect.right() - 26, option.rect.center().y() - 6, 12, 12)
+            drawIcon(FluentIcon.COMPLETED, painter, icon_rect, fill="#0A84FF")
+            
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        from PySide6.QtCore import QSize
+        return QSize(option.rect.width(), 32)
+
+
+class MacComboBox(QComboBox):
+    """Premium macOS-style combo box replacing qfluentwidgets.ComboBox for consistent dropdowns."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(34)
+        self.view().setItemDelegate(MacComboBoxDelegate(self, self.view()))
+        
+        # Force translucent background on the dropdown container to prevent square corners
+        container = self.view().parentWidget()
+        if container:
+            container.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+            container.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self.view().setStyleSheet("""
+            QListView {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                outline: 0;
+            }
+            QListView::item {
+                border-radius: 4px;
+                margin: 2px 4px;
+            }
+            QListView::item:selected {
+                background: transparent;
+            }
+            QListView::item:hover {
+                background: transparent;
+            }
+        """)
+
+    def setCurrentText(self, text: str):
+        idx = self.findText(text)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+        else:
+            super().setCurrentText(text)
+
+class MacEditableComboBox(QComboBox):
+    """Premium macOS-style editable combo box."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setFixedHeight(34)
+        self.view().setItemDelegate(MacComboBoxDelegate(self, self.view()))
+        
+        # Force translucent background on the dropdown container to prevent square corners
+        container = self.view().parentWidget()
+        if container:
+            container.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+            container.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self.view().setStyleSheet("""
+            QListView {
+                background: #2C2C2E;
+                border: 1px solid #3A3A3C;
+                border-radius: 8px;
+                outline: 0;
+            }
+            QListView::item {
+                border-radius: 4px;
+                margin: 2px 4px;
+            }
+            QListView::item:selected {
+                background: transparent;
+            }
+            QListView::item:hover {
+                background: transparent;
+            }
+        """)
+
+    def setCurrentText(self, text: str):
+        idx = self.findText(text)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+        else:
+            super().setCurrentText(text)
 
 class EmptyStateWidget(QWidget):
     """Reusable empty state layout with icon, title, description, and optional action button."""
@@ -1000,9 +1130,302 @@ class FlowLayout(QLayout):
                 x = rect.x()
                 y = y + line_height + space_y
                 next_x = x + item.sizeHint().width() + space_x
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.addWidget(self.container)
+        
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setContentsMargins(0, 6, 0, 6)
+        self.content_layout.setSpacing(0)
+        
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 12)
+        self.container.setGraphicsEffect(shadow)
+        
+    def add_item(self, text: str, index: int, is_selected: bool = False):
+        item = ZugzwangDropdownItem(text, index, is_selected, self)
+        item.clicked.connect(self._on_item_clicked)
+        self.content_layout.addWidget(item)
+
+    def _on_item_clicked(self, text: str, index: int):
+        self.itemSelected.emit(text, index)
+        self.close()
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+class ZugzwangDropdown(QPushButton):
+    currentTextChanged = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__("", parent)
+        self.setFixedHeight(40)
+        self.setCursor(Qt.PointingHandCursor)
+        self._items = []
+        self._current_index = -1
+        self._is_open = False
+        self._update_style()
+
+    def addItems(self, items: list[str]):
+        self._items.extend(items)
+        if self._current_index == -1 and self._items:
+            self._current_index = 0
+            self.setText(self._items[0])
+
+    def clear(self):
+        self._items.clear()
+        self._current_index = -1
+        self.setText("")
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemText(self, idx: int) -> str:
+        if 0 <= idx < len(self._items):
+            return self._items[idx]
+        return ""
+
+    def currentText(self) -> str:
+        if 0 <= self._current_index < len(self._items):
+            return self._items[self._current_index]
+        return ""
+
+    def setCurrentText(self, text: str):
+        if text in self._items:
+            self._current_index = self._items.index(text)
+            self.setText(text)
+
+    def _update_style(self):
+        is_blue = self._is_open
+        color = "#0A84FF" if is_blue else "#FFFFFF"
+        border_color = "#0A84FF" if is_blue else "#3A3A3C"
+        chevron_color = "#0A84FF" if is_blue else "#8E8E93"
+        bg_col = "#2C2C2E" if is_blue else "#1C1C1E"
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg_col};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                color: {color};
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                padding: 0 12px;
+                text-align: left;
+                qproperty-iconSize: 10px 10px;
+                spacing: 8px;
+            }}
+            QPushButton:hover {{
+                background: #2C2C2E;
+            }}
+        """)
+        
+        chevron = FluentIcon.CHEVRON_DOWN_MED.icon(color=chevron_color)
+        self.setIcon(chevron)
+        self.setIconSize(QSize(10, 10))
+        self.setLayoutDirection(Qt.RightToLeft)
+
+    def show_menu(self):
+        self._is_open = True
+        self._update_style()
+        
+        menu = ZugzwangDropdownMenu(self.window())
+        menu.setMinimumWidth(self.width())
+        for i, text in enumerate(self._items):
+            menu.add_item(text, i, i == self._current_index)
+            
+        menu.itemSelected.connect(self._on_item_selected)
+        menu.closed.connect(self._on_menu_closed)
+        
+        # Position menu 
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        menu.move(pos.x(), pos.y() + 4)
+        menu.show()
+
+    def _on_item_selected(self, text: str, index: int):
+        self._current_index = index
+        self.setText(text)
+        self.currentTextChanged.emit(text)
+
+    def _on_menu_closed(self):
+        self._is_open = False
+        self._update_style()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.show_menu()
+        super().mouseReleaseEvent(event)
+
+
+from PySide6.QtWidgets import QLayout
+from PySide6.QtCore import QPoint, QRect, QSize
+
+class FlowLayout(QLayout):
+    """Standard Qt Flow/Wrap layout that automatically wraps widgets."""
+    def __init__(self, parent=None, margin=0, hSpacing=0, vSpacing=0):
+        super().__init__(parent)
+        self._h_space = hSpacing
+        self._v_space = vSpacing
+        self.setContentsMargins(margin, margin, margin, margin)
+        self._item_list = []
+
+    def addItem(self, item):
+        self._item_list.append(item)
+
+    def count(self):
+        return len(self._item_list)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        if not hasattr(self, '_min_size_cache'):
+            self._min_size_cache = {}
+        for item in self._item_list:
+            item_id = id(item)
+            if item_id not in self._min_size_cache:
+                self._min_size_cache[item_id] = item.minimumSize()
+            size = size.expandedTo(self._min_size_cache[item_id])
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def _do_layout(self, rect, test_only):
+        x, y = rect.x(), rect.y()
+        line_height = 0
+        if not hasattr(self, '_size_cache'):
+            self._size_cache = {}
+            
+        for item in self._item_list:
+            space_x = self._h_space
+            space_y = self._v_space
+            
+            item_id = id(item)
+            if item_id not in self._size_cache:
+                self._size_cache[item_id] = item.sizeHint()
+            hint = self._size_cache[item_id]
+            
+            next_x = x + hint.width() + space_x
+            if next_x - space_x > rect.right() and line_height > 0:
+                x = rect.x()
+                y = y + line_height + space_y
+                next_x = x + hint.width() + space_x
                 line_height = 0
             if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+                item.setGeometry(QRect(QPoint(x, y), hint))
             x = next_x
-            line_height = max(line_height, item.sizeHint().height())
+            line_height = max(line_height, hint.height())
         return y + line_height - rect.y()
+
+from PySide6.QtWidgets import QMenu
+from PySide6.QtCore import Qt
+
+class GlassMenu(QMenu):
+    """A translucent, glassmorphism context menu matching the macOS aesthetic of the app."""
+    def __init__(self, title="", parent=None):
+        super().__init__(title, parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setStyleSheet("""
+            QMenu {
+                background: rgba(44, 44, 46, 0.90);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 10px;
+                padding: 5px;
+            }
+            QMenu::item {
+                background: transparent;
+                padding: 6px 12px;
+                border-radius: 6px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI';
+                font-size: 13px;
+                margin: 2px 4px;
+            }
+            QMenu::item:selected {
+                background: rgba(255, 255, 255, 0.1);
+            }
+            QMenu::separator {
+                height: 1px;
+                background: rgba(255, 255, 255, 0.1);
+                margin: 4px 10px;
+            }
+        """)
+
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PySide6.QtCore import Qt, QEvent, QObject, QPoint
+
+class GlassToolTip(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.label = QLabel(self)
+        self.label.setStyleSheet("""
+            QLabel {
+                background: rgba(44, 44, 46, 0.90);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: #FFFFFF;
+                font-family: 'PT Root UI', sans-serif;
+                font-size: 13px;
+            }
+        """)
+        self.layout.addWidget(self.label)
+
+    def setText(self, text):
+        self.label.setText(text)
+
+class GlassToolTipFilter(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.tooltip = GlassToolTip()
+        self.tooltip.hide()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.ToolTip:
+            text = obj.toolTip()
+            if text:
+                self.tooltip.setText(text)
+                self.tooltip.adjustSize()
+                try:
+                    pos = event.globalPos()
+                except AttributeError:
+                    pos = obj.mapToGlobal(QPoint(0, obj.height()))
+                self.tooltip.move(pos + QPoint(10, 10))
+                self.tooltip.show()
+                return True
+        elif event.type() in (QEvent.Leave, QEvent.MouseButtonPress, QEvent.WindowDeactivate, QEvent.Hide):
+            self.tooltip.hide()
+        return False

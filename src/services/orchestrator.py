@@ -38,10 +38,12 @@ class ScrapingWorker(QObject):
     Moves the execution into a PySide6 QThread to ensure UI responsiveness
     while avoiding GIL collisions caused by raw Python threads.
     """
-    def __init__(self, orchestrator_ref, job: ScrapingJob):
+    def __init__(self, orchestrator_ref, job: ScrapingJob, thread_ref: QThread):
         super().__init__()
         self.orchestrator = orchestrator_ref
         self.job = job
+        self.thread = thread_ref
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def run(self):
         """Runs in a dedicated QThread. Creates its own asyncio event loop."""
@@ -50,8 +52,9 @@ class ScrapingWorker(QObject):
         from PySide6.QtCore import QThread
         QThread.currentThread().setPriority(QThread.Priority.LowPriority)
 
-        self.orchestrator._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.orchestrator._loop)
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self.orchestrator._loop = self._loop
 
         # Load app memory in the background thread if not already loaded
         if not self.orchestrator._known_record_ids:
@@ -63,7 +66,7 @@ class ScrapingWorker(QObject):
         from ..core.power import WakeLock
         WakeLock.acquire(f"Scraping Job {self.job.id}")
         try:
-            self.orchestrator._loop.run_until_complete(self.orchestrator._run_job_async(self.job))
+            self._loop.run_until_complete(self.orchestrator._run_job_async(self.job))
         except Exception as e:
             logger.error(f"Job thread crashed: {e}", exc_info=True)
             self.job.fail(str(e))
@@ -72,16 +75,19 @@ class ScrapingWorker(QObject):
             WakeLock.release(f"Scraping Job {self.job.id}")
             self._drain_asyncio_loop()
             try:
-                self.orchestrator._loop.close()
+                if self._loop and not self._loop.is_closed():
+                    self._loop.close()
             except Exception:
                 pass
-            # Trigger clean QThread exit
-            if hasattr(self.orchestrator, '_thread') and self.orchestrator._thread:
-                self.orchestrator._thread.quit()
+            if self.orchestrator._loop is self._loop:
+                self.orchestrator._loop = None
+            # Trigger clean QThread exit on this worker's specific thread
+            if self.thread and self.thread.isRunning():
+                self.thread.quit()
 
     def _drain_asyncio_loop(self):
         """Cancel leftover Playwright callbacks before the worker loop closes."""
-        loop = self.orchestrator._loop
+        loop = self._loop
         if not loop or loop.is_closed():
             return
 
@@ -167,12 +173,13 @@ class ScrapingOrchestrator:
             self._past_threads.append(self._thread)
         self._past_threads = [t for t in self._past_threads if t.isRunning()]
 
-        self._thread = QThread()
-        self._worker = ScrapingWorker(self, job)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
+        thread = QThread()
+        self._thread = thread
+        self._worker = ScrapingWorker(self, job, thread)
+        self._worker.moveToThread(thread)
+        thread.started.connect(self._worker.run)
         
-        self._thread.start()
+        thread.start()
         logger.info(f"Started scraping job {job.id} ({config.source_type.value})")
         return job
 
@@ -396,8 +403,8 @@ class ScrapingOrchestrator:
 
         def _do_persist():
             try:
-                dummy_job = ScrapingJob(config=config, results=all_records, status=ScrapingStatus.COMPLETED)
-                self._export.save_project(dummy_job, str(get_memory_db_path()))
+                export_job = self._build_export_job(all_records)
+                self._export.save_project(export_job, str(get_memory_db_path()))
                 event_bus.emit(event_bus.DB_UPDATED, records=all_records)
             except Exception as e:
                 logger.warning(f"Background persistence failed: {e}")
@@ -607,13 +614,17 @@ class ScrapingOrchestrator:
             self._last_progress_emit_ts = 0.0
             self._last_progress_found = -1
             self._library_verify_count = 0
+            if self._current_job:
+                self.persist_current_job()
             await self._cleanup_job()
 
     async def _cleanup_job(self) -> None:
         """Centralized cleanup to ensure no browser processes hang."""
         if self._session:
             try:
-                await self._session.stop()
+                await asyncio.wait_for(self._session.stop(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Browser session cleanup timed out after 5.0s — forcing teardown")
             except Exception as e:
                 logger.warning(f"Error during session cleanup: {e}")
             self._session = None
