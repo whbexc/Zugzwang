@@ -118,7 +118,7 @@ jobs:
         run: |
           cd dist
           codesign --force --deep --sign - ZUGZWANG.app || true
-          zip -r -y ZUGZWANG_macOS_1.1.0-Beta4.zip ZUGZWANG.app
+          zip -r -y "ZUGZWANG_macOS_1.1.0 Beta5.zip" ZUGZWANG.app
 
       - name: Upload macOS Asset to Release
         if: github.event.inputs.release_tag != ''
@@ -169,7 +169,7 @@ jobs:
       - name: Package Linux Archive
         run: |
           cd dist
-          tar -czf ZUGZWANG_Linux_1.1.0-Beta4.tar.gz ZUGZWANG/
+          tar -czf "ZUGZWANG_Linux_1.1.0 Beta5.tar.gz" ZUGZWANG/
 
       - name: Upload Linux Asset to Release
         if: github.event.inputs.release_tag != ''
