@@ -498,13 +498,14 @@ class EmailSenderPage(QWidget):
         self._connect_buttons()
         self._is_restoring = False
 
-    def _outreach_history_path(self) -> Path:
-        return Path(os.getenv("APPDATA", "")) / "ZUGZWANG" / "data" / "outreach_history.txt"
+    def _history_file(self) -> Path:
+        from ..core.config import get_app_data_dir
+        return get_app_data_dir() / "data" / "outreach_history.txt"
 
     def _load_outreach_history(self) -> dict[str, set[str]]:
         # Persist across application restarts
         try:
-            path = self._outreach_history_path()
+            path = self._history_file()
             if not path.exists():
                 return {}
 
@@ -526,7 +527,7 @@ class EmailSenderPage(QWidget):
 
     def _append_outreach_history(self, email: str, signature: str):
         try:
-            path = self._outreach_history_path()
+            path = self._history_file()
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(f"{email.strip().lower()}\t{signature}\n")
@@ -536,7 +537,7 @@ class EmailSenderPage(QWidget):
     def _clear_outreach_history(self):
         self._successful_history = {}
         try:
-            path = self._outreach_history_path()
+            path = self._history_file()
             if path.exists():
                 path.unlink()
         except Exception as e:

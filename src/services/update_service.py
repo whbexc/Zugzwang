@@ -176,7 +176,8 @@ class UpdateWorker(QThread):
         self.check_finished.emit(False, "", "")
 
     def _download_update(self):
-        target_dir = os.path.join(os.getenv("APPDATA"), "ZUGZWANG", "temp")
+        from ..core.config import get_app_data_dir
+        target_dir = os.path.join(str(get_app_data_dir()), "temp")
         os.makedirs(target_dir, exist_ok=True)
         local_path = os.path.join(target_dir, os.path.basename(self.url))
         
