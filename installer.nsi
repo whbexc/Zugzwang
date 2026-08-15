@@ -16,7 +16,7 @@
 
 Name "${APP_NAME}"
 Caption "${APP_NAME} Installer"
-OutFile "ZUGZWANG_Setup_v${APP_VERSION}.exe"
+OutFile "ZUGZWANG_Setup_${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKCU "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
