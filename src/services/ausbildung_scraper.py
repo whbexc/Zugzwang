@@ -413,3 +413,5 @@ class AusbildungScraper:
             job_title=job_type,
             publication_date=start_date,
         )
+
+# 1.1.0 Beta5

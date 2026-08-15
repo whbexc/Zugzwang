@@ -118,3 +118,5 @@ class EventBridge(QObject):
 
 # Convenience access
 event_bridge = EventBridge.instance()
+
+# 1.1.0 Beta5

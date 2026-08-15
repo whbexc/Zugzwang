@@ -20,3 +20,5 @@ __all__ = [
     "SettingsPage",
     "LogViewerPage",
 ]
+
+# 1.1.0 Beta5

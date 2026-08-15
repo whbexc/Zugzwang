@@ -179,3 +179,5 @@ if sys.platform == 'darwin':
         },
     )
 
+
+# 1.1.0 Beta5

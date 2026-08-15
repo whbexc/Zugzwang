@@ -2524,3 +2524,5 @@ class JobsucheScraper:
             self.config.city or self.config.region,
             self.config.country,
         ]))
+
+# 1.1.0 Beta5

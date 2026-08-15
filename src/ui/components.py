@@ -1429,3 +1429,5 @@ class GlassToolTipFilter(QObject):
         elif event.type() in (QEvent.Leave, QEvent.MouseButtonPress, QEvent.WindowDeactivate, QEvent.Hide):
             self.tooltip.hide()
         return False
+
+# 1.1.0 Beta5

@@ -412,3 +412,5 @@ Users are responsible for complying with:
   <b>ZUGZWANG</b><br>
   Windows desktop scraping and outreach, built for speed.
 </p>
+
+<!-- 1.1.0 Beta5 -->

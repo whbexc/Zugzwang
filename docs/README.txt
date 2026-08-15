@@ -41,3 +41,4 @@ QUICK START (STANDALONE DESKTOP):
 SUPPORT & LICENSE:
 Licensed under the MIT License. Copyright (c) 2024-2026 ZUGZWANG.
 For technical assistance, documentation, or feature requests, visit https://github.com/whbexc/Zugzwang
+

@@ -108,3 +108,5 @@ class WakeLock:
     def get_active_reasons(cls) -> list[str]:
         with cls._lock:
             return list(cls._reasons.keys())
+
+# 1.1.0 Beta5

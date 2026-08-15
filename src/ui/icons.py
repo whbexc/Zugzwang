@@ -62,3 +62,5 @@ def apply_button_icon(button, name: str, size: int = 16, color: str | None = Non
     icon_color = color or _default_button_icon_color(button)
     button.setIcon(_render_tinted_icon(name, size, icon_color))
     button.setIconSize(QSize(size, size))
+
+# 1.1.0 Beta5

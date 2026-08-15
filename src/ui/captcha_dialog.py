@@ -149,3 +149,5 @@ class CaptchaDialog(QDialog):
             job_id=self.job_id,
             type="refresh"
         )
+
+# 1.1.0 Beta5

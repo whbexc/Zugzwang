@@ -480,3 +480,5 @@ class WhatsNewDialog(QDialog):
         self.fade_out.finished.connect(self.accept)
         self.fade_out.start()
 
+
+# 1.1.0 Beta5

@@ -554,3 +554,5 @@ def _strip_html_tags(html: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
+
+# 1.1.0 Beta5

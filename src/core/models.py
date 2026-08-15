@@ -466,3 +466,5 @@ class AppSettings:
     trial_pdf_last_reset_date: str = ""
     trial_email_count: int = 0
     trial_email_last_reset_date: str = ""
+
+# 1.1.0 Beta5

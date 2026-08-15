@@ -85,3 +85,5 @@ begin
   WizardForm.WelcomeLabel2.Width := WizardForm.WelcomeLabel2.Width + ScaleX(20);
   WizardForm.WelcomeLabel2.Height := ScaleY(170);
 end;
+
+; 1.1.0 Beta5

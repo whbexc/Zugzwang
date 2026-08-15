@@ -171,3 +171,5 @@ class ToastManager(QObject):
         anim.finished.connect(toast.deleteLater)
         anim.finished.connect(self._reposition_all)
         anim.start()
+
+# 1.1.0 Beta5

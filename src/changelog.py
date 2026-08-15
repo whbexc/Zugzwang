@@ -1228,3 +1228,5 @@ CHANGELOG_AR = [
         ]
     }
 ]
+
+# 1.1.0 Beta5

@@ -1040,3 +1040,5 @@ class MainWindow(FramelessWindow):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(_BG))
         painter.end()
+
+# 1.1.0 Beta5

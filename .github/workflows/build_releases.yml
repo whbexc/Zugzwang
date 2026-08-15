@@ -185,3 +185,5 @@ jobs:
           name: ZUGZWANG-Linux-Package
           if-no-files-found: warn
           path: dist/ZUGZWANG_Linux_*.tar.gz
+
+# 1.1.0 Beta5

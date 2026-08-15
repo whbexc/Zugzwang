@@ -3193,3 +3193,5 @@ QPushButton#btn_wipe_data:hover {
     color: #FF6259;
 }
 """.replace("__CHEVRON_DOWN__", _CHEVRON_DOWN).replace("__CHEVRON_UP__", _CHEVRON_UP)
+
+# 1.1.0 Beta5

@@ -154,3 +154,5 @@ class ShortcutHelpDialog(QDialog):
         if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPos() - self._drag_pos)
             event.accept()
+
+# 1.1.0 Beta5

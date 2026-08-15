@@ -82,3 +82,5 @@ HOW TO RESTORE ON YOUR NEW MACBOOK:
 
 if __name__ == "__main__":
     create_macbook_export()
+
+# 1.1.0 Beta5

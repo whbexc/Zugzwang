@@ -82,3 +82,5 @@ class BackupService(QObject):
                     
         except Exception as e:
             logger.error(f"Failed to prune old backups: {e}")
+
+# 1.1.0 Beta5

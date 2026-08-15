@@ -21,3 +21,5 @@ __all__ = [
     "normalize_website",
     "deduplicate_emails",
 ]
+
+# 1.1.0 Beta5

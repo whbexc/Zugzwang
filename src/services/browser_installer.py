@@ -188,3 +188,5 @@ def _find_playwright_executable() -> Optional[str]:
 
     # 2. Development: use sys.executable -m playwright (most reliable)
     return f'"{sys.executable}" -m playwright' if not getattr(sys, "frozen", False) else None
+
+# 1.1.0 Beta5

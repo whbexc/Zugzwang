@@ -13,3 +13,5 @@ __all__ = [
     "setup_logging", "get_logger", "register_ui_log_sink",
     "EventBus", "event_bus", "WakeLock",
 ]
+
+# 1.1.0 Beta5

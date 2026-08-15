@@ -239,3 +239,5 @@ class UpdateService(QObject):
             logger.error(f"Failed to open update file: {e}")
             
         sys.exit(0)
+
+# 1.1.0 Beta5

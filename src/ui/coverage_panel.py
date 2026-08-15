@@ -354,3 +354,5 @@ class CoverageTrackerPanel(QFrame):
         self._summary_label.setText(
             f"{covered_count} / {total} settlements covered"
         )
+
+# 1.1.0 Beta5

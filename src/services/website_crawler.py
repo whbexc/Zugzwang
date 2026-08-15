@@ -705,3 +705,5 @@ class WebsiteEmailCrawler:
         # In case of SSL errors, prioritizing http:// can bypass strict protocol enforcement if redirects are not absolute
         return [url, http_url]
 
+
+# 1.1.0 Beta5

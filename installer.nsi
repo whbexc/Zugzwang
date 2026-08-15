@@ -132,3 +132,5 @@ Section "Uninstall"
   DeleteRegKey HKCU "Software\${APP_NAME}"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}"
 SectionEnd
+
+; 1.1.0 Beta5

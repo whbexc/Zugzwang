@@ -366,3 +366,5 @@ class LicenseManager:
         if not LicenseManager.is_active():
             current_count = config_manager.settings.trial_email_count
             config_manager.update(trial_email_count=current_count + count)
+
+# 1.1.0 Beta5

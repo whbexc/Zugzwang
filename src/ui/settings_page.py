@@ -1379,3 +1379,5 @@ class SettingsPage(QWidget):
             duration=3000, parent=self.window()
         )
 
+
+# 1.1.0 Beta5

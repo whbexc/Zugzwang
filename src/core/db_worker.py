@@ -50,3 +50,5 @@ class DatabaseWorker(threading.Thread):
 # Global singleton
 db_worker = DatabaseWorker()
 db_worker.start()
+
+# 1.1.0 Beta5

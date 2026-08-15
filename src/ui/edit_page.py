@@ -4680,3 +4680,5 @@ class TemplateEditorDialog(QDialog):
         if self._is_body_mode:
             return self._header_part + "\n" + self.editor.toPlainText().strip() + "\n"
         return self.editor.toPlainText().strip() + "\n"
+
+# 1.1.0 Beta5

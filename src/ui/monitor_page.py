@@ -991,3 +991,5 @@ class MonitorPage(QWidget):
         if minutes > 0:
             return f"{minutes}m {secs}s"
         return f"{secs}s"
+
+# 1.1.0 Beta5

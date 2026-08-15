@@ -39,3 +39,5 @@ if %errorlevel% equ 0 (
 echo ==========================================================
 echo [SUCCESS] Windows installer created successfully!
 echo ==========================================================
+
+# 1.1.0 Beta5

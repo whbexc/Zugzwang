@@ -475,3 +475,5 @@ class Theme:
                 font-size: 13px;
             }}
         """
+
+# 1.1.0 Beta5

@@ -20,3 +20,5 @@ def fix_file(filename):
 fix_file("src/services/dasoertliche_scraper.py")
 fix_file("src/services/ausbildung_scraper.py")
 
+
+# 1.1.0 Beta5

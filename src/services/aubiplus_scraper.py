@@ -858,3 +858,5 @@ class AubiPlusScraper:
             logger.warning(f"[{self.job_id}] Error extracting {url}: {e}")
             self._total_errors += 1
             return None
+
+# 1.1.0 Beta5

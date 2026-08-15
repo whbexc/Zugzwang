@@ -441,3 +441,5 @@ class ConfigManager(QObject):
 
 # Global singleton access
 config_manager = ConfigManager()
+
+# 1.1.0 Beta5
