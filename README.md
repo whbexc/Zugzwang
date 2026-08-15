@@ -104,6 +104,21 @@ ZUGZWANG keeps that loop in one app instead of splitting it across separate scra
   <img src="screenshot_send_clean.png" alt="Email Sender" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
 </p>
 
+### Live Scraping Monitor
+<p align="center">
+  <img src="screenshot_monitor_clean.png" alt="Live Scraping Monitor" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### Application Settings
+<p align="center">
+  <img src="screenshot_settings_clean.png" alt="Application Settings" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
+### System Logs
+<p align="center">
+  <img src="screenshot_logs_clean.png" alt="System Logs" width="800" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
+
 ## Feature Snapshot
 
 ### Scraping engine
