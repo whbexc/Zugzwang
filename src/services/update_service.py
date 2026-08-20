@@ -240,4 +240,4 @@ class UpdateService(QObject):
             
         sys.exit(0)
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

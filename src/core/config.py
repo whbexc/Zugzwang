@@ -19,7 +19,7 @@ from .models import AppSettings
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ZUGZWANG"
-APP_VERSION = "1.1.0 Beta5"
+APP_VERSION = "1.1.0 Beta5.1"
 APP_BUILD = 5
 APP_AUTHOR = "ZUGZWANG"
 
@@ -442,4 +442,4 @@ class ConfigManager(QObject):
 # Global singleton access
 config_manager = ConfigManager()
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

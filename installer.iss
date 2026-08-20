@@ -3,7 +3,7 @@
 ;   iscc installer.iss
 
 #define AppName "ZUGZWANG"
-#define AppVersion "1.1.0 Beta5"
+#define AppVersion "1.1.0 Beta5.1"
 #define AppPublisher "ZUGZWANG"
 #define AppExeName "ZUGZWANG.exe"
 #define AppId "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
@@ -86,4 +86,4 @@ begin
   WizardForm.WelcomeLabel2.Height := ScaleY(170);
 end;
 
-; 1.1.0 Beta5
+; 1.1.0 Beta5.1

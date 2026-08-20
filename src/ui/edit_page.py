@@ -4681,4 +4681,4 @@ class TemplateEditorDialog(QDialog):
             return self._header_part + "\n" + self.editor.toPlainText().strip() + "\n"
         return self.editor.toPlainText().strip() + "\n"
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

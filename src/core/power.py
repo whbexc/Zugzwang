@@ -109,4 +109,4 @@ class WakeLock:
         with cls._lock:
             return list(cls._reasons.keys())
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

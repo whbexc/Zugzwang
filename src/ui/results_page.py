@@ -2182,4 +2182,4 @@ class ResultsPage(QWidget):
         if msg.exec():
             self._remove_all_records()
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

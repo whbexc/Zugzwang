@@ -150,4 +150,4 @@ class CaptchaDialog(QDialog):
             type="refresh"
         )
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

@@ -183,13 +183,23 @@ class GoogleMapsScraper:
         emails = deduplicate_emails(
             [email for email in (emails or []) if email and email != (record.email or "").strip().lower()]
         )
+        if not record.phone and phone:
+            record.phone = phone
+            
+        if not record.contact_person and contact_person:
+            record.contact_person = contact_person
 
         if record.email:
             base_emails = [record.email.strip().lower()]
+        elif emails:
+            record.email = emails[0]
+            record.email_source_page = source
+            base_emails = [emails[0]]
         else:
             base_emails = []
 
-        all_emails = base_emails + emails
+        all_emails = base_emails + [e for e in emails if e not in base_emails]
+        
         results = [record]
         for extra_email in all_emails[1:]:
             clone = LeadRecord.from_dict(record.to_dict())
@@ -1809,4 +1819,4 @@ class GoogleMapsScraper:
                 record.city = city_m
 
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

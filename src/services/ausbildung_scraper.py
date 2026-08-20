@@ -414,4 +414,4 @@ class AusbildungScraper:
             publication_date=start_date,
         )
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

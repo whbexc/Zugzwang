@@ -40,11 +40,11 @@ else:
 echo "[3/4] Creating macOS distributable archive..."
 cd dist
 codesign --force --deep --sign - ZUGZWANG.app || true
-zip -r -y "ZUGZWANG_macOS_1.1.0 Beta5.zip" ZUGZWANG.app
+zip -r -y "ZUGZWANG_macOS_1.1.0 Beta5.1.zip" ZUGZWANG.app
 cd ..
 
 echo "=========================================================="
-echo "[SUCCESS] Built macOS package: dist/ZUGZWANG_macOS_1.1.0 Beta5.zip"
+echo "[SUCCESS] Built macOS package: dist/ZUGZWANG_macOS_1.1.0 Beta5.1.zip"
 echo "=========================================================="
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

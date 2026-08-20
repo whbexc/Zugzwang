@@ -22,4 +22,4 @@ __all__ = [
     "deduplicate_emails",
 ]
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

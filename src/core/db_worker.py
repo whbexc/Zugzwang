@@ -51,4 +51,4 @@ class DatabaseWorker(threading.Thread):
 db_worker = DatabaseWorker()
 db_worker.start()
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

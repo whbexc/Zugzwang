@@ -409,4 +409,4 @@ class BrowserSession:
         domain = urlparse(url).netloc.lower().lstrip("www.")
         return domain in [d.lower().lstrip("www.") for d in self.settings.whitelisted_domains]
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

@@ -355,4 +355,4 @@ class DasOertlicheScraper:
             except Exception:
                 pass  # Browser may have already crashed (e.g. SSL/TLS driver error)
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

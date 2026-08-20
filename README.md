@@ -292,7 +292,7 @@ makensis installer.nsi
 
 ## Current Version
 
-**1.1.0 Beta5**
+**1.1.0 Beta5.1**
 
 Recent work includes:
 
@@ -413,4 +413,4 @@ Users are responsible for complying with:
   Windows desktop scraping and outreach, built for speed.
 </p>
 
-<!-- 1.1.0 Beta5 -->
+<!-- 1.1.0 Beta5.1 -->

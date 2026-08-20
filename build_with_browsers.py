@@ -1,5 +1,5 @@
 """
-ZUGZWANG 1.1.0 Beta5 - Post-Build Script
+ZUGZWANG 1.1.0 Beta5.1 - Post-Build Script
 Run this AFTER `pyinstaller zugzwang.spec` to copy the Playwright
 Chromium browser into the dist folder so the .exe works out of the box.
 
@@ -189,4 +189,4 @@ def _copy_playwright_driver():
 
 if __name__ == "__main__":
     main()
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

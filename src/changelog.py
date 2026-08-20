@@ -1,11 +1,11 @@
 # ZUGZWANG Changelog Definitions
 # Contains version history and changes for the "What's New" dialog.
 
-APP_VERSION = "1.1.0 Beta5"
+APP_VERSION = "1.1.0 Beta5.1"
 
 CHANGELOG = [
     {
-        "version": "1.1.0 Beta5",
+        "version": "1.1.0 Beta5.1",
         "date": "August 15, 2026",
         "label": "LATEST",
         "label_color": "#30D158",
@@ -596,7 +596,7 @@ CHANGELOG = [
 
 CHANGELOG_AR = [
     {
-        "version": "1.1.0 Beta5",
+        "version": "1.1.0 Beta5.1",
         "date": "15 أغسطس 2026",
         "label": "الأحدث",
         "label_color": "#30D158",
@@ -1229,4 +1229,4 @@ CHANGELOG_AR = [
     }
 ]
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1

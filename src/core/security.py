@@ -367,4 +367,4 @@ class LicenseManager:
             current_count = config_manager.settings.trial_email_count
             config_manager.update(trial_email_count=current_count + count)
 
-# 1.1.0 Beta5
+# 1.1.0 Beta5.1
